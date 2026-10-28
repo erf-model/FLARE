@@ -1,43 +1,20 @@
-ERF-Fire: wildfire, smoke and dust hazard modeling built on ERF
-----
+FLARE: Fire-Line Advancement and Reaction Engine
+================================================
 
-`ERF-Fire` is a stand-alone atmospheric hazard code built on the
-`Energy Research and Forecasting (ERF) <https://github.com/erf-model/ERF>`__ model,
-which in turn is built upon the `AMReX <https://amrex-codes.github.io/amrex/>`__ software framework
-for massively parallel block-structured applications.
+FLARE is a wildland fire, smoke and dust model built on the
+`Energy Research and Forecasting (ERF) <https://github.com/erf-model/ERF>`__
+atmospheric code. It is the fire engine behind ERF's fire-atmosphere coupling
+layer (``Source/FireCoupling``). ERF supplies the wind, temperature and humidity
+near the ground. FLARE spreads the fire on its own finer surface grid and hands
+back the heat, moisture and smoke the fire releases. The same surface-grid
+design carries a dust emission model for mining and industrial sites. Everything in ERF (compressible and anelastic dynamics, terrain-fitted
+meshes, LES and PBL closures, surface layer, radiation, microphysics and land
+surface models) is available to a FLARE run.
 
-This repository (``erf-model/FLARE``, formerly the ``ERF-Fire`` branch of ``hgopalan/ERF``)
-is not merged back into upstream ERF; instead, upstream ``development`` is merged into
-its ``development`` branch regularly so that the atmospheric core, build system and inputs stay compatible
-with ERF. The original ERF README follows below the ERF-Fire sections.
-
-What ERF-Fire adds
-~~~~~~~~~~~~~~~~~~
-
-On top of the ERF atmosphere (compressible and anelastic dynamics, terrain-fitted
-meshes, LES and PBL closures, MOST surface layer, radiation, microphysics and
-land-surface models), ERF-Fire adds:
-
-* a two-dimensional surface fire spread model (``FireEngine/``, the FLARE engine behind
-  ERF's fire coupling layer ``Source/FireCoupling``): level-set
-  front propagation, Rothermel and BEHAVE-style rate of spread with the
-  standard fuel models, dead and live fuel moisture, fuel maps from
-  ESRI ASCII and FARSITE ``.lcp`` files, spotting and crown fire, fire
-  acceleration, and two-way coupling of heat, moisture and smoke to the atmosphere;
-* wildland-urban interface (WUI) capabilities: building obstacles, structure
-  exposure and heat-flux diagnostics;
-* a dust emission, transport and deposition module (``Source/Dust``) with
-  road, blast and wind-erosion sources, health and visibility diagnostics, and
-  coupling to fire lofting (``Source/FireDust``);
-* a one-equation (k) RANS closure and terrain-following inflow profiles for
-  fire-weather simulations over real terrain;
-* canonical, verification and regression cases for all of the above under
-  ``Exec/CanonicalTests/Fire``, ``Exec/CanonicalTests/Dust``,
-  ``Exec/CanonicalTests/Hazard``, ``Exec/CanonicalTests/Canonical_RANS`` and
-  ``Exec/RegTests``.
-
-ERF-Fire Test Status
-~~~~~~~~~~~~~~~~~~~~
+This repository was the ``ERF-Fire`` branch of ``hgopalan/ERF`` until October
+2026. Its ``development`` branch takes upstream ERF ``development`` merges
+regularly, so the atmospheric core, build system and inputs stay the same as
+ERF's.
 
 =================  ================
 Regression Tests    |firetests|
@@ -45,139 +22,142 @@ Regression Tests    |firetests|
 
 .. |firetests| image:: https://github.com/erf-model/FLARE/actions/workflows/ci.yml/badge.svg?branch=development
 
-Building and running ERF-Fire
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+What FLARE does
+---------------
 
-ERF-Fire is built with CMake exactly like ERF; see the ERF Getting Started page
-linked below for system requirements and the basic build and run instructions.
-Clone this repository with its submodules (the default branch is ``development``)::
+**Surface fire spread** (``FireEngine/``). The fire lives on a two-dimensional
+grid that refines one level of the atmosphere's mesh by an integer factor. It is
+built from pieces that are selected independently:
+
+* seven rate-of-spread models under one key, ``erf.fire.ros_model``: Rothermel
+  (the default), the BEHAVE multi-class Rothermel, MacArthur, Cheney-Gould and
+  its simple grass fit, the Canadian FBP system and Balbi, plus a per-cell hybrid
+  of two of them and a prescribed field;
+* two front propagation methods, a cell-based Huygens scheme in the spirit of
+  FARSITE and a level-set solver;
+* fuel as one of Anderson's 13 standard fuel models everywhere, or as a fuel-map
+  raster (ESRI ASCII text or a FARSITE ``.lcp`` landscape file), with firebreaks
+  and a non-burnable mask from building footprints and listed fuel codes;
+* dead and live fuel moisture driven by the atmosphere;
+* ignition from a disc, a polygon or polyline perimeter, or a timed schedule;
+* startup acceleration, ember spotting and crown fire;
+* suppression during the run: fire lines built at a rate, retardant drops, a
+  hold test for lines under a hot enough fire;
+* two-way coupling of heat, moisture and smoke to the atmosphere, with the fire
+  grid placed on any refinement level (a static one above level 0);
+* diagnostics: fireline intensity, flame length, flame temperature and tilt,
+  fire plotfiles, a statistics CSV, arrival-time probes and full checkpoint and
+  restart of the fire state.
+
+**Wildland-urban interface (WUI).** Buildings are obstacles the fire goes around
+and targets the exposure diagnostics track. With structure ignition on, each
+building carries a state: unignited, burning or burned out. It ignites when the
+heat load, the ember count or the fireline intensity at its walls crosses a
+threshold (the thresholds are placeholders awaiting calibration). Once burning
+it is itself a heat, ember and radiation source for its neighbours, so
+house-to-house spread needs no rule of its own.
+
+**Dust** (``Source/Dust``, compiled in with ``ERF_ENABLE_DUST=ON``). Wind-blown
+and activity-driven particulate emission from bare mineral surfaces such as
+tailings impoundments, open pits, haul roads and evaporation ponds, with the
+surface state (silt, crust, salt crusts, moisture, suppression agents) read
+from rasters and from the output tables of the geochemistry code PHREEQC. The
+dust is a passive scalar of the atmosphere that settles and deposits. The model
+reports the regulatory quantities built on it: PM2.5 and PM10 averages against
+the EPA air-quality standards (NAAQS), mine-safety (MSHA) worker exposure,
+visibility, respirable silica, short-term exposure limits and the emission
+budgets of critical minerals. The fire-dust coupling
+(``Source/FireDust``) feeds the fire's burned area, outflow wind and heat flux
+into the dust emission.
+
+**Fire weather over real terrain.** A one-equation k RANS closure
+(``erf.rans_type = kEqn``) for coarse grids on which the boundary layer is not
+resolved (horizontal spacings of tens of metres and up), terrain-following
+inflow profiles, and the ERF atmosphere's
+terrain-fitted meshes, surface layer and PBL schemes.
+
+**Cases.** Every capability has a case folder with its inputs and a README; the
+fire and RANS cases also carry a Python check script:
+
+* ``Exec/CanonicalTests/Fire``: fire behaviour, fire-atmosphere coupling,
+  heat-flux diagnostics, a WUI subdivision, analytic verification cases
+  (level-set advection, slope without wind, merging fires, junction fire,
+  obstacle shadow, the UNR WRF-Fire comparison) and the Marshall and Palisades
+  fires on real terrain;
+* ``Exec/CanonicalTests/Dust`` and ``Exec/CanonicalTests/Hazard``: the dust
+  sources, thresholds, deposition and health diagnostics, and dust over hills
+  and pits;
+* ``Exec/CanonicalTests/Canonical_RANS``: neutral, stable and convective
+  boundary layers and flow over hills with the k closure;
+* ``Exec/RegTests``: the short regression decks CTest runs.
+
+``Exec/CanonicalTests/Fire/inputs_fire_master_reference`` and its dust and hazard
+siblings list every input key with its default; they are documentation, not
+decks to run.
+
+Building and running
+--------------------
+
+FLARE builds with CMake exactly like ERF; the ERF
+`Getting Started <https://erf.readthedocs.io/en/latest/GettingStarted.html>`_
+page gives the system requirements. Clone with the submodules::
 
    git clone --recursive https://github.com/erf-model/FLARE.git FLARE
    cd FLARE
-   cmake -S . -B build -DERF_ENABLE_MPI=ON
-   cmake --build build -j
+   cmake -S . -B cmake-build -DERF_ENABLE_MPI=ON
+   cmake --build cmake-build -j
 
-The fire module is enabled by default (``ERF_ENABLE_FIRE=ON``); the dust module is
-opt-in (``ERF_ENABLE_DUST=ON``). Each case directory under ``Exec/CanonicalTests``
-contains a README with the inputs, expected behaviour and a check script.
-ERF-Fire specific tools (terrain and fuel-map preparation, fire maps and
-animations) are in ``Exec/Tools`` and next to the cases that use them.
+The fire engine is built in by default (``ERF_ENABLE_FIRE=ON``); dust is opt-in
+(``ERF_ENABLE_DUST=ON``). A deck turns the fire on with ``erf.fire.enable = true``
+and selects the engine with ``erf.fire.engine = flare``, the default; the
+``erf.fire.*`` keys are listed in the inputs documentation. Each case folder
+holds the inputs it needs and a README with the expected behaviour.
 
-ERF-Fire documentation
-~~~~~~~~~~~~~~~~~~~~~~
+Python tools for fuel maps from LANDFIRE, HRRR point winds, input-deck checking
+and fire-map animations are in ``Exec/Tools``; each real-terrain case keeps its
+own terrain generator next to its deck.
 
-The theory and inputs of the fire, dust, WUI and RANS capabilities are documented
-in the Sphinx sources under ``Docs/sphinx_doc`` (``theory/Fire.rst``,
-``theory/DustModule.rst``, ``theory/RANS.rst`` and the pages they link to),
-alongside the ERF documentation. Build them locally with::
+Documentation
+-------------
+
+The theory and inputs of the fire, WUI, dust and RANS capabilities are
+documented in the Sphinx sources under ``Docs/sphinx_doc`` (``theory/Fire.rst``,
+``theory/DustModule.rst``, ``theory/RANS.rst`` and the pages they link to, and
+the ``erf.fire`` and ``erf.dust`` tables in ``Inputs.rst``), alongside the ERF
+documentation. There is no published site yet; build them locally with::
 
    pip install -r Docs/sphinx_doc/requirements.txt
-   sphinx-build -b html Docs/sphinx_doc build/docs
+   sphinx-build -b html Docs/sphinx_doc cmake-build/docs
 
-ERF-Fire development model
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Development model
+-----------------
 
-Development happens on topic branches off ``development`` with pull requests back
-into ``development`` in this repository. New physics is added as opt-in options
-with the existing behaviour left as the default, and every change to the fire
+Development happens on topic branches off ``development`` with pull requests
+back into ``development``. New physics is added as an opt-in option with the
+existing behaviour kept as the default, and every change to the fire or dust
 model comes with a regression or canonical case. Fixes to the shared
-atmospheric core are contributed to upstream ERF and reach this repository through
-the periodic upstream merges. The ERF coding conventions in CONTRIBUTING.md
-apply here as well.
+atmospheric core are contributed to upstream ERF and reach this repository
+through the periodic upstream merges. The ERF coding conventions in
+`CONTRIBUTING.md <CONTRIBUTING.md>`_ apply here as well.
 
-ERF-Fire is distributed under the ERF license below; when using ERF-Fire, please
-cite the ERF publications listed at the end of this page.
+Built on ERF
+------------
 
-Energy Research and Forecasting (ERF): An atmospheric modeling code
-----
-
-`ERF` is built upon the `AMReX <https://amrex-codes.github.io/amrex/>`_ software framework
-for massively parallel block-structured applications.
+ERF, the Energy Research and Forecasting code (`erf-model/ERF
+<https://github.com/erf-model/ERF>`_), solves the atmospheric equations in
+compressible or anelastic form on the `AMReX <https://amrex-codes.github.io/amrex/>`_
+block-structured adaptive mesh framework, from laptops to GPU systems. Its
+`ERF documentation <https://erf.readthedocs.io/en/latest/>`_ and
+`Doxygen pages <https://erf-model.github.io/docs/index.html>`_ describe the
+atmosphere FLARE runs in; its Python pre- and post-processing tools are in the
+`erftools repository <https://github.com/erf-model/erftools/>`_.
 
 .. image:: https://zenodo.org/badge/DOI/10.5281/zenodo.8102984.svg
    :target: https://doi.org/10.5281/zenodo.8102984
 
-Test Status
-~~~~~~~~~~~
+The development of ERF is funded by the U.S. Department of Energy (DOE). When
+using FLARE, please cite the ERF publications listed at that DOI and the ERF
+model paper in JAMES (`doi:10.1029/2024MS004884
+<https://doi.org/10.1029/2024MS004884>`_).
 
-=================  =============
-Regression Tests    |regtests|
-=================  =============
-
-.. |regtests| image:: https://github.com/erf-model/ERF/actions/workflows/ci.yml/badge.svg?branch=development
-
-Getting Started
-~~~~~~~~~~~~~~~
-
-See `Getting Started <https://erf.readthedocs.io/en/latest/GettingStarted.html>`_ for instructions as to how to clone the ERF
-and AMReX codes, and for how to build and run an ERF example.  Minimum requirements for system software are also given there.
-
-Python tools for pre- and post-processing ERF can be found in the companion `erftools repository <https://github.com/erf-model/erftools/>`_.
-
-Documentation
-~~~~~~~~~~~~~~~~~
-
-Documentation of the ERF theory and implementation is available `here <https://erf.readthedocs.io/en/latest/>`_.
-
-In addition, there is doxygen documentation of the ERF Code available `here <https://erf-model.github.io/docs/index.html>`_.
-
-Development model
-~~~~~~~~~~~~~~~~~
-
-See CONTRIBUTING.md for how to contribute to ERF development.
-
-Acknowledgments
-~~~~~~~~~~~~~~~
-
-The development of the Energy Research and Forecasting (ERF) code is funded by the
-U.S. Department of Energy (DOE).
-
-ERF is built on the `AMReX <https://github.com/AMReX-codes/AMReX>`_ library.
-
-License
-~~~~~~~~~
-
-The license for ERF can be found at [LICENSE.md](LICENSE.md).
-
-Citation
-~~~~~~~~~
-
-To cite ERF, please see the following publications:
-
-|JOSS Image|
-
-.. |JOSS Image| image:: https://joss.theoj.org/papers/10.21105/joss.05202/status.svg
-   :target: https://doi.org/10.21105/joss.05202
-
-::
-
-   @article{ERF_JOSS,
-       title   = {ERF: Energy Research and Forecasting},
-       journal = {Journal of Open Source Software},
-       author  = {Ann Almgren and Aaron Lattanzi and Riyaz Haque and Pankaj Jha and Branko Kosovic and Jeffrey Mirocha and Bruce Perry and Eliot Quon and Michael Sanders and David Wiersema and Donald Willcox and Xingqiu Yuan and Weiqun Zhang},
-       doi     = {10.21105/joss.05202},
-       url     = {https://doi.org/10.21105/joss.05202},
-       year    = {2023},
-       publisher = {The Open Journal of Open Source Software},
-       volume  = {8},
-       number  = {87},
-       pages   = {5202},
-   }
-
-|JAMES Image|
-
-.. |JAMES Image| image:: https://zenodo.org/badge/DOI/10.1029/2024MS004884.svg
-  :target: https://doi.org/10.1029/2024MS004884
-
-::
-
-   @article{ERF_JAMES,
-   author = {Lattanzi, Aaron and Almgren, Ann and Quon, Eliot and Natarajan, Mahesh and Kosovic, Branko and Mirocha, Jeffrey and Perry, Bruce and Wiersema, David and Willcox, Donald and Yuan, Xingqiu and Zhang, Weiqun},
-   title = {ERF: Energy Research and Forecasting Model},
-   journal = {Journal of Advances in Modeling Earth Systems},
-   volume = {17},
-   number = {11},
-   pages = {e2024MS004884},
-   doi = {https://doi.org/10.1029/2024MS004884},
-   year = {2025}
-   }
+FLARE is distributed under the ERF license; see `LICENSE.md <LICENSE.md>`_.
