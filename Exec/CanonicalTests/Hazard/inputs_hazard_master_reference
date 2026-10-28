@@ -1,5 +1,5 @@
 # ============================================================================
-# ERF Hazard Module: Master Inputs Configuration Reference
+# FLARE hazard (fire + dust + smoke): Master Inputs Configuration Reference
 # ============================================================================
 # Documentation only: the keys that make a coupled fire + dust (hazard) run,
 # with their defaults. Every key listed here is read by the code; the full

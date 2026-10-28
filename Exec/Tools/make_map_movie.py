@@ -102,7 +102,7 @@ def fetch_basemap(src, z):
     def ty(lat): return int((1.0 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2.0 * N)
     xs, ys = range(tx(w), tx(e) + 1), range(ty(n), ty(s) + 1)
     print(f"{src} zoom {z}: {len(xs) * len(ys)} tiles")
-    agent = "ERF-Hazard make_map_movie.py (research visualisation)"
+    agent = "FLARE make_map_movie.py (research visualisation)"
     sess = requests.Session(); sess.headers["User-Agent"] = agent
     use_curl = False
     mosaic = np.zeros((len(ys) * 256, len(xs) * 256, 3), np.uint8)

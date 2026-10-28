@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-plot_hazard_fields.py — ERF-Hazard AMReX plotfile visualisation.
+plot_hazard_fields.py — FLARE AMReX plotfile visualisation.
 
 Reads ERF AMReX plotfile directories (plt_1_NNNNN) and produces PNG figures
 for the Hazard canonical test cases: smoke plume plan view, vertical
@@ -273,7 +273,7 @@ def make_plots(ds, case):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Visualise ERF-Hazard AMReX plotfile output."
+        description="Visualise FLARE AMReX plotfile output."
     )
     parser.add_argument(
         "--plotdir", required=True,

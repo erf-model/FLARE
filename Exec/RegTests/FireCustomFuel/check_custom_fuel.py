@@ -259,7 +259,7 @@ def check_crossed(plotfile, block_code, other_code, factor):
 # What ERF prints once the run has torn down cleanly. An abort never reaches it.
 FINALIZE_RE = re.compile(r"AMReX \(.*?\) finalized")
 # Every abort this suite's fuel code raises carries this prefix.
-CUSTOM_FUEL_ABORT = "ERF-Fire custom fuel:"
+CUSTOM_FUEL_ABORT = "FLARE custom fuel:"
 
 
 def check_ran(log):
@@ -278,7 +278,7 @@ def check_ran(log):
 
 def check_abort(log, key):
     text = open(log).read()
-    m = re.search(r"amrex::Abort.*?ERF-Fire custom fuel: (.*?) !!!", text, re.S)
+    m = re.search(r"amrex::Abort.*?FLARE custom fuel: (.*?) !!!", text, re.S)
     if m is None:
         return fail(f"{log} did not abort with a custom fuel message")
     msg = " ".join(m.group(1).split())
@@ -338,7 +338,7 @@ def selftest():
         open(a, "w").write("Coarse STEP 480 ends.\nAMReX (26.09) finalized\n")
         if not check_ran(a):
             good = fail("selftest: ran failed a finished run")
-        open(b, "w").write("amrex::Abort::0::ERF-Fire custom fuel: code 1007 !!!\n")
+        open(b, "w").write("amrex::Abort::0::FLARE custom fuel: code 1007 !!!\n")
         if check_ran(b):
             good = fail("selftest: ran passed a custom fuel abort")
         open(b, "w").write("Coarse STEP 3 ends.\n")
@@ -353,7 +353,7 @@ def selftest():
         open(b, "w").write("all fine\n")
         if check_abort(b, "depth_m"):
             good = fail("selftest: abort passed a log that did not abort")
-        open(b, "w").write("amrex::Abort::0::ERF-Fire custom fuel: depth_m is bad !!!\n")
+        open(b, "w").write("amrex::Abort::0::FLARE custom fuel: depth_m is bad !!!\n")
         if check_abort(b, "heat_content_J_kg"):
             good = fail("selftest: abort passed a message naming another input")
         if not check_abort(b, "depth_m"):

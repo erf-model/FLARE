@@ -99,7 +99,7 @@ ComputeDiffusivityMRF (const MultiFab& xvel,
        - Uses YSU stability functions (Hong et al. 2006)
        - Ri-dependent diffusivity above the PBL top only (module_bl_mrf.F L988 on)
 
-    FIRE COUPLING (ERF-Fire extension):
+    FIRE COUPLING (FLARE extension):
     --------------------------------
     Fire heat flux augments the convective velocity scale w* used in the
     K-profile amplitude: K = rho * w*_eff * kappa * z * (1 - z/h)^2.
@@ -369,7 +369,7 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
                                                                       : Array4<Real const>{};
         const PBLDerivativeDzInv_T pbl_derivative_dz_inv{z_phys_cc->const_array(mfi)};
 
-        // Fire heat flux array and flags (ERF-Fire)
+        // Fire heat flux array and flags (FLARE)
         const Array4<Real const> Q_fire_arr =
            (Q_fire_atm && turbChoice.mrf_fire_thermal_excess)
            ? Q_fire_atm->const_array(mfi)

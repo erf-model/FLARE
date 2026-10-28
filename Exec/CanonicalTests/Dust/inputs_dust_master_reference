@@ -289,7 +289,7 @@ erf.dust.loading_feedback_coeff = 0.0
 erf.dust_mrf_Sc_t = 0.0
 
 # ---------------------------------------------------------------------------
-# Fire coupling (ERF-Hazard)
+# Fire coupling (FLARE)
 # ---------------------------------------------------------------------------
 # Enable the fire-dust coupling; requires erf.dust.grid_ratio =
 # erf.fire.grid_ratio [Boolean]
@@ -329,7 +329,7 @@ erf.fire_dust_lofting_Q_threshold = 50.0
 erf.fire_dust_lofting_Q_ref = 500.0
 
 # ---------------------------------------------------------------------------
-# MRF boundary layer with fire (ERF-Hazard)
+# MRF boundary layer with fire (FLARE)
 # ---------------------------------------------------------------------------
 # Add the fire surface heat flux to the MRF convective velocity scale w* of
 # burning columns [Boolean]

@@ -190,7 +190,7 @@ in the fire plotfiles), so what the threshold sees depends on the coupling:
 in a two-way run the fire's own plume, advected over unburned fuel, can start
 new fire ahead of the front; in a one-way run only the initial atmosphere
 can. The default of 573.15 K (300 C) is the piloted ignition temperature of
-fine dead fuel; the FIRE-SMART proposal that ERF-Hazard grew from asked for
+fine dead fuel; the FIRE-SMART proposal that FLARE grew from asked for
 "a simple temperature-threshold-based ignition model" as the ignition to pair
 with the heat feedback, and this is that model.
 

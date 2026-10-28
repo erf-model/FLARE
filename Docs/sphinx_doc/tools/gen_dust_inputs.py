@@ -175,7 +175,7 @@ p("erf.dust_mrf_Sc_t", "Turbulent Schmidt number of the dust scalar in the "
   "MRF scheme, read from the erf prefix; 0 or negative uses the Prandtl "
   "number so dust diffuses like heat", "Real", "0 (Pr_t)")
 
-grp("Fire coupling (ERF-Hazard)",
+grp("Fire coupling (FLARE)",
     "Read from the ``erf`` prefix in ``Source/ERF.cpp`` when both the fire "
     "and dust models are enabled; see :ref:`sec:DustFire`.")
 p("erf.fire_dust_coupling", "Enable the fire-dust coupling; requires "
@@ -189,9 +189,10 @@ p("erf.fire_dust_wind_to_dust", "Inside the fire perimeter, raise the dust u* to
 p("erf.fire_dust_wind_z0", "Roughness length of that log law [m]; with the fire "
   "wind feeding the dust a value other than erf.most.z0 is warned about, "
   "otherwise the key is not read (warned)", "Real > 0", "0.1")
-p("erf.fire_dust_wind_zref", "Reference height of that log law [m]: follows "
-  "erf.fire.wind_ref_ht; with the fire wind feeding the dust a different value "
-  "aborts, otherwise the key is not read (warned)", "= erf.fire.wind_ref_ht", "6.1")
+p("erf.fire_dust_wind_zref", "Reference height of that log law [m]: follows the height "
+  "of the fire's wind (erf.fire.wind_ref_ht, or 6.096 m with erf.fire.use_per_fuel_wind_ht); "
+  "with the fire wind feeding the dust a different value aborts, otherwise the key is "
+  "not read (warned)", "= erf.fire.wind_ref_ht, or 6.096 with use_per_fuel_wind_ht", "6.1")
 p("erf.fire_dust_lofting_enabled", "Multiply the emission flux by the "
   "convective lofting factor of the fire heat flux", "Boolean", "false")
 p("erf.fire_dust_lofting_k_loft", "Maximum lofting enhancement [-]", "Real >= 0", "2.0")
@@ -199,7 +200,7 @@ p("erf.fire_dust_lofting_Q_threshold", "Fire heat flux below which there is "
   "no lofting [W/m²]", "Real >= 0", "50.0")
 p("erf.fire_dust_lofting_Q_ref", "Heat flux scale of the lofting factor "
   "[W/m²]; 0 or negative disables it", "Real", "500.0")
-grp("MRF boundary layer with fire (ERF-Hazard)",
+grp("MRF boundary layer with fire (FLARE)",
     "Read from the ``erf`` prefix in ``Source/DataStructs/ERF_TurbStruct.H`` "
     "for the MRF scheme; every key also accepts a per-level ``_lev<N>`` form. "
     "See the MRF section of :ref:`PBLschemes`.")

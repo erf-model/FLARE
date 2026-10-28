@@ -1023,7 +1023,7 @@ none and the option read outside the array, which builds with assertions stopped
 The fire heat flux is kept out of the corrector because a fire thermal excess would make the
 Richardson number negative through a neutral or shear-driven ABL and collapse the PBLH to its floor.
 
-**Change in results (2026-09).** Earlier ERF-Hazard builds ran Passes 2 to 5 a second time after the
+**Change in results (2026-09).** Earlier builds of this repository (then ERF-Hazard) ran Passes 2 to 5 a second time after the
 first set. The second corrector had no VH96 term, no smoothing and no guards, and it overwrote the
 first. The K-profile therefore used a PBLH that could differ from the one SurfaceLayer stored. The second
 Pass 4 also replaced w\* with :math:`\max(w_{*,fire}, u_*/\phi_m)` in every column, including runs

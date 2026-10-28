@@ -1,7 +1,7 @@
-# ERF-Hazard Visualisation Scripts
+# FLARE Visualisation Scripts
 
-Two Python scripts for visualising ERF-Hazard canonical test outputs.
-No C++ build required — run directly after an ERF-Hazard simulation.
+Two Python scripts for visualising FLARE canonical test outputs.
+No C++ build required — run directly after a FLARE simulation.
 
 ---
 

@@ -27,7 +27,7 @@ threshold friction velocity, adds blasting and haul-road traffic, and hands the
 resulting flux back to the atmosphere. The surface state that sets the
 threshold (silt, crust, efflorescence, moisture, suppression agents) is read
 from rasters and from the output tables of the geochemistry code PHREEQC, which
-runs offline. Two optional couplings sit on top: the fire model of ERF-Hazard
+runs offline. Two optional couplings sit on top: the fire model of FLARE
 can strip crust in burned cells, drive emission with its outflow wind and loft
 dust in its convective column, and Lagrangian super-particles can attribute
 deposition to its source cells.
@@ -41,7 +41,7 @@ deposition to its source cells.
                                                               v         |  surface concentration,
                                                          atmosphere (3D)   surface moisture flux
                                                               ^
-                             fire grid (ERF-Hazard): burned area, outflow wind, heat flux
+                             fire grid (FLARE):    burned area, outflow wind, heat flux
 
 The pages below give the physics and the file formats:
 
@@ -107,7 +107,7 @@ the atmosphere's :math:`\Delta t`, in this order (``DustLayer::advance`` in
 ``Source/Dust/ERF_DustLayer.cpp``, with the fire calls around it in
 ``Source/ERF.cpp``):
 
-1. **Fire pre-step** (ERF-Hazard, when :cpp:`erf.fire_dust_coupling` is on):
+1. **Fire pre-step** (FLARE, when :cpp:`erf.fire_dust_coupling` is on):
    the burned area of the fire level set reduces the crust index and, if
    :cpp:`erf.fire_dust_wind_to_dust` is on, the fire's reference wind at
    :cpp:`erf.fire.wind_ref_ht` gives a neutral log-law :math:`u_*` for the

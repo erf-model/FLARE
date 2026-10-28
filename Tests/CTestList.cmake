@@ -3190,7 +3190,7 @@ add_test_fire_abort(FireMrfExcessNoFlux_abort FireRestart           inputs_level
 # the fire engine behind the shared coupling layer (erf.fire.engine): a name that is
 # not an engine stops the run naming the key and the engines there are
 add_test_fire_abort(FireEngineUnknown_abort   FireRestart           inputs_levelset_straight
-    "erf.fire.engine = .lsfire. is not one of .native." "erf.fire.engine=lsfire")
+    "erf.fire.engine = .lsfire. is not one of .*.flare." "erf.fire.engine=lsfire")
 # 20 cells with max_grid_size 8 and blocking factor 1 chop into 7 + 7 + 6, none a
 # multiple of the grid ratio: the run stops naming the box. For the power-of-2 ratio
 # 4 the advice is a blocking factor; for 5 (the default ratio), which no AMReX

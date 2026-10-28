@@ -859,9 +859,15 @@ void TheFireInputsReachTheCoupling ()
         deck.add("smoke_emission_factor", 0.05);
         deck.add("fire_debug", true);
         const FireCouplingParams c = FireCouplingParams::read();
-        // no engine is built into this ERF, so the engine name stays empty
         EXPECT_FALSE(c.enable);
+#ifdef ERF_FIRE_DEFAULT_ENGINE
+        // several engines are built into this binary (FLARE, the example and
+        // the registry-test engines): the deck named none, the build's default fills it
+        EXPECT_EQ(c.engine, std::string(ERF_FIRE_DEFAULT_ENGINE));
+#else
+        // no build default: the engine name stays empty with several engines (upstream)
         EXPECT_EQ(c.engine, "");
+#endif
         EXPECT_EQ(c.grid_ratio, 4);
         EXPECT_EQ(c.anchor_level, 0);
         EXPECT_EQ(c.coupling_type, "synchronous");

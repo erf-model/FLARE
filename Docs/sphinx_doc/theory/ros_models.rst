@@ -10,7 +10,7 @@ Rate-of-Spread Models
 Overview
 --------
 
-ERF-Fire provides seven rate-of-spread models and a per-cell hybrid of two of them, selected with the :cpp:`erf.fire.ros_model` parameter: Rothermel (1972, the default), the BEHAVE multi-class Rothermel, MacArthur (1966), Cheney-Gould (1998), its earlier ``grass_simple`` fit, the Canadian FBP system and Balbi (2009 or 2020), plus a prescribed field. All consume the same effective midflame wind and write to the same ``fire_ros`` MultiFab, so the propagation methods in :ref:`sec:FirePropagation` are independent of the choice.
+FLARE provides seven rate-of-spread models and a per-cell hybrid of two of them, selected with the :cpp:`erf.fire.ros_model` parameter: Rothermel (1972, the default), the BEHAVE multi-class Rothermel, MacArthur (1966), Cheney-Gould (1998), its earlier ``grass_simple`` fit, the Canadian FBP system and Balbi (2009 or 2020), plus a prescribed field. All consume the same effective midflame wind and write to the same ``fire_ros`` MultiFab, so the propagation methods in :ref:`sec:FirePropagation` are independent of the choice.
 
 Sub-phase A adds per-fuel wind extraction height following WRF-SFIRE :cpp:`fcwh` convention. This is controlled by the :cpp:`erf.fire.use_per_fuel_wind_ht` parameter and is backward-compatible with the global wind reference height approach.
 

@@ -26,7 +26,7 @@ struct FireParams
     bool              enable              = false;       ///< Enable fire module
     // The fire engine behind the shared coupling layer (FireCoupler); the
     // native engine (FireLayer) is the only one so far.
-    std::string       engine              = "native";    ///< erf.fire.engine
+    std::string       engine              = "flare";     ///< erf.fire.engine
     bool              fire_debug          = false;       ///< Enable debug output for fire calculations
     int               grid_ratio          = 5;           ///< Fire grid refinement factor (C)
     // The AMR level whose grid the fire grid refines. -1 (default) is the finest
@@ -237,8 +237,8 @@ struct FireParams
     // latent flux handed to the atmosphere.
     //   "legacy" (default) — the sensible flux is the full heat release of the
     //                        dry fuel, Q = w h / tau, and the latent flux is
-    //                        derived from it as in WRF-SFIRE (the form in
-    //                        ERF-Fire since the coupling was written).
+    //                        derived from it as in WRF-SFIRE (the form
+    //                        FLARE has used since the coupling was written).
     //   "cfbm"             — the sensible flux is scaled by the dry-fuel
     //                        fraction of the wet fuel mass, 1 / (1 + M_f),
     //                        Eq. 4 of Jimenez y Munoz et al. (2026, GMD 19,
@@ -1194,7 +1194,7 @@ struct FireParams
 
        // Phase 6: fire-atmosphere coupling parameters
        // erf.fire.engine is checked by ERF's fire-engine registry, which
-       // creates this engine only when the deck selects "native"
+       // creates this engine only when the deck selects "flare"
        pp.query("engine", engine);
        pp.query("heat_flux_alfg", heat_flux_alfg);
        pp.query("fire_atm_feedback", fire_atm_feedback);

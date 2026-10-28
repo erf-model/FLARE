@@ -3,7 +3,7 @@
  * @brief CSV output for EPA NAAQS PM2.5/PM10 compliance diagnostics.
  *
  * Pattern: ERF_DustStatsOutput.H (Phase 16) and ERF_FireStatsOutput.H:
- *   https://github.com/hgopalan/ERF/blob/ERF-Fire/Source/Fire/ERF_FireStatsOutput.H
+ *   https://github.com/erf-model/FLARE/blob/development/FireEngine/ERF_FireStatsOutput.H
  *
  * Writes per-step domain statistics to dust_naaqs.csv:
  *   step, time_s, PM25_max_ug_m3, PM25_24h_max_ug_m3, PM10_max_ug_m3,

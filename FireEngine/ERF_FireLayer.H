@@ -58,11 +58,11 @@ class ERF;
 
 /**
  * @file ERF_FireLayer.H
- * @brief The native fire engine
+ * @brief The native fire engine, FLARE (Fire-Line Advancement and Reaction Engine)
  *
  * The FireLayer class is ERF's own wildfire spread model, the fire engine
  * behind the shared coupling layer (FireCoupler, ERF_FireEngine.H) when
- * erf.fire.engine = native (the default). It owns all fire-specific data
+ * erf.fire.engine = flare (the default). It owns all fire-specific data
  * (level-set, wind, ROS, slopes, etc.) and orchestrates the computation
  * pipeline each timestep; the coupler owns what touches the atmosphere.
  *
@@ -121,8 +121,8 @@ public:
     /** @brief Destructor */
     ~FireLayer() override = default;
 
-    /// erf.fire.engine = native
-    const char* name() const override { return "native"; }
+    /// erf.fire.engine = flare
+    const char* name() const override { return "flare"; }
 
     /// The native engine's own start-up checks (verify_native_fire_prerequisites).
     void verify_prerequisites(const ERF& erf, int lev) override;

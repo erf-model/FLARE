@@ -24,7 +24,7 @@ CustomFuelTable::init_from_inputs ()
     std::vector<int> codes;
     if (!pp.queryarr("custom_fuel.codes", codes) || codes.empty()) { return; }
 
-    auto fail = [] (const std::string& msg) { amrex::Abort("ERF-Fire custom fuel: " + msg); };
+    auto fail = [] (const std::string& msg) { amrex::Abort("FLARE custom fuel: " + msg); };
 
     for (int code : codes) {
         if (!custom_fuel_code(code)) {
@@ -128,7 +128,7 @@ const FuelModelParams&
 CustomFuelTable::params (int code) const
 {
     if (!has_code(code)) {
-        amrex::Abort("ERF-Fire custom fuel: fuel code " + std::to_string(code)
+        amrex::Abort("FLARE custom fuel: fuel code " + std::to_string(code)
                      + " has no erf.fire.custom_fuel." + std::to_string(code) + ".* block");
     }
     return m_entry[code - CUSTOM_FUEL_CODE_BASE].fp;
@@ -138,7 +138,7 @@ Real
 CustomFuelTable::burnout_time_s (int code) const
 {
     if (!has_code(code)) {
-        amrex::Abort("ERF-Fire custom fuel: fuel code " + std::to_string(code)
+        amrex::Abort("FLARE custom fuel: fuel code " + std::to_string(code)
                      + " has no erf.fire.custom_fuel." + std::to_string(code) + ".* block");
     }
     return m_entry[code - CUSTOM_FUEL_CODE_BASE].burnout_time_s;
@@ -208,7 +208,7 @@ CustomFuelTable::validate_map_codes (const amrex::MultiFab& fuel_model,
     amrex::ParallelDescriptor::ReduceIntMax(bad_code);
 
     if (bad_code > 0) {
-        amrex::Abort("ERF-Fire custom fuel: the fuel map holds code " + std::to_string(bad_code)
+        amrex::Abort("FLARE custom fuel: the fuel map holds code " + std::to_string(bad_code)
                      + ", which is in the custom range but has no erf.fire.custom_fuel."
                      + std::to_string(bad_code) + ".* block; add one or list the code in "
                      "erf.fire.fuel_map.nonburnable_codes");

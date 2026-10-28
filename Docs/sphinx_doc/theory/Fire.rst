@@ -9,7 +9,7 @@ Fire Model
 Overview
 --------
 
-ERF-Fire simulates a surface wildfire on a two-dimensional fire grid that sits
+FLARE (Fire-Line Advancement and Reaction Engine) simulates a surface wildfire on a two-dimensional fire grid that sits
 on one level of the atmosphere's mesh, the finest by default, and is refined by
 an integer factor in each horizontal direction. The atmosphere supplies wind, near-surface temperature
 and humidity; the fire model returns a surface heat flux, an optional latent

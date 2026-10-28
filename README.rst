@@ -6,9 +6,9 @@ ERF-Fire: wildfire, smoke and dust hazard modeling built on ERF
 which in turn is built upon the `AMReX <https://amrex-codes.github.io/amrex/>`__ software framework
 for massively parallel block-structured applications.
 
-ERF-Fire lives on the ``ERF-Fire`` branch of this repository. It is not merged back
-into upstream ERF; instead, upstream ``development`` is merged into ``ERF-Fire``
-regularly so that the atmospheric core, build system and inputs stay compatible
+This repository (``erf-model/FLARE``, formerly the ``ERF-Fire`` branch of ``hgopalan/ERF``)
+is not merged back into upstream ERF; instead, upstream ``development`` is merged into
+its ``development`` branch regularly so that the atmospheric core, build system and inputs stay compatible
 with ERF. The original ERF README follows below the ERF-Fire sections.
 
 What ERF-Fire adds
@@ -18,7 +18,8 @@ On top of the ERF atmosphere (compressible and anelastic dynamics, terrain-fitte
 meshes, LES and PBL closures, MOST surface layer, radiation, microphysics and
 land-surface models), ERF-Fire adds:
 
-* a two-dimensional surface fire spread model (``Source/Fire``): level-set
+* a two-dimensional surface fire spread model (``FireEngine/``, the FLARE engine behind
+  ERF's fire coupling layer ``Source/FireCoupling``): level-set
   front propagation, Rothermel and BEHAVE-style rate of spread with the
   standard fuel models, dead and live fuel moisture, fuel maps from
   ESRI ASCII and FARSITE ``.lcp`` files, spotting and crown fire, fire
@@ -42,17 +43,17 @@ ERF-Fire Test Status
 Regression Tests    |firetests|
 =================  ================
 
-.. |firetests| image:: https://github.com/hgopalan/ERF/actions/workflows/ci.yml/badge.svg?branch=ERF-Fire
+.. |firetests| image:: https://github.com/erf-model/FLARE/actions/workflows/ci.yml/badge.svg?branch=development
 
 Building and running ERF-Fire
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ERF-Fire is built with CMake exactly like ERF; see the ERF Getting Started page
 linked below for system requirements and the basic build and run instructions.
-Clone this repository with its submodules and check out the ``ERF-Fire`` branch::
+Clone this repository with its submodules (the default branch is ``development``)::
 
-   git clone --recursive --branch ERF-Fire https://github.com/hgopalan/ERF.git ERF-Fire
-   cd ERF-Fire
+   git clone --recursive https://github.com/erf-model/FLARE.git FLARE
+   cd FLARE
    cmake -S . -B build -DERF_ENABLE_MPI=ON
    cmake --build build -j
 
@@ -76,11 +77,11 @@ alongside the ERF documentation. Build them locally with::
 ERF-Fire development model
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Development happens on topic branches off ``ERF-Fire`` with pull requests back
-into ``ERF-Fire`` in this repository. New physics is added as opt-in options
+Development happens on topic branches off ``development`` with pull requests back
+into ``development`` in this repository. New physics is added as opt-in options
 with the existing behaviour left as the default, and every change to the fire
 model comes with a regression or canonical case. Fixes to the shared
-atmospheric core are contributed to upstream ERF and reach ``ERF-Fire`` through
+atmospheric core are contributed to upstream ERF and reach this repository through
 the periodic upstream merges. The ERF coding conventions in CONTRIBUTING.md
 apply here as well.
 

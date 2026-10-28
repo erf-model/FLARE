@@ -3,7 +3,7 @@
  * @brief CSV time series output for dust diagnostics.
  *
  * Pattern: ERF_FireStatsOutput.H in Source/Fire/:
- *   https://github.com/hgopalan/ERF/blob/ERF-Fire/Source/Fire/ERF_FireStatsOutput.H
+ *   https://github.com/erf-model/FLARE/blob/development/FireEngine/ERF_FireStatsOutput.H
  *
  * Writes per-step scalar diagnostics to dust_diag.dat:
  *   step, time[s], emission_total[kg/s], deposition_total[kg],

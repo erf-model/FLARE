@@ -14,7 +14,7 @@ earth-relative components here: with the grid's central meridian LoV and tangent
 alpha = sin(Latin1) * (lon - LoV), u_e = u_g cos(alpha) + v_g sin(alpha), v_e = -u_g sin(alpha) + v_g cos(alpha).
 At 105.2 W that is about -4.8 degrees; skipping it biases the direction by that much.
 
-With --domain <case>_domain.json (an ERF-Hazard real-terrain case: square of domain_m, south-west corner at
+With --domain <case>_domain.json (a FLARE real-terrain case: square of domain_m, south-west corner at
 sw_corner_lonlat, axis-aligned in the UTM zone), the default points are: the west face at the first ignition's
 y and at mid-face, 5 km upstream of the west face, the ignition(s) and the domain centre. --point adds more.
 Values are nearest-grid-point (HRRR is 3 km).

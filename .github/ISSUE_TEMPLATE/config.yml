@@ -2,5 +2,5 @@ blank_issues_enabled: false
 
 contact_links:
   - name: Ask a question / get support
-    url: https://erf.readthedocs.io/en/latest/
-    about: Please see documentation for general questions instead of opening an issue.
+    url: https://github.com/erf-model/FLARE/tree/development/Docs/sphinx_doc
+    about: Please see the documentation sources (Docs/sphinx_doc) for general questions instead of opening an issue.

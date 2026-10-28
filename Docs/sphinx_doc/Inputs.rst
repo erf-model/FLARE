@@ -5618,9 +5618,10 @@ besides.
 | **erf.fire.enable**                            | Run a fire (needs a fire engine compiled in, see           | Boolean                        | false                  |
 |                                                | :ref:`sec:FireCoupling`)                                   |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.engine**                            | The fire engine behind the coupling, one of the engines    | String                         | the only one built     |
-|                                                | compiled in (ERF_REGISTER_FIRE_ENGINE); required when      |                                |                        |
-|                                                | several are; with none, setting it stops the run           |                                |                        |
+| **erf.fire.engine**                            | The fire engine behind the coupling, one of the engines    | String                         | "flare" (the build's   |
+|                                                | compiled in (ERF_REGISTER_FIRE_ENGINE); with several       |                                | default engine)        |
+|                                                | compiled in (ERF_FIRE_ENGINE_DIRS) the build's default,    |                                |                        |
+|                                                | "flare", is used unless the deck names another             |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.fire_debug**                        | Print per-step coupling diagnostics                        | Boolean                        | false                  |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
@@ -5753,9 +5754,9 @@ Master control
 +================================================+============================================================+================================+========================+
 | **erf.fire.enable**                            | Enable the fire model                                      | Boolean                        | false                  |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.engine**                            | Fire engine behind the shared fire-atmosphere coupling     | "native"                       | "native"               |
-|                                                | (Source/FireCoupling); "native" is ERF's own model         |                                |                        |
-|                                                | (FireEngine). Any other value aborts                       |                                |                        |
+| **erf.fire.engine**                            | Fire engine behind the shared fire-atmosphere coupling     | "flare"                        | "flare"                |
+|                                                | (Source/FireCoupling); "flare" is FLARE, this repository's |                                |                        |
+|                                                | own model (FireEngine/). Any other value aborts            |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.fire_debug**                        | Print per-step fire diagnostics to stdout                  | Boolean                        | false                  |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
@@ -6897,7 +6898,7 @@ on the same scalar.
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 
 
-Fire coupling (ERF-Hazard)
+Fire coupling (FLARE)
 --------------------------
 
 Read from the ``erf`` prefix in ``Source/ERF.cpp`` when both the fire and dust
@@ -6939,7 +6940,7 @@ models are enabled; see :ref:`sec:DustFire`.
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 
 
-MRF boundary layer with fire (ERF-Hazard)
+MRF boundary layer with fire (FLARE)
 -----------------------------------------
 
 Read from the ``erf`` prefix in ``Source/DataStructs/ERF_TurbStruct.H`` for

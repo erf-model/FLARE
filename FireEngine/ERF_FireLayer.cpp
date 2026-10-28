@@ -2305,7 +2305,7 @@ amrex::Real FireLayer::burnout_tau_s(int fuel_code) const
     if (m_custom_fuel.has_code(fuel_code)) {
         const amrex::Real t_custom = m_custom_fuel.burnout_time_s(fuel_code);
         if (!(t_custom > 0.0)) {
-            amrex::Abort("ERF-Fire custom fuel: erf.fire.burnout_model = sfire needs "
+            amrex::Abort("FLARE custom fuel: erf.fire.burnout_model = sfire needs "
                          "erf.fire.custom_fuel." + std::to_string(fuel_code)
                          + ".burnout_time_s > 0 for the fuel codes the map uses");
         }
