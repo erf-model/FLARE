@@ -14,7 +14,7 @@
  * @file ERF_CustomFuel.H
  * @brief User-defined fuel models: fuel codes 1000-1015 described in the deck
  *
- * Every rate-of-spread model in ERF-Fire reads its fuel through
+ * Every rate-of-spread model in FLARE reads its fuel through
  * FuelModelParams, and the two published sets that fill it — the Anderson 13
  * and the Scott and Burgan 40 — are compiled-in tables. A fuel complex that is
  * in neither set therefore had no way in. This class is that way in: codes
@@ -159,7 +159,7 @@ inline FuelModelParams fuel_params_with_custom (int code, int fuel_set, amrex::R
 {
     if (cft.has_code(code)) { return cft.params(code); }
     if (custom_fuel_code(code)) {
-        amrex::Abort("ERF-Fire custom fuel: " + std::string(where) + " = " + std::to_string(code)
+        amrex::Abort("FLARE custom fuel: " + std::string(where) + " = " + std::to_string(code)
                      + " is in the custom range " + std::to_string(CUSTOM_FUEL_CODE_BASE) + "-"
                      + std::to_string(CUSTOM_FUEL_CODE_BASE + CUSTOM_FUEL_MAX - 1)
                      + " but no erf.fire.custom_fuel." + std::to_string(code)

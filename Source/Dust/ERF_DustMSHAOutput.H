@@ -8,7 +8,7 @@
  *   msha_receptor_<name>.csv - per-step: step,time_s,PM10_ug_m3 at that receptor
  *
  * Pattern: ERF_FireStatsOutput.H in Source/Fire/:
- *   https://github.com/hgopalan/ERF/blob/ERF-Fire/Source/Fire/ERF_FireStatsOutput.H
+ *   https://github.com/erf-model/FLARE/blob/development/FireEngine/ERF_FireStatsOutput.H
  *
  * References:
  *   30 CFR Part 56: https://www.ecfr.gov/current/title-30/chapter-I/subchapter-K/part-56

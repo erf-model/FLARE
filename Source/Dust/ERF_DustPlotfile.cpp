@@ -3,7 +3,7 @@
  * @brief Dust 2D plotfile writer on native dust grid.
  *
  * Follows ERF_FirePlotfile.cpp pattern:
- *   https://github.com/hgopalan/ERF/blob/ERF-Fire/Source/Fire/ERF_FirePlotfile.cpp
+ *   https://github.com/erf-model/FLARE/blob/development/FireEngine/ERF_FirePlotfile.cpp
  *
  * Steps:
  *   1. IOProcessor creates plotfile/ and plotfile/Level_0/ directories.

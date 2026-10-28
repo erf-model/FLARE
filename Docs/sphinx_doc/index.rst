@@ -1,5 +1,14 @@
 :orphan:
 
+FLARE
+-----
+
+FLARE (Fire-Line Advancement and Reaction Engine) is a wildland fire, smoke and dust
+model built on ERF. It runs as the fire engine behind ERF's fire-atmosphere coupling
+(:ref:`sec:Fire`, :ref:`sec:FireCoupling`), adds the dust module (:ref:`sec:Dust`)
+and the cases under ``Exec/CanonicalTests``. The ERF documentation below describes the
+atmosphere it runs in.
+
 ERF
 ---
 

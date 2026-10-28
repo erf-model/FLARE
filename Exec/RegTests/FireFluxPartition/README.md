@@ -7,7 +7,7 @@ is run with the two settings of `erf.fire.heat_flux_partition`:
 - `legacy` (default): the sensible flux is the full heat release of the dry
   fuel, `Q = w h / tau`, and the latent flux is derived from it as in
   WRF-SFIRE, `Q_lat = (L_v / h) (b + (1 - b) 0.56) Q` with
-  `b = M_f / (1 + M_f)`. This is the form ERF-Fire has always used.
+  `b = M_f / (1 + M_f)`. This is the form FLARE has always used.
 - `cfbm`: the sensible flux is scaled by the dry-fuel fraction of the wet
   fuel mass, `1 / (1 + M_f)`, Eq. 4 of Jiménez y Muñoz et al. (2026,
   Geosci. Model Dev. 19, 3035), the Community Fire Behavior Model. Their

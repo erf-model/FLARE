@@ -6,7 +6,7 @@
  * 2D dust grid (independent of the ERF AMR level hierarchy).
  *
  * Pattern: ERF_FirePlotfile.H/cpp in Source/Fire/:
- *   https://github.com/hgopalan/ERF/blob/ERF-Fire/Source/Fire/ERF_FirePlotfile.cpp
+ *   https://github.com/erf-model/FLARE/blob/development/FireEngine/ERF_FirePlotfile.cpp
  *
  * The fire module uses VisMF::Write + WriteGenericPlotfileHeader rather than
  * WriteMultiLevelPlotfile because the fire/dust grid is not part of the

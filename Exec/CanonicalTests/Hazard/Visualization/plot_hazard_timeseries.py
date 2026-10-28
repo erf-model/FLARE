@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-plot_hazard_timeseries.py — ERF-Hazard diagnostic time series plots.
+plot_hazard_timeseries.py — FLARE diagnostic time series plots.
 
-Reads plain-text CSV/DAT diagnostic files produced by ERF-Hazard
+Reads plain-text CSV/DAT diagnostic files produced by FLARE
 (dust_diag.dat; smoke_diag.dat is a user-written CSV, no ERF output writes it)
 and produces publication-quality line plots. No yt or AMReX dependency — only matplotlib and pandas.
 
@@ -117,7 +117,7 @@ def plot_terrain_amplification(args):
             axes[1].plot(t, df["ustar_max_m_s"], color=color, label=label)
 
     axes[0].set_ylabel("Dust emission total [kg/s]")
-    axes[0].set_title("ERF-Hazard — Dust Emission over Flat, Hill and Pit Terrain")
+    axes[0].set_title("FLARE — Dust Emission over Flat, Hill and Pit Terrain")
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
 
@@ -163,7 +163,7 @@ def plot_dust_diag(args):
         ax.set_ylabel(lbl)
         ax.grid(True, alpha=0.3)
 
-    axes[0].set_title(f"ERF-Hazard Dust Diagnostics — {args.label}")
+    axes[0].set_title(f"FLARE Dust Diagnostics — {args.label}")
     axes[-1].set_xlabel("Time [s]")
     fig.tight_layout()
     safe_label = args.label.replace(" ", "_")
@@ -203,7 +203,7 @@ def plot_smoke_diag(args):
         ax.set_ylabel(lbl)
         ax.grid(True, alpha=0.3)
 
-    axes[0].set_title(f"ERF-Hazard Smoke Diagnostics — {args.label}")
+    axes[0].set_title(f"FLARE Smoke Diagnostics — {args.label}")
     axes[-1].set_xlabel("Time [s]")
     fig.tight_layout()
     safe_label = args.label.replace(" ", "_")
@@ -241,7 +241,7 @@ def plot_coupling(args):
 
     ax.set_xlabel("Time [s]")
     ax.set_ylabel("Dust emission total [kg/s]")
-    ax.set_title("ERF-Hazard — Fire-Dust Coupling Interaction Contributions")
+    ax.set_title("FLARE — Fire-Dust Coupling Interaction Contributions")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -257,7 +257,7 @@ def plot_coupling(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Plot ERF-Hazard diagnostic time series."
+        description="Plot FLARE diagnostic time series."
     )
     parser.add_argument(
         "--mode", required=True,
@@ -272,7 +272,7 @@ def main():
 
     # dust_diag / smoke_diag single file
     parser.add_argument("--file",  default=None, help="Single diagnostic file")
-    parser.add_argument("--label", default="ERF-Hazard", help="Legend label")
+    parser.add_argument("--label", default="FLARE", help="Legend label")
 
     # coupling
     parser.add_argument("--baseline",     default=None)

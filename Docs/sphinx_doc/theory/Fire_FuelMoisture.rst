@@ -8,7 +8,7 @@ Fuel Moisture
 
 Fuel moisture enters every rate-of-spread model through the moisture damping
 of the reaction intensity and, for Balbi, through the energy needed to bring
-the fuel to ignition. ERF-Fire carries five moisture classes per fire cell in
+the fuel to ignition. FLARE carries five moisture classes per fire cell in
 ``fire_fuel_mc``: dead 1-hour, 10-hour and 100-hour fuels, and live
 herbaceous and live woody fuels. The dead classes can be held fixed or
 advanced with the atmosphere; how the live classes move with them is set by

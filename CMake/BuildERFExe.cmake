@@ -450,6 +450,9 @@ function(build_erf_lib erf_lib_name)
     )
     target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/FireCoupling>)
     target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_FIRE)
+    # FLARE (FireEngine/) is the engine a deck gets when it names none, even when
+    # ERF_FIRE_ENGINE_DIRS compiles further engines in (FireCouplingParams::read).
+    target_compile_definitions(${erf_lib_name} PUBLIC ERF_FIRE_DEFAULT_ENGINE="flare")
 
     # Fire engines live in directories that provide ERFFireEngine.cmake defining
     # erf_fire_engine_add(target). The function is called right after its file is

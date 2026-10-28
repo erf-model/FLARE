@@ -384,6 +384,10 @@ INCLUDE_LOCATIONS += $(ERF_MOISTURE_SUPERDROPLETSMOIST_DIR)
 # while its Make.package is read.
 ifeq ($(USE_FIRE), TRUE)
     DEFINES += -DERF_USE_FIRE
+    # FLARE (FireEngine/) is the engine a deck gets when it names none (see CMake/BuildERFExe.cmake)
+    ifneq ($(filter %FireEngine,$(FIRE_HOME)),)
+        DEFINES += -DERF_FIRE_DEFAULT_ENGINE=\"flare\"
+    endif
     ERF_FIRE_COUPLING_DIR = $(ERF_SOURCE_DIR)/FireCoupling
     include $(ERF_FIRE_COUPLING_DIR)/Make.package
     VPATH_LOCATIONS   += $(ERF_FIRE_COUPLING_DIR)

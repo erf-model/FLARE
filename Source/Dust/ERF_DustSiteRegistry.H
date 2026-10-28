@@ -14,7 +14,7 @@
  *   site_id(i,j) = 0 if no site matches.
  *
  * Spatial pattern reference: ERF_FireGrid.H (Source/FireCoupling/):
- *   https://github.com/hgopalan/ERF/blob/ERF-Fire/Source/FireCoupling/ERF_FireGrid.H
+ *   https://github.com/erf-model/FLARE/blob/development/Source/FireCoupling/ERF_FireGrid.H
  *
  * PHREEQC reference:
  *   Parkhurst & Appelo (2013). PHREEQC Version 3.

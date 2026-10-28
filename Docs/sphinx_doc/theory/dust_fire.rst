@@ -6,7 +6,7 @@
 Fire-Dust Coupling
 ==================
 
-ERF-Hazard couples the fire model of :ref:`sec:Fire` to the dust model
+FLARE couples the fire model of :ref:`sec:Fire` to the dust model
 through three one-way interactions, switched on together by
 :cpp:`erf.fire_dust_coupling` (an ``erf`` key, not ``erf.dust``) and then
 selected individually. Both models must be enabled and

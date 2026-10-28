@@ -39,9 +39,18 @@ FireCouplingParams::read ()
     }
 
     // The engine: one compiled into this executable (ERF_REGISTER_FIRE_ENGINE).
-    // With a single engine it is the default; with several the deck names one.
+    // With a single engine it is the default; with several the deck names one,
+    // unless the build named a default (ERF_FIRE_DEFAULT_ENGINE, a compile
+    // definition; this repository sets it to its own engine, "flare").
     const std::vector<std::string> engines = fire_engine_names();
     if (engines.size() == 1) { c.engine = engines.front(); }
+#ifdef ERF_FIRE_DEFAULT_ENGINE
+    bool build_default = false;
+    for (const auto& a : engines) { if (a == ERF_FIRE_DEFAULT_ENGINE) { build_default = true; } }
+    if (build_default) { c.engine = ERF_FIRE_DEFAULT_ENGINE; }
+#else
+    const bool build_default = false;
+#endif
     const bool engine_given = pp.query("engine", c.engine);
     if (engine_given || c.enable) {
         if (engines.empty()) {
@@ -51,7 +60,7 @@ FireCouplingParams::read ()
                    "FIRE_HOME, CMake ERF_FIRE_ENGINE_DIRS); Source/FireCoupling/ERF_FireEngineTemplate.H "
                    "lists what an engine provides.");
         }
-        if (!engine_given && engines.size() > 1) {
+        if (!engine_given && !build_default && engines.size() > 1) {
             std::string list;
             for (const auto& a : engines) { list += (list.empty() ? "" : ", ") + std::string("\"") + a + "\""; }
             fail("several fire engines are compiled in (" + list + "): set erf.fire.engine to one of them");

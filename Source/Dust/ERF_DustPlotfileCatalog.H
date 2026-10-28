@@ -3,7 +3,7 @@
  * @brief Variable name list for dust 2D plotfile output.
  *
  * Pattern follows ERF_FirePlotfileCatalog.H in Source/Fire/:
- *   https://github.com/hgopalan/ERF/blob/ERF-Fire/Source/Fire/ERF_FirePlotfileCatalog.H
+ *   https://github.com/erf-model/FLARE/blob/development/FireEngine/ERF_FirePlotfileCatalog.H
  */
 #ifndef ERF_DUST_PLOTFILE_CATALOG_H
 #define ERF_DUST_PLOTFILE_CATALOG_H

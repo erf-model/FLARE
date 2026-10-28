@@ -12,7 +12,9 @@
 #include <gtest/gtest.h>
 
 #include <ERF_FireEngineRegistry.H>
+#include <ERF_FireCouplingParams.H>
 #include <AMReX_MultiFab.H>
+#include <AMReX_ParmParse.H>
 
 #include <algorithm>
 
@@ -111,4 +113,45 @@ TEST(FireRegistry, DuplicateNameStops)
                                               return std::make_unique<RegistryTestEngine>(p);
                                           }));
     EXPECT_ANY_THROW(register_fire_engine("", nullptr));
+}
+
+// erf.fire.engine with several engines compiled in (this binary registers the
+// two test engines above besides the in-tree FLARE engine, "flare"): a deck
+// that names none gets the build's default engine (ERF_FIRE_DEFAULT_ENGINE,
+// "flare" here), a deck that names one gets that one, an unknown name stops.
+// Without the build default the first case stops with "several fire engines
+// are compiled in", which is what the fork's regression decks hit when a
+// second engine directory (Tests/FireEngineExample) is compiled in.
+namespace {
+struct EngineKey
+{
+    ParmParse pp{"erf.fire"};
+    EngineKey () { pp.remove("engine"); pp.add("enable", true); }
+    ~EngineKey () { pp.remove("engine"); pp.remove("enable"); }
+    void set (const std::string& v) { pp.remove("engine"); pp.add("engine", v); }
+};
+} // namespace
+
+TEST(FireRegistry, SeveralEnginesDeckNamesNoneTakesTheBuildDefault)
+{
+    ASSERT_GE(fire_engine_names().size(), 2u);
+    EngineKey deck;
+#ifdef ERF_FIRE_DEFAULT_ENGINE
+    const FireCouplingParams c = FireCouplingParams::read();
+    EXPECT_EQ(c.engine, std::string(ERF_FIRE_DEFAULT_ENGINE));
+    EXPECT_EQ(c.engine, "flare") << "this repository's build default is its own engine";
+#else
+    AbortThrows guard;
+    EXPECT_ANY_THROW(FireCouplingParams::read()) << "no build default: the deck must name one";
+#endif
+}
+
+TEST(FireRegistry, SeveralEnginesDeckNamesOneTakesThatOne)
+{
+    EngineKey deck;
+    deck.set("registry-test");
+    EXPECT_EQ(FireCouplingParams::read().engine, "registry-test");
+    deck.set("no-such-engine");
+    AbortThrows guard;
+    EXPECT_ANY_THROW(FireCouplingParams::read());
 }

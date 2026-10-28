@@ -61,8 +61,8 @@ erf.plot_vars_1 = theta x_velocity y_velocity
 erf.fire.enable = true
 
 # Fire engine behind the shared fire-atmosphere coupling (Source/FireCoupling):
-# "native" (default) is ERF's own fire model (Source/Fire), the only one so far
-erf.fire.engine = native
+# "flare" (default) is FLARE, this repository's own fire model (FireEngine/), the only one built in
+erf.fire.engine = flare
 
 # Debug output for fire calculations (verbose logging of intermediate values)
 erf.fire.fire_debug = false

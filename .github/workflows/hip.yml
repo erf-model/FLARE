@@ -2,7 +2,7 @@ name: ERF CI (hip)
 
 on:
   push:
-    branches: [development, ERF-Fire]
+    branches: [development]
     paths:
       - '**'
       - '!Docs/**'
@@ -14,7 +14,7 @@ on:
       - '.github/actions/**'
 
   pull_request:
-    branches: [development, ERF-Fire]
+    branches: [development]
     types: [opened, synchronize, reopened]
     paths:
       - '**'
@@ -29,7 +29,7 @@ on:
 
 concurrency:
   group: ${{ github.event.pull_request.number || github.ref }}-${{ github.head_ref || github.sha }}-hip
-  cancel-in-progress: ${{ github.ref != 'refs/heads/development' && github.ref != 'refs/heads/ERF-Fire' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/development' }}
 
 jobs:
   # MPI_C is broken since HIP 4.1
@@ -60,7 +60,7 @@ jobs:
         # on CPU by ci, gcc and windows-mpi.
         particles: [ON]
         particles_precision: [DOUBLE, SINGLE]
-        # PR tier: DOUBLE only. SINGLE builds on merge to development or ERF-Fire (which also write their ccache).
+        # PR tier: DOUBLE only. SINGLE builds on merge to development (which also writes its ccache).
         mesh_precision: ${{ fromJSON(github.event_name == 'pull_request' && '["DOUBLE"]' || '["DOUBLE", "SINGLE"]') }}
         exclude:
           # Only matching mesh/particle precisions are tested, i.e. DOUBLE mesh
@@ -85,7 +85,7 @@ jobs:
     - name: Install CCache
       run: Submodules/AMReX/.github/workflows/dependencies/dependencies_ccache.sh
 
-    # ccache per matrix variant, written only from development and ERF-Fire (merges and manual runs); see ci.yml for how it works.
+    # ccache per matrix variant, written only from development (merges and manual runs); see ci.yml for how it works.
     - name: Restore Cache
       uses: actions/cache/restore@v6
       with:
@@ -155,7 +155,7 @@ jobs:
         du -hs ~/.cache/ccache
 
     - name: Save Cache
-      if: always() && (github.ref_name == github.event.repository.default_branch || github.ref == 'refs/heads/ERF-Fire')
+      if: always() && github.ref_name == github.event.repository.default_branch
       uses: actions/cache/save@v6
       with:
         path: ~/.cache/ccache

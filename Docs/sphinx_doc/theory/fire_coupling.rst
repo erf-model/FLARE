@@ -35,8 +35,8 @@ coupled to ERF the same way.
   [W/m²], averaged over its step. It writes its own checkpoint and fire
   plotfile, and offers the level set, the reference wind and the heat release
   to the other surface models (the dust layer reads them). :cpp:`erf.fire.engine` selects it; the only
-  engine so far is ``"native"``, ERF's own model (``FireEngine``, the
-  ``FireLayer`` class), which every other section of the fire pages
+  engine so far is ``"flare"``, FLARE (Fire-Line Advancement and Reaction
+  Engine; ``FireEngine``, the ``FireLayer`` class), which every other section of the fire pages
   describes.
 
 The engine reads, at the start of each step, the face velocities of the fire
@@ -268,7 +268,7 @@ dry-fuel share of the heat release,
 so that the sensible flux is 7% lower than :math:`Q` at the default 8%
 moisture and 23% lower at 30%. :cpp:`erf.fire.heat_flux_partition` selects
 the partition: ``"legacy"`` (default) injects the full :math:`Q`, the form
-ERF-Fire has always used; ``"cfbm"`` applies :math:`f_{dry}`. Only the
+FLARE has always used; ``"cfbm"`` applies :math:`f_{dry}`. Only the
 flux handed to the atmosphere changes: the fire-grid heat flux kept for the
 plotfiles, Byram intensity and flame diagnostics stays the unpartitioned
 release, and the latent flux is the same under both settings. The moisture

@@ -1,8 +1,9 @@
 /**
  * @file ERF_NativeFireEngine.cpp
- * @brief Registers the native fire engine (FireLayer) with ERF
+ * @brief Registers FLARE, the native fire engine (FireLayer), with ERF
  *
- * erf.fire.engine = native selects it. The coupling keys (erf.fire.grid_ratio,
+ * erf.fire.engine = flare selects it (FLARE: Fire-Line Advancement and
+ * Reaction Engine). The coupling keys (erf.fire.grid_ratio,
  * coupling_type, ...) are read once by ERF (FireCouplingParams) and handed
  * here; FireParams reads the engine's own keys and takes the coupling keys
  * from ERF, so the two never disagree.
@@ -42,4 +43,4 @@ public:
 
 } // namespace
 
-ERF_REGISTER_FIRE_ENGINE(NativeFireEngine, "native")
+ERF_REGISTER_FIRE_ENGINE(NativeFireEngine, "flare")

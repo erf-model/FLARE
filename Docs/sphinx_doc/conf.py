@@ -59,9 +59,9 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project   = u'ERF'
+project   = u'FLARE'
 copyright = u' '
-author    = u'ERF development team'
+author    = u'FLARE and ERF development teams'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -250,7 +250,7 @@ html_theme = 'sphinx_rtd_theme'
 # html_search_scorer = 'scorer.js'
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'ERFdoc'
+htmlhelp_basename = 'FLAREdoc'
 
 # -- Options for LaTeX output ---------------------------------------------
 
@@ -276,7 +276,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'ERF.tex', u'ERF Documentation',
+    (master_doc, 'FLARE.tex', u'FLARE Documentation',
      author, 'manual'),
 ]
 
@@ -318,7 +318,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'erf', u'ERF Documentation',
+    (master_doc, 'flare', u'FLARE Documentation',
      [author], 1)
 ]
 
@@ -351,8 +351,8 @@ linkcheck_allowed_redirects = {
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'ERF', u'ERF Documentation',
-     author, 'ERF', 'One line description of project.',
+    (master_doc, 'FLARE', u'FLARE Documentation',
+     author, 'FLARE', 'Fire-Line Advancement and Reaction Engine, built on ERF.',
      'Miscellaneous'),
 ]
 
