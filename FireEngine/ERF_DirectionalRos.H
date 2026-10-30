@@ -644,12 +644,26 @@ inline void advect_levelset_directional_rk3_split(amrex::MultiFab& phi,
                                                    int fuel_set = 0,
                                                    const amrex::MultiFab* ros_scale = nullptr,
                                                    const RothermelCellInputs* cell_mc = nullptr,
-                                                   fire_levelset::Scratch* scratch = nullptr)
+                                                   fire_levelset::Scratch* scratch = nullptr,
+                                                   bool freeze_masked = false)
 {
     using namespace amrex;
 
     MultiFab VwVs(phi.boxArray(), phi.DistributionMap(), 5, 0);
     fill_advective_VwVs(VwVs, wind, slopes, st, fuel_model, rc_tbl, rc_tbl_size, fuel_set, ros_scale, cell_mc);
+
+    // erf.fire.levelset.mask_mode = "wrf": as WRF-Fire, a non-burnable cell has
+    // no rate at all (R0 = 0, no wind or slope advection), so its level-set
+    // value does not evolve; nothing else treats the cell specially.
+    if (freeze_masked && nonburnable != nullptr) {
+        for (MFIter mfi(VwVs); mfi.isValid(); ++mfi) {
+            auto v = VwVs.array(mfi);
+            auto m = nonburnable->const_array(mfi);
+            ParallelFor(mfi.validbox(), 5, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept {
+                if (m(i, j, k) > 0.5_rt) { v(i, j, k, n) = 0.0_rt; }
+            });
+        }
+    }
 
     const auto dx = geom.CellSizeArray();
     fire_levelset::Scratch local;
