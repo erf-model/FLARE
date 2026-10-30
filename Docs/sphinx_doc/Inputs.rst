@@ -6401,6 +6401,11 @@ Propagation
 | **erf.fire.levelset.wall_extrapolate**         | Extrapolate the level set into non-burnable cells inside   | Boolean                        | false                  |
 |                                                | every stencil, so a masked wall is a zero-gradient boundary|                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.levelset.mask_mode**                | Non-burnable cells: "wall" holds them at phi >= 0 with a   | "wall", "wrf"                  | "wall"                 |
+|                                                | wall stencil, "wrf" (as WRF-Fire) only zeroes their rate   |                                |                        |
+|                                                | (split Hamiltonian path): no hold, no wall stencil,        |                                |                        |
+|                                                | reinitialisation acts on every cell                        |                                |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.levelset.ellipse**                  | Spread as a Huygens ellipse set by the midflame wind       | Boolean                        | false                  |
 |                                                | (FARSITE family); turns the directional_ros default off,   |                                |                        |
 |                                                | and cannot be combined with an explicit true               |                                |                        |

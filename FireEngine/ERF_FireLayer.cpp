@@ -1225,7 +1225,12 @@ void FireLayer::advance(const FireForcing& forcing)
                 m_params.directional_ros && !m_params.is_hybrid() &&
                 (m_params.ros_model != "balbi") && (m_params.ros_model != "prescribed");
             // Wall extrapolation only means something with a mask.
-            const bool wall_extrap = m_params.levelset_wall_extrapolate && (fire_nonburnable != nullptr);
+            // mask_mode "wrf": no wall stencil, no hold; the mask only zeroes the rate
+            const bool wrf_mask = (m_params.levelset_mask_mode == "wrf") && (fire_nonburnable != nullptr);
+            if (wrf_mask && m_params.directional_ros && !m_params.directional_split_hamiltonian) {
+                amrex::Abort("[FIRE] erf.fire.levelset.mask_mode = \"wrf\" with directional_ros needs erf.fire.directional_split_hamiltonian = true");
+            }
+            const bool wall_extrap = !wrf_mask && m_params.levelset_wall_extrapolate && (fire_nonburnable != nullptr);
             // erf.fire.rothermel_cell_moisture: the Rothermel kernels rebuild
             // their coefficients from each cell's own dead moistures
             const RothermelCellInputs cell_mc = rothermel_cell_inputs();
@@ -1316,7 +1321,7 @@ void FireLayer::advance(const FireForcing& forcing)
                                                     m_params.fuel_map.fuel_set_id(),
                                                     accel_factor.get(),
                                                     cell_mc.active() ? &cell_mc : nullptr,
-                                                    &m_ls_scratch);
+                                                    &m_ls_scratch, wrf_mask);
                 } else {
                     advect_levelset_directional_rk3(*fire_phi, fbp_ref ? *fire_wind_ref : *fire_wind_eff,
                                                     *fire_slopes, m_fg.geom, dt_ls,
@@ -3092,6 +3097,7 @@ void FireLayer::apply_suppression()
 void FireLayer::enforce_nonburnable_phi()
 {
     if (!fire_nonburnable || !fire_phi) { return; }
+    if (m_params.levelset_mask_mode == "wrf") { return; }   // WRF-Fire does not hold phi in non-burnable cells
     // Mask cells are only ever clamped at zero, never lifted to a fixed
     // positive level. With a zero rate of spread their level-set value does
     // not evolve during advection, and reinitialisation keeps its sign, so
