@@ -138,6 +138,15 @@ run_bubble (bool fixed_density, bool moist)
     amrex::MultiFab z_cc(ba, dm, 1, 0);
     amrex::MultiFab mf_m(ba, dm, 1, 0);
     amrex::MultiFab z_nd(amrex::convert(ba, amrex::IntVect(1)), dm, 1, 0);
+    // The ground under each column: the bottom-face nodes, as ERF_InitCustomPertState.cpp
+    // builds z_sfc_nd (erf-model/ERF#4843)
+    amrex::BoxList bl_sfc(amrex::IndexType::TheNodeType());
+    for (int ib = 0; ib < ba.size(); ++ib) {
+        amrex::Box b = amrex::surroundingNodes(ba[ib]);
+        b.setRange(2, domain.smallEnd(2));
+        bl_sfc.push_back(b);
+    }
+    amrex::MultiFab z_sfc_nd(amrex::BoxArray(std::move(bl_sfc)), dm, 1, 0);
     pert.setVal(Real(0.0));
     mf_m.setVal(Real(1.0));
 
@@ -168,6 +177,12 @@ run_bubble (bool fixed_density, bool moist)
         {
             zn(i,j,k) = node_height(i, j, k);
         });
+        const auto zs = z_sfc_nd.array(mfi.index());
+        amrex::ParallelFor(z_sfc_nd.boxArray()[mfi.index()],
+        [=] AMREX_GPU_DEVICE (int i, int j, int k)
+        {
+            zs(i,j,k) = node_height(i, j, k);
+        });
     }
     amrex::Gpu::streamSynchronize();
 
@@ -181,8 +196,8 @@ run_bubble (bool fixed_density, bool moist)
     for (amrex::MFIter mfi(state); mfi.isValid(); ++mfi) {
         prob.init_custom_pert(mfi.validbox(), state.const_array(mfi), pert.array(mfi),
                               r_hse.array(mfi), p_hse.array(mfi), z_nd.const_array(mfi),
-                              z_cc.const_array(mfi), geom.data(), mf_m.const_array(mfi),
-                              sc, 0);
+                              z_cc.const_array(mfi), z_sfc_nd.const_array(mfi.index()),
+                              geom.data(), mf_m.const_array(mfi), sc, 0);
     }
     amrex::Gpu::streamSynchronize();
 
