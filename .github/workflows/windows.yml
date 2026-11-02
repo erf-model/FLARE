@@ -120,7 +120,7 @@ jobs:
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
           -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded `
           -DCMAKE_POLICY_DEFAULT_CMP0141=NEW `
-          -DCMAKE_INSTALL_PREFIX:PATH=${{runner.workspace}}/ERF/install `
+          -DCMAKE_INSTALL_PREFIX:PATH=${{github.workspace}}/install `
           -DCMAKE_BUILD_TYPE:STRING=$env:BUILD_TYPE `
           -DAMReX_ASSERTIONS:BOOL=$env:ASSERTIONS `
           -DERF_DIM:STRING=3 `
@@ -165,33 +165,33 @@ jobs:
       if: matrix.mesh_precision == 'DOUBLE' && matrix.particles == 'ON'
       shell: pwsh
       run: |
-        $out = & "${{runner.workspace}}/ERF/build/Tests/Unit/erf_unit_tests.exe" --gtest_list_tests
+        $out = & "${{github.workspace}}/build/Tests/Unit/erf_unit_tests.exe" --gtest_list_tests
         $out
         $outText = $out -join "`n"
         if ($outText -notmatch '(?m)^[A-Za-z0-9_].*\.$') {
           throw "No unit tests registered"
         }
-      working-directory: ${{runner.workspace}}/ERF/build
+      working-directory: ${{github.workspace}}/build
 
     - name: CMake Unit Tests
       if: matrix.mesh_precision == 'DOUBLE' && matrix.particles == 'ON'
       shell: pwsh
       run: |
         ctest -L unit -VV @("${{ matrix.mpi == 'ON' && '-j,2,--repeat,until-pass:2' || '-j,4' }}".Split(','))
-      working-directory: ${{runner.workspace}}/ERF/build
+      working-directory: ${{github.workspace}}/build
 
     - name: CMake Shuffle Stress Test
       if: matrix.mesh_precision == 'DOUBLE' && matrix.particles == 'ON'
       shell: pwsh
       run: ctest -L stress --output-on-failure --no-tests=error @("${{ matrix.mpi == 'ON' && '-j,2,--repeat,until-pass:2' || '-j,4' }}".Split(','))
-      working-directory: ${{runner.workspace}}/ERF/build
+      working-directory: ${{github.workspace}}/build
 
     - name: CMake Regression Tests # see file ERF/Tests/CTestList.cmake
       if: matrix.mesh_precision == 'DOUBLE' && matrix.particles == 'ON'
       shell: pwsh
       run: |
         ctest -L regression -VV @("${{ matrix.mpi == 'ON' && '-j,2,--repeat,until-pass:2' || '-j,4' }}".Split(','))
-      working-directory: ${{runner.workspace}}/ERF/build
+      working-directory: ${{github.workspace}}/build
 
     # The MS-MPI builds are the downloadable binaries: the executable and how to run it,
     # not the build tree (which was 450-512 MB per variant).
