@@ -445,6 +445,9 @@ public:
     void project_momenta (int lev, double l_time, double l_dt, amrex::Vector<amrex::MultiFab >& vars);
 
     // A refined level that stops inside the domain in z (ERF_CoarseFineFaces.cpp)
+    void cf_zface_coarse_at (int lev, double tc, bool conserved_rho,
+                             const amrex::MultiFab& pz, const amrex::MultiFab& pmu, const amrex::MultiFab& pmv,
+                             amrex::MultiFab& cOm, amrex::MultiFab& cRu, amrex::MultiFab& cRv);
     bool cf_zface_coarse_data (int lev, double time, bool conserved_rho,
                                amrex::MultiFab& omega_t, amrex::MultiFab& rhou_g, amrex::MultiFab& rhov_g,
                                amrex::Vector<int>& slab_box);
@@ -452,6 +455,23 @@ public:
                                    amrex::MultiFab& omega_t, amrex::Vector<int>& slab_box);
     void set_cf_zface_omega (int lev, amrex::MultiFab& omega, const amrex::MultiFab& omega_t,
                              const amrex::Vector<int>& slab_box);
+    bool cf_interp_mass_flux (int lev) const;
+    void RegisterCoarseMomentumCF (int levc, const amrex::MultiFab& xold, const amrex::MultiFab& xnew,
+                                   const amrex::MultiFab& yold, const amrex::MultiFab& ynew,
+                                   const amrex::Vector<double>& times);
+    // Anelastic coarse/fine faces in time (ERF_CoarseFineFaces.cpp)
+    bool cf_anelastic_flux_match (int lev) const;
+    void cf_anelastic_record (int levc, int nrk);
+    void cf_anelastic_stage_registration (int lev, int nrk);
+    void average_down_mass_flux (int crse_lev);
+    bool cf_anelastic_stage1 (int lev) const;
+    // Whether each fine level is in the first stage of its step (cf_anelastic_stage_registration)
+    amrex::Vector<int> m_cf_stage1;
+    // The horizontal mass flux the level's last step applied (cf_anelastic_record)
+    amrex::Vector<amrex::Array<amrex::MultiFab, 2>> m_cf_step_flux;
+    // ... and its vertical flux, as Omega
+    amrex::Vector<amrex::MultiFab> m_cf_step_zflux;
+    void FillSetHorizontalMomentaCF (int lev, double time, amrex::MultiFab& xmom, amrex::MultiFab& ymom);
     void FillSetMomentaCF (int lev, double time, amrex::MultiFab& xmom, amrex::MultiFab& ymom,
                            amrex::MultiFab& zmom);
     void fill_surface_nodes (int lev, amrex::MultiFab& znd_surf);
@@ -463,6 +483,11 @@ public:
 
     // Calculate wall distance by solving a Poisson equation
     void poisson_wall_dist (int lev);
+
+    // The RANS wall distance at this level (poisson_wall_dist plus the thin-body
+    // correction); called when the level is made and again whenever a regrid
+    // remakes or adds it, since init_stuff resets the field on new grids
+    void make_wall_dist (int lev);
 
     void make_subdomains (const amrex::BoxList& ba, amrex::Vector<amrex::BoxArray>& bins);
 
@@ -1112,6 +1137,14 @@ public:
     // read checkpoint file from disk -- called after instantiating m_SurfaceLayer
     void ReadCheckpointFileSurfaceLayer ();
 
+    // Rebuild precip_accum, and for some schemes rain_accum, at a level read from a
+    // checkpoint that predates precip_accum. Public because it launches a GPU lambda.
+    void convert_legacy_precip_accumulations (int lev);
+
+    // Automatic inflow perturbation update on a nested level.
+    // Public because it launches a GPU lambda.
+    void turbPert_update_automatic (int lev, double time);
+
     void fill_terrain_surface  (int lev, amrex::MultiFab& z_phys, double elapsed_time);
     void init_zphys            (int lev, double elapsed_time);
     void remake_zphys          (int lev, amrex::Real time, std::unique_ptr<amrex::MultiFab>& temp_zphys_nd);
@@ -1176,6 +1209,7 @@ private:
 
     // Initialize the Turbulent perturbation
     void turbPert_update (const int lev, const double dt);
+    void turbPert_update_uniform_wind (int lev, double time);
     void turbPert_amplitude (const int lev);
     void turbPert_amplitude_w (const int lev);
 
@@ -1491,7 +1525,7 @@ private:
     std::unique_ptr<erf_auxiliary::AuxiliaryInertTracer> auxiliary_inert_tracer;
     std::unique_ptr<CloudChamberBudget> cloud_chamber_budget;
     erf_cloud_chamber::Config cloud_chamber_config;
-    amrex::Vector<amrex::Vector<amrex::MultiFab*>> qmoist; // (lev,ncomp) rain_accum, snow_accum, graup_accum
+    amrex::Vector<amrex::Vector<amrex::MultiFab*>> qmoist; // (lev,ncomp) rain_accum, snow_accum, graupel_accum, precip_accum
     amrex::Vector<std::unique_ptr<amrex::MultiFab>> precip; // SLM precipitation-rate scratch
 
     // Variables for wind farm parametrization models
@@ -1636,6 +1670,7 @@ private:
         amrex::MultiFab tgt_w;
     };
     amrex::Vector<CFFluxHistory> m_cf_flux_hist;
+    static bool cf_flux_history_enabled ();
     bool cf_flux_history_active (int crse_lev) const;
     CFFluxHistory& cf_flux_history (int lev);
     void cf_flux_history_record (int crse_lev, int fast_step, int n_sub,
@@ -1949,7 +1984,7 @@ private:
                                                     // moisture vars
                                                     "moist_density", "qv", "qc", "qi", "qrain", "qsnow", "qgraup",
                                                     "qt", "qn", "qp", "qsat", "nc", "ni", "nr", "ns", "ng", "nn",
-                                                    "rain_accum", "snow_accum", "graup_accum",
+                                                    "rain_accum", "snow_accum", "graupel_accum", "precip_accum",
                                                     "rel_humidity", "condensation_rate",
                                                     // Terrain IB mask
                                                     "terrain_IB_mask",

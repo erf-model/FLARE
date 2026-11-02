@@ -170,8 +170,11 @@ One further family is documented on its own page rather than here:
   ``erf.perturbation_direction``, ``erf.perturbation_layers``,
   ``erf.perturbation_offset``, ``erf.perturbation_nondimensional``,
   ``erf.perturbation_T_infinity``, ``erf.perturbation_T_intensity``,
-  ``erf.perturbation_Ug``, ``erf.perturbation_w_amp``, ``erf.perturbation_klo``
-  and ``erf.perturbation_khi`` -- are described in
+  ``erf.perturbation_Ug``, ``erf.perturbation_w_amp``, ``erf.perturbation_klo``,
+  ``erf.perturbation_khi``, ``erf.perturbation_auto``,
+  ``erf.perturbation_auto_period``, ``erf.perturbation_auto_pbl_fraction``,
+  ``erf.perturbation_uniform_refresh``, ``erf.perturbation_refresh_height`` and
+  ``erf.perturbation_refresh_wind_period`` -- are described in
   :ref:`sec:InflowTurbulenceGeneration`.
 
 
@@ -383,11 +386,11 @@ Grid Stretching
 ===============
 
 This automatically activates **erf.terrain_type = StaticFittedMesh**. By default, the
-problem-specific terrain is initialized to be flat at an elevation of z=0.
+problem-specific terrain is initialized to be flat at **geometry.prob_lo** in z.
 These inputs are used to automatically generate the staggered z levels used to
 calculate the grid metric transformation. Alternatively, arbitrary z levels may
-be specified with the **erf.terrain_z_levels** parameter, which should vary
-from 0 (at the surface) to the domain height.
+be specified with the **erf.terrain_z_levels** parameter, which must start at
+**geometry.prob_lo** in z (the surface) and rise to the domain height.
 
 .. _list-of-parameters-3:
 
@@ -439,10 +442,10 @@ Notes
   wrfinput case builds its grid from the file instead.
 - The number of input **erf.terrain_z_levels** must be equal **amr.n_cell** in
   the z direction + 1.
-- A stretched grid (**erf.grid_stretching_ratio** or **erf.initial_dz**) starts at
+- Every vertical grid -- uniform, stretched (**erf.grid_stretching_ratio** or
+  **erf.initial_dz**) or given by **erf.terrain_z_levels** -- starts at
   **geometry.prob_lo** in z, and a flat surface sits there.  The former input
   **erf.zsurface** is no longer accepted; set **geometry.prob_lo** in z instead.
-  **erf.terrain_z_levels** must still start at 0.
 
 .. _examples-of-usage-3:
 
@@ -883,6 +886,8 @@ We note that when using implicit substepping, the vertical grid spacing does not
 The number of acoustic sub-steps per timestep can also be specified by the user as a fixed value or by specifying the
 number of substeps per RK stage.  For the anelastic equations, the timestep calculation uses the advective CFL constraint,
 which means it is determined by the fluid speed rather than the sound speed and thus allows much larger timesteps.
+In both cases the horizontal terms use the physical cell widths :math:`\Delta x / m_x` and :math:`\Delta y / m_y`,
+where :math:`m_x` and :math:`m_y` are the local map factors, so the timestep is limited by the smallest physical cell.
 
 .. _list-of-parameters-6:
 
@@ -1875,6 +1880,16 @@ cannot produce; a 2D diagnostic that is valid but not computed in this run is
 written as the missing value it would have in a 2D plotfile (0 or -999 depending
 on the diagnostic) rather than being dropped.
 
+A 3D name that this configuration cannot produce -- ``qsnow`` under Kessler
+microphysics, for example, since Kessler carries no ice -- can be treated the same
+way by setting ``erf.station_allow_unavailable = true``.  Its column is then
+kept and written as -999 at every height, the header marks it as not available in
+this run, and the run prints a warning, so one station list can be shared by
+configurations that carry different fields.  The default is false, which stops
+the run: a column that holds no data is easy to overlook in a long series, so it
+has to be asked for.  A name that is neither a 3D nor a 2D variable still stops
+the run.
+
 Four more names give earth-relative winds, for comparison with towers, which
 report them: ``u_east`` and ``v_north`` (m/s), ``wind_speed`` (the horizontal
 speed, m/s) and ``wind_dir`` (the meteorological direction the wind comes from,
@@ -1909,7 +1924,8 @@ value.
    extrapolated to the requested height by surface-layer similarity.  In a run
    whose first cell is 100 m deep, ``height_agl = 10.0`` and ``height_agl = 40.0`` both
    report the value 50 m up.  For 2 m and 10 m quantities, ask for the 2D
-   diagnostics (``temperature_2m``, ``water_vapor_mixing_ratio_2m`` and the
+   diagnostics (``temperature_2m``, ``water_vapor_mixing_ratio_2m``, the 10 m
+   winds ``u_10m``, ``v_10m``, ``u_east_10m`` and ``v_north_10m``, and the other
    surface-layer diagnostics), which are computed from the surface-layer
    parameterization; the run warns once if a requested height falls in that
    first half cell.
@@ -2042,6 +2058,9 @@ List of Parameters
 | **erf.station_buffer_steps**       | Output steps buffered before the files are written       | Integer            | 100              |
 +------------------------------------+----------------------------------------------------------+--------------------+------------------+
 | **erf.station_output_dir**         | Directory the station files are written to               | String             | Output_Stations  |
++------------------------------------+----------------------------------------------------------+--------------------+------------------+
+| **erf.station_allow_unavailable**  | Write a 3D variable this configuration cannot produce as | Boolean            | false            |
+|                                    | -999 instead of stopping the run                         |                    |                  |
 +------------------------------------+----------------------------------------------------------+--------------------+------------------+
 
 .. note::
@@ -2718,7 +2737,9 @@ ABL Driver and Geostrophic Forcing
 |                             | ``z Ug Vg`` (m, m/s, m/s), heights increasing and        |                    |                  |
 |                             | covering the domain; blank lines and lines starting      |                    |                  |
 |                             | with ``#`` are skipped, and any other row that does not  |                    |                  |
-|                             | start with three numbers stops the run                   |                    |                  |
+|                             | start with three numbers stops the run. ``z`` is the     |                    |                  |
+|                             | physical height, in the same coordinate as               |                    |                  |
+|                             | ``geometry.prob_lo[2]`` and ``prob_hi[2]``               |                    |                  |
 +-----------------------------+----------------------------------------------------------+--------------------+------------------+
 
 .. _sec:WindFarmForcingInputs:
@@ -4067,6 +4088,14 @@ column would be taken for a building), a uniform vertical grid (no
 +-----------------------------------+----------------------------------------------------------+--------------------+------------------------+
 | **erf.ibseb.view_n_el**           | elevations of the hemisphere sampling                    | Integer >= 1       | 8                      |
 +-----------------------------------+----------------------------------------------------------+--------------------+------------------------+
+| **erf.ibseb.sun_min_elev_deg**    | lowest sun elevation [deg] at which the shadow test is   | Real in (0, 90)    | 2.0                    |
+|                                   | exact everywhere: each rank's ray map reaches (tallest   |                    |                        |
+|                                   | building) / tan(elevation) beyond its own columns; with  |                    |                        |
+|                                   | the sun lower, a building farther than that from a face  |                    |                        |
+|                                   | casts no shadow on it. The map reaches at least as far   |                    |                        |
+|                                   | as the shallowest view ray (view_n_az, view_n_el) too,   |                    |                        |
+|                                   | and a domain it covers whole is exact whatever the value |                    |                        |
++-----------------------------------+----------------------------------------------------------+--------------------+------------------------+
 | **erf.ibseb.lw_mode**             | sky longwave. ``fixed``: lw_down. ``gray``:              | "fixed", "gray",   | "gray"; "two_stream"   |
 |                                   | sky_emissivity sigma T_air^4, with the air temperature   | "two_stream"       | with radiation =       |
 |                                   | of the face's fluid cell. ``two_stream`` (only with      |                    | two_stream             |
@@ -4257,7 +4286,8 @@ the ones marked **Required** abort the run if they are not given.
 |                                       | value requires an active moisture model                  |                     |                  |
 +---------------------------------------+----------------------------------------------------------+---------------------+------------------+
 | **erf.most.rhosurf**                  | surface density used with the prescribed fluxes instead  | Real                | 0.0 (use first   |
-|                                       | of the density in the first cell                         |                     | cell)            |
+|                                       | of the density in the first cell; may not be combined    |                     | cell)            |
+|                                       | with ``erf.most.use_sfc_fluxes``                         |                     |                  |
 +---------------------------------------+----------------------------------------------------------+---------------------+------------------+
 | **erf.most.Cd**                       | bulk transfer coefficient for momentum.  **Required**    | Real                | must be set      |
 |                                       | when ``flux_type`` = ``bulk_coeff``                      |                     |                  |
@@ -4313,8 +4343,9 @@ the ones marked **Required** abort the run if they are not given.
 |                                       | not used                                                 |                     |                  |
 +---------------------------------------+----------------------------------------------------------+---------------------+------------------+
 | **erf.most.use_sfc_fluxes**           | read time-varying sensible and latent heat fluxes and    | Boolean             | false            |
-|                                       | friction velocity from a text file; may not be combined  |                     |                  |
-|                                       | with ``erf.most.use_sfc_sst``                            |                     |                  |
+|                                       | kinematic surface stress from a text file; may not be    |                     |                  |
+|                                       | combined with ``erf.most.use_sfc_sst`` or                |                     |                  |
+|                                       | ``erf.most.rhosurf``                                     |                     |                  |
 +---------------------------------------+----------------------------------------------------------+---------------------+------------------+
 | **erf.most.use_sfc_sst**              | read a time-varying sea-surface temperature from a text  | Boolean             | false            |
 |                                       | file; may not be combined with                           |                     |                  |

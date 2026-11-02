@@ -269,22 +269,11 @@ void erf_slow_rhs_post (int level, int finest_level,
     //       components come from the LES model or are left as zero.
     // *************************************************************************
 
-    // EB Anelastic: Copy projected momentum with ghost-cell synchronization
-    if (l_anelastic && l_use_eb) {
-        avg_xmom.ParallelCopy(S_data[IntVars::xmom], 0, 0, 1, 0, 1, geom.periodicity());
-        avg_ymom.ParallelCopy(S_data[IntVars::ymom], 0, 0, 1, 0, 1, geom.periodicity());
-        avg_zmom.ParallelCopy(S_data[IntVars::zmom], 0, 0, 1, 0, 1, geom.periodicity());
-    }
-
-    // Non-EB Anelastic: the slow scalars are advected with the projected momentum.  Copy it
-    // before the tile loop below: a copy per tile inside that loop left the faces of the tiles
-    // not yet visited at their values from the previous stage while earlier tiles were already
-    // advecting with them, so the scalars depended on the tile size.
-    if (l_anelastic && !l_use_eb) {
-        MultiFab::Copy(avg_xmom, S_data[IntVars::xmom], 0, 0, 1, 0);
-        MultiFab::Copy(avg_ymom, S_data[IntVars::ymom], 0, 0, 1, 0);
-        MultiFab::Copy(avg_zmom, S_data[IntVars::zmom], 0, 0, 1, 0);
-    }
+    // Anelastic: the slow scalars are advected with the momenta (EB)AdvectionSrcForRho set in
+    // erf_slow_rhs_pre from the start of this stage (ax rho_u / mf_uy, ay rho_v / mf_vx,
+    // az Omega / (mf_mx mf_my); with EB the area fractions are applied to the fluxes instead),
+    // the same faces that advect theta.  These momenta are already projected, by the previous
+    // stage or step.
 
     // M2 proof consumer: run after the stage carrier is final and before the
     // caller copies S_data over S_new, preserving the predictor density view.

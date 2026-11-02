@@ -141,6 +141,9 @@ target_sources(${erf_exe_name}
     # Motivation: reusable scalar advection must honor explicit source, flux, and
     # tendency components instead of inferring primitive storage from native cons layout.
     ${CMAKE_CURRENT_SOURCE_DIR}/Advection/ERF_GTestScalarAdvection.cpp
+    # Motivation: with an EB that cuts no cell, EB momentum advection must equal the non-EB
+    # operator, map factors included: x-face mass fluxes divide by m_y, y-face ones by m_x.
+    ${CMAKE_CURRENT_SOURCE_DIR}/Advection/ERF_GTestEBMomMapFactors.cpp
     # Motivation: the z-momentum box must be shrunk only at the bottom and top of the
     # domain, so that a grid split in z leaves no w-face without a source term.
     ${CMAKE_CURRENT_SOURCE_DIR}/Advection/ERF_GTestZmomBoxDecomposition.cpp
@@ -179,6 +182,10 @@ target_sources(${erf_exe_name}
     # second-order one-sided gradient the explicit strain uses, or the steady state of a
     # wall-bounded flow (PoiseuilleFlow) drifts at the wall cells.
     ${CMAKE_CURRENT_SOURCE_DIR}/Diffusion/ERF_GTestImplicitWallStencil.cpp
+    # Motivation: the implicit vertical momentum solves must carry the YSU countergradient flux
+    # through the lower face of the top row and both faces of a coarse/fine row, or the column
+    # loses momentum through the face below the top cell (erf-model/ERF#4822).
+    ${CMAKE_CURRENT_SOURCE_DIR}/Diffusion/ERF_GTestImplicitMomCountergradient.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/LinearSolvers/ERF_GTestTerrainPoisson.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/LinearSolvers/ERF_GTestTerrainMLMG.cpp
     # Motivation: the opt-in WRF Smagorinsky-2D limits must reproduce WRF's smag2d_km numbers
@@ -195,6 +202,10 @@ target_sources(${erf_exe_name}
     # Motivation: the stable-side z/L in the 2 m profile must stay bounded for a very
     # small positive Obukhov length.
     ${CMAKE_CURRENT_SOURCE_DIR}/Diagnostics/ERF_GTestNearSurfaceStability.cpp
+    # Motivation: the 10 m winds must take the surface-layer momentum profile's speed
+    # in the first-cell wind's direction, turn earth-relative with the grid, and be
+    # missing where the profile cannot be evaluated.
+    ${CMAKE_CURRENT_SOURCE_DIR}/Diagnostics/ERF_GTestNearSurfaceWind.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/SourceTerms/ERF_GTestCanopyBiophysics.cpp
     # Motivation: the k-eqn RANS canopy terms must keep the kynema-sgf
     # formulas, cap L only inside the forest and never remove more than k.
@@ -214,6 +225,13 @@ target_sources(${erf_exe_name}
     # materials by building, even when its tallest column is a spire level 0
     # leaves fluid, or the level holds only some of the buildings.
     ${CMAKE_CURRENT_SOURCE_DIR}/SourceTerms/ERF_GTestIBSEBLevelNumbering.cpp
+    # Motivation: the ray cast of the building faces reads a per-rank patch of the
+    # column map with a halo sized for the shallowest ray, instead of a map of the whole
+    # domain on every rank (erf-model/ERF#4020): a ray that leaves the patch is in open
+    # country, a patch spanning a periodic domain wraps round, the buildings are
+    # labelled across boxes and periodic seams in one numbering whatever the
+    # decomposition, and a refined level sees the buildings of the level below.
+    ${CMAKE_CURRENT_SOURCE_DIR}/SourceTerms/ERF_GTestIBSEBRayMap.cpp
     # Motivation: with erf.ibseb.radiation = two_stream every face must read its own column
     # at its own height (roof interface, wall mean of its cell's two), on a level of several
     # boxes whose columns all differ.
@@ -233,6 +251,10 @@ target_sources(${erf_exe_name}
     ${CMAKE_CURRENT_SOURCE_DIR}/Radiation/ERF_GTestTwoStreamKernels.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Radiation/ERF_GTestTwoStreamColumn.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Radiation/ERF_GTestTwoStreamRadiationDriver.cpp
+    # Motivation: the Simple longwave scheme must stay inside the column when the
+    # moist layer reaches the domain top (erf-model/ERF#4484), and give the top
+    # cell its closed-form heating there.
+    ${CMAKE_CURRENT_SOURCE_DIR}/Radiation/ERF_GTestRadiationSimple.cpp
     # Motivation: with erf.ibseb.sun_mode = two_stream the building faces must
     # see the two-stream columns' sun: the same zenith, a morning sun in the
     # east, and the start date read the same way.
@@ -284,6 +306,9 @@ target_sources(${erf_exe_name}
     # Motivation: erf.metgrid_force_sfc_k must drop the same origin levels whether or not the
     # column has origin levels below the surface (erf-model/ERF#4607).
     ${CMAKE_CURRENT_SOURCE_DIR}/Initialization/ERF_GTestMetgridForceSfc.cpp
+    # Parent-driven inflow masks must follow height and wind reversals, including
+    # calm periods, without applying corner increments twice.
+    ${CMAKE_CURRENT_SOURCE_DIR}/Initialization/ERF_GTestAutomaticPerturbation.cpp
     # Motivation: a station placed by latitude/longitude must land where the
     # lat/lon arrays put it on a rotated grid and on a grid across 180 degrees.
     ${CMAKE_CURRENT_SOURCE_DIR}/Utils/ERF_GTestLatLonMap.cpp
@@ -580,7 +605,18 @@ if(TARGET erf_exec AND ERF_DIM STREQUAL "3" AND
   add_sbm_expected_failure_test(SBM_M3_Fixed_Unsafe_Anelastic_Stretched_Donor_DT
     inputs_adaptive_anelastic_stretched_donor
     "SBM M3 fixed timestep exceeds donor positivity limit"
-    "-DOVERRIDE=erf.fixed_dt=0.05")
+    "-DOVERRIDE=erf.fixed_dt=0.08")
+  # The limit on this deck is 1/14.4 s = 0.0694 s, from the outflow rate U/dx + V/dy + W/dz of the
+  # 0.1 thick bottom cell: the estimate must see the same mapped faces as the transport
+  add_test(NAME SBM_M3_Fixed_Safe_Anelastic_Stretched_Donor_DT
+    COMMAND $<TARGET_FILE:erf_exec>
+      ${PROJECT_SOURCE_DIR}/Tests/test_files/SBM/inputs_adaptive_anelastic_stretched_donor
+      erf.fixed_dt=0.068 erf.check_int=-1 amrex.call_addr2line=0
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  set_tests_properties(SBM_M3_Fixed_Safe_Anelastic_Stretched_Donor_DT PROPERTIES
+    LABELS "integration;sbm"
+    RUN_SERIAL TRUE
+    TIMEOUT 120)
   add_sbm_expected_failure_test(SBM_M3_Reject_Legacy_Zero_Transport inputs_zero_carrier
     "erf.sbm_zero_transport_fixture=true is obsolete"
     "-DOVERRIDE=erf.sbm_zero_transport_fixture=true")

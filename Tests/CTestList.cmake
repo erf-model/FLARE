@@ -5,6 +5,17 @@ ProcessorCount(PROCESSES)
 # Shared handling of multi-word MPI launchers (e.g., "flux run").
 include("${CMAKE_CURRENT_LIST_DIR}/MPILauncher.cmake")
 
+# The launcher for the test commands handed to `sh -c`. Each launcher token is quoted,
+# so a path with spaces ("C:/Program Files/Microsoft MPI/Bin/mpiexec.exe") stays one
+# word and a multi-word launcher ("flux run") stays several.
+set(ERF_SH_MPI_LAUNCHER "")
+if(ERF_ENABLE_MPI)
+    erf_mpi_launcher_tokens(_mpi_launcher_tokens "${MPIEXEC_EXECUTABLE}")
+    foreach(_token IN LISTS _mpi_launcher_tokens)
+        string(APPEND ERF_SH_MPI_LAUNCHER "\"${_token}\" ")
+    endforeach()
+endif()
+
 #=============================================================================
 # Functions for adding tests / Categories of tests
 #=============================================================================
@@ -47,10 +58,8 @@ macro(setup_test)
 
     if(ERF_ENABLE_MPI)
         set(NP ${ERF_TEST_NRANKS})
-        # Quoted: these strings are handed to `sh -c`, and MS-MPI lives under
-        # "C:/Program Files/Microsoft MPI/Bin/mpiexec.exe".
-        set(MPI_COMMANDS "\"${MPIEXEC_EXECUTABLE}\" ${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
-        set(MPI_FCOMP_COMMANDS "\"${MPIEXEC_EXECUTABLE}\" ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
+        set(MPI_COMMANDS "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
+        set(MPI_FCOMP_COMMANDS "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
     else()
         set(NP 1)
         unset(MPI_COMMANDS)
@@ -1427,6 +1436,16 @@ set_tests_properties(BndryPlanes_MoistTemperature PROPERTIES FIXTURES_SETUP Bndr
 add_test_field_bounds(InputSponge_FinePatch "plt00004" x_velocity 5.9 8.5)
 # A refined patch below the inversion takes the coarse level's PBL height (~513 m), not its own
 add_test_field_bounds(PBLH_FinePatch "plt2d00004" pblh 450.0 600.0)
+
+# RANS wall distance on levels a regrid makes (#4691): level 1 is added after step 1 and
+# moved after step 3, and walldist over both levels must lie between half a level-1 cell
+# (8 m) and the top level-0 cell centre (1008 m), reaching 8 m so level 1 is in the file.
+# Before the fix level 1 kept the bogus_large_value its new grids were set to.
+add_test_field_bounds(RANS_WallDist_Regrid "plt00004" walldist 7.99 1008.01 MIN_HI 8.01)
+# The same deck stopped after step 2, when level 1 has only been added from level 0
+set(TEST_FILES_DIR RANS_WallDist_Regrid)
+add_test_field_bounds(RANS_WallDist_NewLevel "plt00002" walldist 7.99 1008.01 MIN_HI 8.01)
+unset(TEST_FILES_DIR)
 # A column whose bulk Richardson number never reaches Ribcr takes the top of the scan, capped
 # at 0.9 z(khi) = 907.2 m; YSUNew and MRF gave it the 16 m floor (erf-model/ERF#4458)
 add_test_field_bounds(PBL_NoCrossing_YSUNew "plt2d00002" pblh 907.1 907.3)
@@ -2039,9 +2058,12 @@ add_test_r(MovingTerrain_sub                 ""  "erf_exec" "plt00010")
 function(add_test_shift_invariance TEST_NAME TEST_FILES_DIR SHIFT VARS OPTIONS_A OPTIONS_B)
     setup_test()
     resolve_test_exe("" "erf_exec" TEST_EXE)
+    # Extra checker arguments (e.g. --offset -500 --offset-vars z_phys) arrive as a CMake list;
+    # spliced into the sh -c string as is, its ;-separators would end the command
+    string(REPLACE ";" " " _extra_args "${ARGN}")
     set(_run "${MPI_COMMANDS} ${TEST_EXE} ${CURRENT_TEST_BINARY_DIR}/${TEST_FILES_DIR}.i max_step=0 erf.plot_int_1=1 erf.check_int=-1")
     add_test(${TEST_NAME} sh -c
-      "${_run} erf.plot_file_1=pltA ${OPTIONS_A} > ${CURRENT_TEST_BINARY_DIR}/runA.log 2>&1 && ${_run} erf.plot_file_1=pltB ${OPTIONS_B} > ${CURRENT_TEST_BINARY_DIR}/runB.log 2>&1 && ${ERF_TEST_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/check_shift_invariance.py ${CURRENT_TEST_BINARY_DIR}/pltA00000 ${CURRENT_TEST_BINARY_DIR}/pltB00000 --shift ${SHIFT} --vars ${VARS} --tol 1e-12")
+      "${_run} erf.plot_file_1=pltA ${OPTIONS_A} > ${CURRENT_TEST_BINARY_DIR}/runA.log 2>&1 && ${_run} erf.plot_file_1=pltB ${OPTIONS_B} > ${CURRENT_TEST_BINARY_DIR}/runB.log 2>&1 && ${ERF_TEST_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/check_shift_invariance.py ${CURRENT_TEST_BINARY_DIR}/pltA00000 ${CURRENT_TEST_BINARY_DIR}/pltB00000 --shift ${SHIFT} --vars ${VARS} --tol 1e-12 ${_extra_args}")
     set_tests_properties(${TEST_NAME} PROPERTIES
         TIMEOUT 600 PROCESSORS ${NP} WORKING_DIRECTORY "${CURRENT_TEST_BINARY_DIR}/"
         LABELS "regression" ATTACHED_FILES_ON_FAIL "${CURRENT_TEST_BINARY_DIR}/runA.log;${CURRENT_TEST_BINARY_DIR}/runB.log")
@@ -2069,6 +2091,15 @@ if(NOT WIN32 AND ERF_TEST_PYTHON)
   # absolute top height and came out 16/21 of the first run's
   add_test_shift_invariance(CouetteFlow_ProbLoShiftInvariance CouetteFlow_x 0
       "x_velocity" "" "'geometry.prob_lo=0 0 5'")
+  # The bottom of the domain is geometry.prob_lo[2] (#4445): moving prob_lo, prob_hi and the
+  # hill down 500 m in z must move the whole terrain-fitted mesh down 500 m.  Before the fix
+  # the STF and Sullivan transforms measured the terrain and the levels from z = 0
+  foreach(_smoothing 1 2)
+    add_test_shift_invariance(Terrain_ProbLoZShift_Smoothing${_smoothing} Terrain2Lev_STF_interp 0
+        "z_phys" "amr.max_level=0 erf.terrain_smoothing=${_smoothing}"
+        "amr.max_level=0 erf.terrain_smoothing=${_smoothing} 'geometry.prob_lo=-3200 0 -500' 'geometry.prob_hi=3200 400 2700' prob.z_offset=-500"
+        --offset -500 --offset-vars z_phys)
+  endforeach()
   # pert_delta_v alone gives a y-velocity perturbation; pert_delta_u alone does not
   add_test_v_perturbation(Poiseuille_PertV_Only "nonzero" "")
   add_test_v_perturbation(Poiseuille_PertU_Only "zero" "prob.pert_delta_u=2.0 prob.pert_delta_v=0.0")
@@ -2419,6 +2450,46 @@ if(ERF_ENABLE_MPI AND NOT WIN32)
                                 CHECK_LEVELS 0 1)
 endif()
 
+# Start-up check: copy SOURCE_DIR, run INPUT_FILE on one rank with RUNTIME_OPTIONS
+# that break a start-up requirement, and pass when the run stops with
+# EXPECTED_MESSAGE in its output. The run is meant to abort, so its exit status is
+# dropped by the pipe into tee (a ';' here would split the CMake command list).
+#
+# amrex.call_addr2line = 0 because the abort is the point of the test: AMReX's
+# SIGABRT handler runs addr2line once per stack frame, and on a build with
+# debug info that is about 55 s per test -- far longer than the run itself
+# (measured: the abort message and "See Backtrace.0 file for details" 56 s
+# apart in CI). Backtrace.0 is still written, with raw addresses, for a test
+# that stops somewhere unexpected; `addr2line -Cpfie <exe> <address>` resolves
+# them by hand.
+function(add_test_abort TEST_NAME SOURCE_DIR INPUT_FILE EXPECTED_MESSAGE RUNTIME_OPTIONS)
+    set(CURRENT_TEST_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/test_files/${TEST_NAME})
+    file(MAKE_DIRECTORY ${CURRENT_TEST_BINARY_DIR})
+    file(GLOB TEST_FILES "${SOURCE_DIR}/*")
+    file(COPY ${TEST_FILES} DESTINATION "${CURRENT_TEST_BINARY_DIR}/")
+
+    if(ERF_ENABLE_MPI)
+        set(MPI_COMMANDS "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
+    else()
+        unset(MPI_COMMANDS)
+    endif()
+
+    resolve_test_exe("" "erf_exec" TEST_EXE)
+
+    set(test_log "${CURRENT_TEST_BINARY_DIR}/${TEST_NAME}.log")
+    set(test_command sh -c "${MPI_COMMANDS} ${TEST_EXE} ${CURRENT_TEST_BINARY_DIR}/${INPUT_FILE} max_step=1 erf.plot_int_1=-1 erf.plot_int_2=-1 erf.check_int=-1 amrex.call_addr2line=0 ${RUNTIME_OPTIONS} 2>&1 | tee ${test_log}")
+
+    add_test(${TEST_NAME} ${test_command})
+    set_tests_properties(${TEST_NAME}
+        PROPERTIES
+        TIMEOUT 600
+        PROCESSORS 1
+        WORKING_DIRECTORY "${CURRENT_TEST_BINARY_DIR}/"
+        LABELS "regression"
+        PASS_REGULAR_EXPRESSION "${EXPECTED_MESSAGE}"
+        ATTACHED_FILES_ON_FAIL "${test_log}"
+    )
+endfunction(add_test_abort)
 
 if(NOT WIN32)
   # Inputs that used to index past an array or divide by zero (#4620, #4624)
@@ -2531,7 +2602,7 @@ if(NOT WIN32)
     file(GLOB _rr_files "${_rr_src}/*")
     file(COPY ${_rr_files} DESTINATION "${_rr_dir}/")
     if(ERF_ENABLE_MPI)
-      set(_rr_mpi "\"${MPIEXEC_EXECUTABLE}\" ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
+      set(_rr_mpi "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
     else()
       unset(_rr_mpi)
     endif()
@@ -2654,6 +2725,19 @@ if(NOT WIN32 AND ERF_TEST_PYTHON)
   set_tests_properties(${TEST_NAME} PROPERTIES
       TIMEOUT 600 PROCESSORS ${NP} WORKING_DIRECTORY "${CURRENT_TEST_BINARY_DIR}/"
       LABELS "regression" ATTACHED_FILES_ON_FAIL "${CURRENT_TEST_BINARY_DIR}/${TEST_NAME}.log")
+  # The same with the bottom at z = 200 m: the z levels start at geometry.prob_lo[2] on a
+  # constant-dz mesh too (#4445), so the table must be read at them, not 200 m above them
+  set(_geo_test ${TEST_NAME})
+  set(TEST_NAME GeoWindTable_TwoLevel_ProbLoZ)
+  set(TEST_FILES_DIR ${_geo_test})
+  setup_test()
+  add_test(${TEST_NAME} sh -c
+    "${MPI_COMMANDS} ${TEST_EXE} ${CURRENT_TEST_BINARY_DIR}/${_geo_test}.i 'geometry.prob_lo=0 0 200' 'geometry.prob_extent=800 800 800' > ${CURRENT_TEST_BINARY_DIR}/${TEST_NAME}.log 2>&1 && ${ERF_TEST_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/check_geowind_profile.py ${CURRENT_TEST_BINARY_DIR}/plt00001 --tol ${_geo_tol}")
+  set_tests_properties(${TEST_NAME} PROPERTIES
+      TIMEOUT 600 PROCESSORS ${NP} WORKING_DIRECTORY "${CURRENT_TEST_BINARY_DIR}/"
+      LABELS "regression" ATTACHED_FILES_ON_FAIL "${CURRENT_TEST_BINARY_DIR}/${TEST_NAME}.log")
+  unset(TEST_FILES_DIR)
+  unset(_geo_test)
   unset(TEST_NAME)
 endif()
 if(NOT WIN32)
@@ -3552,7 +3636,8 @@ endif()
 # (Python3 for the check scripts is found above the fire tests)
 
 #=============================================================================
-# Anelastic slow-scalar advection (Exec/RegTests/AnelasticScalarAdvection)
+# Script-checked regression cases (the AnelasticScalarAdvection cases moved to
+# upstream's add_test_anelastic_scalar_advection below, erf-model/ERF#4867)
 #
 # A deck in Exec/RegTests/<CASE_DIR> runs and its Python check script, whose
 # exit code is the verdict, reads the plotfile. With REFERENCE_INPUT a second
@@ -3616,15 +3701,6 @@ function(add_test_checked TEST_NAME CASE_DIR INPUT_FILE NSTEPS CHECK_SCRIPT)
     )
 endfunction(add_test_checked)
 
-# Map factors on a uniform mesh (MLMG projection): runs in every build
-add_test_checked(AnelasticScalarAdvection_MapFactor AnelasticScalarAdvection inputs_mapfac_anelastic 60 check_mapfac_parity.py
-                 REFERENCE_INPUT inputs_mapfac_compressible)
-# Stretched and terrain-fitted meshes: their anelastic projection needs FFT
-if(ERF_ENABLE_FFT)
-    add_test_checked(AnelasticScalarAdvection_Fitted    AnelasticScalarAdvection inputs_fitted    50 check_scalar_centroid.py)
-    add_test_checked(AnelasticScalarAdvection_Stretched AnelasticScalarAdvection inputs_stretched 50 check_scalar_centroid.py)
-endif()
-
 # ABL warm bubble (prob.bubble_*) and the bulk_coeff surface layer with an imposed
 # heat flux (erf.most.surf_temp_flux), checked against closed forms on a stretched
 # mesh (Exec/RegTests/ABLWarmBubble). The anelastic deck uses the FFT solve.
@@ -3681,7 +3757,7 @@ function(add_test_rans TEST_NAME CASE_DIR INPUT_FILE NSTEPS CHECK_SCRIPT)
         else()
             set(NP ${ADD_TEST_RANS_NRANKS})
         endif()
-        set(MPI_COMMANDS "\"${MPIEXEC_EXECUTABLE}\" ${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
+        set(MPI_COMMANDS "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
     else()
         set(NP 1)
         unset(MPI_COMMANDS)
@@ -3759,7 +3835,7 @@ function(add_test_rans_pair TEST_NAME CASE_DIR INPUT_FILE NSTEPS CHECK_SCRIPT)
         else()
             set(NP ${ADD_TEST_RANS_PAIR_NRANKS})
         endif()
-        set(MPI_COMMANDS "\"${MPIEXEC_EXECUTABLE}\" ${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
+        set(MPI_COMMANDS "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
     else()
         set(NP 1)
         unset(MPI_COMMANDS)
@@ -3977,7 +4053,7 @@ function(add_test_most_zref TEST_NAME)
 
     # 4x4 columns: one rank
     if(ERF_ENABLE_MPI)
-        set(MPI_COMMANDS "\"${MPIEXEC_EXECUTABLE}\" ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
+        set(MPI_COMMANDS "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
     else()
         unset(MPI_COMMANDS)
     endif()
@@ -4022,6 +4098,17 @@ add_test_abort(IBSEB_SolarConstantZero
                IBSEB_Cube.i
                "erf.ibseb.solar_constant must be"
                "erf.ibseb.sun_mode=solar erf.ibseb.solar_constant=0.0")
+# The sun floor of the ray map's halo must lie in (0, 90) deg (erf-model/ERF#4020).
+add_test_abort(IBSEB_SunFloorZero
+               ${CMAKE_CURRENT_SOURCE_DIR}/test_files/IBSEB_Cube
+               IBSEB_Cube.i
+               "erf.ibseb.sun_min_elev_deg must be in"
+               "erf.ibseb.sun_min_elev_deg=0.0")
+add_test_abort(IBSEB_SunFloorNinety
+               ${CMAKE_CURRENT_SOURCE_DIR}/test_files/IBSEB_Cube
+               IBSEB_Cube.i
+               "erf.ibseb.sun_min_elev_deg must be in"
+               "erf.ibseb.sun_min_elev_deg=90.0")
 
 # The balance on two levels (Tests/RunIBSEBRefinedLevels.cmake): a cube on level 1 and a
 # tower outside it, whose shadow the cube's level-1 faces must find through level 0's
@@ -4337,6 +4424,37 @@ if(NOT WIN32 AND ERF_TEST_PYTHON)
   resolve_test_exe("" "erf_exec" TEST_EXE)
   add_test(${TEST_NAME} sh -c
     "${MPI_COMMANDS} ${TEST_EXE} ${CURRENT_TEST_BINARY_DIR}/ABL_MOST.i prob.V_0=-6.0 erf.station_names=W erf.station_sampling_interval=1 erf.W.field=x_velocity y_velocity u_east v_north wind_speed wind_dir erf.W.x=500 erf.W.y=500 erf.W.height_agl=8.0 100.0 > ${CURRENT_TEST_BINARY_DIR}/${TEST_NAME}.log 2>&1 && ${ERF_TEST_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/check_station_earth_winds.py ${CURRENT_TEST_BINARY_DIR}/Output_Stations/W.dat --alpha 0")
+  set_tests_properties(${TEST_NAME} PROPERTIES
+      TIMEOUT 600 PROCESSORS ${NP} WORKING_DIRECTORY "${CURRENT_TEST_BINARY_DIR}/"
+      LABELS "regression;station" ATTACHED_FILES_ON_FAIL "${CURRENT_TEST_BINARY_DIR}/${TEST_NAME}.log")
+  unset(TEST_NAME)
+endif()
+
+# A 3D variable the configuration cannot produce (#4488): qsnow under Kessler, which
+# carries no ice. By default the run stops; with erf.station_allow_unavailable the
+# column is kept, written as -999 and marked in the header, while a name that is no
+# variable at all still stops the run. The kept case checks that column 3 (qsnow) is
+# -999 on every row and column 2 (qv) is not.
+if(NOT WIN32)
+  set(_st_kessler_dir ${CMAKE_CURRENT_SOURCE_DIR}/test_files/MoistBubble_Kessler_Restart)
+  set(_st_kessler_opts "erf.station_names=S1 erf.station_sampling_interval=1 erf.S1.x=10000 erf.S1.y=200 erf.S1.height_agl=1000")
+  add_test_abort(StationSampling_Unavailable3D_Aborts ${_st_kessler_dir}
+                 MoistBubble_Kessler_Restart.i
+                 "'qsnow' is a 3D plotfile variable but is not available in this configuration"
+                 "${_st_kessler_opts} 'erf.S1.field=qv qsnow'")
+  add_test_abort(StationSampling_Unavailable3D_MisspeltAborts ${_st_kessler_dir}
+                 MoistBubble_Kessler_Restart.i
+                 "'qsnoww' is neither a 3D plotfile variable nor a built-in 2D diagnostic"
+                 "${_st_kessler_opts} erf.station_allow_unavailable=true 'erf.S1.field=qv qsnoww'")
+
+  set(TEST_NAME StationSampling_Unavailable3D_AsMissing)
+  set(TEST_FILES_DIR MoistBubble_Kessler_Restart)
+  setup_test()
+  unset(TEST_FILES_DIR)
+  resolve_test_exe("" "erf_exec" TEST_EXE)
+  set(_st_dat "${CURRENT_TEST_BINARY_DIR}/Output_Stations/S1.dat")
+  add_test(${TEST_NAME} sh -c
+    "${MPI_COMMANDS} ${TEST_EXE} ${CURRENT_TEST_BINARY_DIR}/MoistBubble_Kessler_Restart.i max_step=3 erf.plot_int_1=-1 erf.check_int=-1 ${_st_kessler_opts} erf.station_allow_unavailable=true 'erf.S1.field=qv qsnow' > ${CURRENT_TEST_BINARY_DIR}/${TEST_NAME}.log 2>&1 && grep -q \"qsnow.*NOT AVAILABLE in this run\" ${_st_dat} && awk '!/^#/ { n++; if (\$3 != -999 || \$2 == -999) bad++ } END { exit !(n > 0 && bad == 0) }' ${_st_dat}")
   set_tests_properties(${TEST_NAME} PROPERTIES
       TIMEOUT 600 PROCESSORS ${NP} WORKING_DIRECTORY "${CURRENT_TEST_BINARY_DIR}/"
       LABELS "regression;station" ATTACHED_FILES_ON_FAIL "${CURRENT_TEST_BINARY_DIR}/${TEST_NAME}.log")
@@ -4947,7 +5065,7 @@ set(_fex_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/Fire_ExampleEngine_Restart)
 file(MAKE_DIRECTORY ${_fex_dir})
 file(COPY ${_fex_src}/inputs_fire_example ${_fex_src}/input_sounding DESTINATION ${_fex_dir})
 resolve_test_exe("" "erf_exec" _fex_exe)
-set(_fex_mpi "\"${MPIEXEC_EXECUTABLE}\" ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}")
+set(_fex_mpi "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}")
 add_test(NAME Fire_ExampleEngine_Restart
          COMMAND sh -c "rm -rf plt0* chk0* rst && ${_fex_mpi} ${_fex_exe} inputs_fire_example amrex.call_addr2line=0 > straight.log 2>&1 && grep -q fire_phi plt00008/Header && mkdir rst && cd rst && cp ../input_sounding . && ${_fex_mpi} ${_fex_exe} ../inputs_fire_example erf.restart=../chk00004 erf.check_int=-1 amrex.call_addr2line=0 > ../restart.log 2>&1 && cd .. && ${FCOMPARE_EXE} -r 0 --abs_tol 0 plt00008 rst/plt00008"
          WORKING_DIRECTORY ${_fex_dir})
@@ -4986,7 +5104,7 @@ file(MAKE_DIRECTORY ${_fl_dir})
 file(GLOB _fl_files "${_fire_abort_dir}/*")
 file(COPY ${_fl_files} DESTINATION ${_fl_dir})
 resolve_test_exe("" "erf_exec" _fl_exe)
-set(_fl_mpi "\"${MPIEXEC_EXECUTABLE}\" ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
+set(_fl_mpi "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
 add_test(NAME Fire_Abort_CheckpointWithoutLayout
          COMMAND sh -c "rm -rf chk_fl* && ${_fl_mpi} ${_fl_exe} Terrain_Stress_Ridge.i max_step=1 erf.plot_int_1=-1 erf.check_int=1 erf.check_file=chk_fl amrex.call_addr2line=0 > write.log 2>&1 && test -f chk_fl00001/ScalarLayout && rm chk_fl00001/ScalarLayout && ${_fl_mpi} ${_fl_exe} Terrain_Stress_Ridge.i max_step=2 erf.plot_int_1=-1 erf.check_int=-1 erf.restart=chk_fl00001 amrex.call_addr2line=0 2>&1 | tee Fire_Abort_CheckpointWithoutLayout.log"
          WORKING_DIRECTORY ${_fl_dir})
@@ -5398,6 +5516,122 @@ if(NOT WIN32 AND ERF_TEST_PYTHON)
     add_test_moist_pert(${_case}_RandomAndSineQv_Sum ${_case} inputs_Kessler_regtest ${_s} "--vars qv ${_mp_sum_tol}"
                         base "prob.qv_0_Pert_Mag=2.5e-5" "prob.pert_deltaQV=2.5e-5" "prob.qv_0_Pert_Mag=2.5e-5 prob.pert_deltaQV=2.5e-5")
   endforeach()
+endif()
+
+#=============================================================================
+# Anelastic advection of the slow scalars (Exec/RegTests/AnelasticScalarAdvection)
+#
+# AdvectionSrcForScalars expects the momenta that advect the scalars with their face areas
+# and map factors, and with Omega in the vertical.  Each test runs a deck and passes its
+# plotfile to a check script against an exact answer: the drift U t of a blob on every level
+# (Fitted, Stretched), the drift U t m / dx with map factors and the compressible run as a
+# reference (MapFactor), or a uniform scalar and theta that stay uniform over a hill (Hill).
+# Multigrid solves the projection in the cases that need no FFT build, so they run in CI.
+# The plotfile reader, Exec/Tools/erf_plotfile.py, is written for double precision.
+#=============================================================================
+function(add_test_anelastic_scalar_advection TEST_NAME INPUT_FILE NSTEPS)
+    cmake_parse_arguments(ARG "" "REFERENCE_INPUT;RUNTIME_OPTIONS" "CHECK" ${ARGN})
+    set(_case_dir ${PROJECT_SOURCE_DIR}/Exec/RegTests/AnelasticScalarAdvection)
+    set(_binary_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/${TEST_NAME})
+    file(MAKE_DIRECTORY ${_binary_dir})
+    if(ERF_ENABLE_MPI)
+        set(NP ${ERF_TEST_NRANKS})
+        set(_mpi "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
+    else()
+        set(NP 1)
+        set(_mpi "")
+    endif()
+    resolve_test_exe("" "erf_exec" TEST_EXE)
+    string(LENGTH "${NSTEPS}" _len)
+    math(EXPR _pad "5 - ${_len}")
+    string(REPEAT "0" ${_pad} _zeros)
+    set(_step "${_zeros}${NSTEPS}")
+    set(_options "max_step=${NSTEPS} erf.plot_int_1=${NSTEPS} erf.check_int=-1 ${ARG_RUNTIME_OPTIONS}")
+    set(_log ${_binary_dir}/${TEST_NAME}.log)
+    # Remove the plotfiles of an earlier pass, so a run that stops early cannot be checked
+    # against them, and show the end of the log of a run that fails
+    set(_run "${_mpi} ${TEST_EXE} ${_case_dir}/${INPUT_FILE} ${_options} erf.plot_file_1=plt > ${_log} 2>&1 || ( tail -n 40 ${_log} && false )")
+    set(_clean "${_binary_dir}/plt*")
+    set(_plotfiles "${_binary_dir}/plt${_step}")
+    if(ARG_REFERENCE_INPUT)
+        set(_run "( ${_mpi} ${TEST_EXE} ${_case_dir}/${ARG_REFERENCE_INPUT} ${_options} erf.plot_file_1=ref_plt > ${_log}.ref 2>&1 || ( tail -n 40 ${_log}.ref && false ) ) && ${_run}")
+        set(_clean "${_clean} ${_binary_dir}/ref_plt*")
+        set(_plotfiles "${_plotfiles} ${_binary_dir}/ref_plt${_step}")
+    endif()
+    list(JOIN ARG_CHECK " " _check)
+    string(REPLACE "PLOTFILES" "${_plotfiles}" _check "${_check}")
+    add_test(${TEST_NAME} sh -c
+        "rm -rf ${_clean} && ${_run} && ${ERF_TEST_PYTHON} ${_case_dir}/${_check}")
+    set_tests_properties(${TEST_NAME} PROPERTIES
+        TIMEOUT 600 PROCESSORS ${NP} WORKING_DIRECTORY "${_binary_dir}/"
+        LABELS "regression;anelastic" ATTACHED_FILES_ON_FAIL "${_log}")
+endfunction(add_test_anelastic_scalar_advection)
+
+if(NOT WIN32 AND ERF_TEST_PYTHON AND ERF_PRECISION STREQUAL "DOUBLE")
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_MapFactor inputs_mapfac_anelastic 60
+      REFERENCE_INPUT inputs_mapfac_compressible CHECK check_mapfac_parity.py PLOTFILES)
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Fitted inputs_fitted 50
+      CHECK check_scalar_centroid.py PLOTFILES)
+  set(_hill_tol 1.0e-4)
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Hill inputs_hill 30
+      CHECK check_uniform_scalar.py PLOTFILES ${_hill_tol})
+  # Boxes split in z: the lowest and highest w-face of a box read the horizontal momenta from ghost faces
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Hill_SplitZ inputs_hill 30
+      RUNTIME_OPTIONS "amr.no_box_split_dir=-1 amr.max_grid_size_x=16 amr.max_grid_size_y=16 amr.max_grid_size_z=6"
+      CHECK check_uniform_scalar.py PLOTFILES ${_hill_tol} --require-z-split)
+  # Map factors over terrain: the vertical flux carries 1 / (mf_mx mf_my) only where Omega is nonzero
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Hill_MapFactor inputs_hill 30
+      RUNTIME_OPTIONS "erf.test_mapfactor=true"
+      CHECK check_uniform_scalar.py PLOTFILES ${_hill_tol})
+  # Refined patches on the hill's flanks, 2 x 2 x 1, one-way and two-way coupled, through all of
+  # z and stopping inside the domain in z.  Over each coarse step the fine fluxes through the
+  # coarse/fine faces add up to the flux the coarse level's stages applied, in space and in time
+  # (ERF_CoarseFineFaces.cpp), and two-way coupling averages the momenta down as mass fluxes, so
+  # a uniform scalar and theta stay uniform to the projection's tolerance.  The tolerance is set
+  # to 1e-12 so that its floor (1e-7 at the default 1e-6) does not hide a real departure:
+  # measured 1.8e-11 at most.  Two-way used to depart by 2.2e-4 through all of z, and by 8.7e-3
+  # stopping inside the domain in z (with a non-uniform flow), next to the patch.
+  set(_hill_amr "amr.max_level=1 'amr.ref_ratio_vect=2 2 1' erf.refinement_indicators=box1 erf.box1.max_level=1 erf.poisson_reltol=1e-12 erf.poisson_abstol=1e-12")
+  set(_hill_full "'erf.box1.in_box_lo_indices_crse=8 12 0' 'erf.box1.in_box_hi_indices_crse=19 23 11'")
+  set(_hill_part "'erf.box1.in_box_lo_indices_crse=8 12 2' 'erf.box1.in_box_hi_indices_crse=19 23 8'")
+  set(_hill_amr_tol 1.0e-9)
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Hill_TwoLevels inputs_hill 30
+      RUNTIME_OPTIONS "${_hill_amr} ${_hill_full} erf.coupling_type=OneWay"
+      CHECK check_uniform_scalar.py PLOTFILES ${_hill_amr_tol} --require-level)
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Hill_PartialDepth inputs_hill 30
+      RUNTIME_OPTIONS "${_hill_amr} ${_hill_part} erf.coupling_type=OneWay"
+      CHECK check_uniform_scalar.py PLOTFILES ${_hill_amr_tol} --require-level)
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Hill_TwoWay inputs_hill 30
+      RUNTIME_OPTIONS "${_hill_amr} ${_hill_full}"
+      CHECK check_uniform_scalar.py PLOTFILES ${_hill_amr_tol} --require-level)
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Hill_PartialDepth_TwoWay inputs_hill 30
+      RUNTIME_OPTIONS "${_hill_amr} ${_hill_part}"
+      CHECK check_uniform_scalar.py PLOTFILES ${_hill_amr_tol} --require-level)
+  # The other anelastic integrator (the default is RK2)
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Hill_MidPoint inputs_hill 30
+      RUNTIME_OPTIONS "erf.anelastic_type=MidPoint"
+      CHECK check_uniform_scalar.py PLOTFILES ${_hill_tol})
+  # A wind that varies in time, for both integrators: the error is second order in dt
+  # (measured 0.072 m at dt = 0.4 s; with the momenta of the end of each stage it was 3.4 m)
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Inertial_RK2 inputs_inertial 40
+      RUNTIME_OPTIONS "erf.anelastic_type=RK2"
+      CHECK check_inertial_drift.py PLOTFILES)
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Inertial_MidPoint inputs_inertial 40
+      RUNTIME_OPTIONS "erf.anelastic_type=MidPoint"
+      CHECK check_inertial_drift.py PLOTFILES)
+  # The time step from erf.cfl with map factors
+  add_test_anelastic_scalar_advection(AnelasticScalarAdvection_CFL_MapFactor inputs_mapfac_anelastic 5
+      RUNTIME_OPTIONS "erf.fixed_dt=-1 erf.cfl=0.5 erf.change_max=100"
+      CHECK check_cfl_dt.py PLOTFILES)
+  if(ERF_ENABLE_FFT)
+    # A stretched mesh without terrain has only the FFT projection
+    add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Stretched inputs_stretched 50
+        CHECK check_scalar_centroid.py PLOTFILES)
+    # The default projection on a terrain-fitted mesh, FFT-preconditioned GMRES
+    add_test_anelastic_scalar_advection(AnelasticScalarAdvection_Hill_GmresFFT inputs_hill 30
+        RUNTIME_OPTIONS "erf.terrain_poisson_solver=gmres_fft"
+        CHECK check_uniform_scalar.py PLOTFILES ${_hill_tol})
+  endif()
 endif()
 
 #=============================================================================

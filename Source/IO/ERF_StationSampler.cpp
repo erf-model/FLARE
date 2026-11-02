@@ -235,6 +235,8 @@ StationSampler::StationSampler (const std::string& pp_prefix)
 
     pp.queryAdd("station_output_dir", m_dir);
 
+    pp.queryAdd("station_allow_unavailable", m_allow_unavailable);
+
     for (const auto& name : names)
     {
         check_station_name(name);
@@ -707,7 +709,9 @@ StationSampler::flush ()
 // Resolve the requested variable names against the variables this run can
 // produce, and the requested lat/lon against the model grid.  Aborts on a name
 // or a location that cannot be honored: a station column that silently vanished
-// or silently moved would be worse than a failed run.
+// or silently moved would be worse than a failed run.  The one exception is
+// opt-in: with erf.station_allow_unavailable a 3D variable this run cannot
+// produce keeps its column, written as -999 and marked in the header.
 //
 void
 ERF::init_stations ()
@@ -797,8 +801,23 @@ ERF::init_stations ()
                 containerHasElement(cons_names, var.name)    ||
                 var.name == "x_velocity" || var.name == "y_velocity" || var.name == "z_velocity")
             {
-                Abort("Station '" + station.name + "': '" + var.name +
-                      "' is a 3D plotfile variable but is not available in this configuration");
+                if (!station_sampler->allowUnavailable()) {
+                    Abort("Station '" + station.name + "': '" + var.name +
+                          "' is a 3D plotfile variable but is not available in this configuration "
+                          "(erf.station_allow_unavailable = true writes it as -999 instead)");
+                }
+                // Written as missing, as an inactive 2D diagnostic is, so that one
+                // station list can serve configurations that carry different fields.
+                // The column keeps its place, and the header marks it.
+                if (ParallelDescriptor::IOProcessor()) {
+                    Warning("Station '" + station.name + "': '" + var.name +
+                            "' is a 3D plotfile variable but is not available in this "
+                            "configuration; it is written as -999");
+                }
+                var.is_2d = false;
+                var.is_missing = true;
+                var.missing_value = Real(-999.0);
+                continue;
             }
             Abort("Station '" + station.name + "': '" + var.name +
                   "' is neither a 3D plotfile variable nor a built-in 2D diagnostic, which "
@@ -1261,7 +1280,8 @@ ERF::resolve_station_stencils ()
                                 "reported as the value at that cell centre -- there is no "
                                 "similarity extrapolation to the requested height.  For 2 m or "
                                 "10 m quantities, request the 2D diagnostics (temperature_2m, "
-                                "water_vapor_mixing_ratio_2m, and the surface-layer diagnostics) "
+                                "water_vapor_mixing_ratio_2m, u_10m, v_10m, u_east_10m, "
+                                "v_north_10m, and the other surface-layer diagnostics) "
                                 "instead of a 3D variable at that height");
                     }
                 }

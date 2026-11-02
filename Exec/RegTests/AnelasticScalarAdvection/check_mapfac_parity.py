@@ -8,7 +8,7 @@ On every level the anelastic blob's x- and y-centroids (circular means over the
 periodic domain, in cells) must lie within a quarter cell of the compressible
 blob's, and its peak within 5 % of the compressible peak. Both blobs must also
 have travelled the analytic distance from the domain centre, U t m / dx and
-V t m / dy with the cell-centre map factor m = 0.5 of erf.test_mapfactor, so
+V t m / dy with the map factor m = 0.5 of erf.test_mapfactor, so
 the check does not rest on the compressible run alone and cannot pass on a blob
 that has not moved.
 """
@@ -17,19 +17,12 @@ import os
 import sys
 
 _here = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [_here, os.path.join(_here, "..", "..", "Tools")]
+sys.path.insert(0, os.path.join(_here, "..", "..", "Tools"))
 import erf_plotfile  # noqa: E402
 
 TOL_CELLS = 0.25
 PEAK_TOL = 0.05
 U, V, L, MF = 10.0, 5.0, 1000.0, 0.5     # decks: prob.U_0, prob.V_0, domain side, test map factor
-
-
-def plot_time(plotfile):
-    with open(os.path.join(plotfile, "Header")) as f:
-        lines = f.read().split("\n")
-    nvars = int(lines[1])
-    return float(lines[2 + nvars + 1])
 
 
 def circular_centroid(s, k, axis):
@@ -54,18 +47,18 @@ def wrapped(d, n):
 
 
 def main(argv):
-    args = [a for a in argv[1:] if not a.startswith("--")]
+    args = argv[1:]
     if len(args) != 2:
         print(__doc__)
         return 2
-    _, da = erf_plotfile.read_fields(args[0], ["scalar"])
-    _, dc = erf_plotfile.read_fields(args[1], ["scalar"])
+    ha, da = erf_plotfile.read_fields(args[0], ["scalar"])
+    hc, dc = erf_plotfile.read_fields(args[1], ["scalar"])
     sa, sc = da["scalar"], dc["scalar"]
     nx, ny, nz = len(sc), len(sc[0]), len(sc[0][0])
     if (len(sa), len(sa[0]), len(sa[0][0])) != (nx, ny, nz):
         print("the two plotfiles have different grids")
         return 1
-    ta, tc = plot_time(args[0]), plot_time(args[1])
+    ta, tc = ha["time"], hc["time"]
     if abs(ta - tc) > 1e-6 * max(1.0, tc):
         print("the two plotfiles are at different times: %g and %g s" % (ta, tc))
         return 1
