@@ -361,6 +361,12 @@ erf.fire.levelset.reinit_jp_sign_eps2 = -1.0
 # difference into the wall dictates and the flank along the wall runs about
 # 20% fast. No effect without a mask source (see NON-BURNABLE MASK).
 erf.fire.levelset.wall_extrapolate = false
+# How non-burnable cells enter the level-set update: "wall" (the default) holds
+# them at phi >= 0, uses the wall stencil and skips them in reinitialisation;
+# "wrf" follows WRF-Fire: the mask only zeroes the rate there, no hold, no wall
+# stencil, reinitialisation acts on every cell. "wrf" with directional_ros needs
+# directional_split_hamiltonian = true (abort otherwise).
+erf.fire.levelset.mask_mode = "wall"
 # Spread as a Huygens ellipse set by the midflame wind (FARSITE family) instead
 # of a disc; exclusive with directional_ros. ellipse_lw fixes the
 # length-to-width ratio (0 = Anderson 1983 from the wind), ellipse_lw_max caps it
