@@ -1,5 +1,5 @@
 # Anelastic advection of a passive scalar with non-unit map factors
-# (erf.test_mapfactor: 0.5 at cell centres, 0.25 on faces) on a uniform mesh.
+# (erf.test_mapfactor: 0.5 everywhere) on a uniform mesh.
 # The MLMG projection needs no FFT build, so this case runs in every CI job.
 # check_mapfac_parity.py compares the blob with inputs_mapfac_compressible,
 # whose scalar-advection momenta carry the map factors (AdvectionSrcForRho).

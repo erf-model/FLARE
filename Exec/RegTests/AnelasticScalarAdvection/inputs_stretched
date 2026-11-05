@@ -1,7 +1,7 @@
 # The same case on a stretched mesh without terrain (StretchedDz)
 erf.prob_name = "Scalar Advection/Diffusion"
 erf.anelastic = 1
-erf.use_fft   = false
+erf.use_fft   = true
 
 max_step  = 50            # half an advection period (500 m at 10 m/s)
 stop_time = 1000.0

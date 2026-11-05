@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check that an anelastic passive-scalar blob moves at the wind speed on every level.
 
-Usage: check_scalar_centroid.py [--smoke] <plotfile>
+Usage: check_scalar_centroid.py <plotfile>
 
 The deck advects an x-y cosine blob (uniform in z) in a uniform 10 m/s wind on a
 stretched vertical mesh. On every level the blob's x-centroid, taken as a circular
@@ -13,27 +13,20 @@ import os
 import sys
 
 _here = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [_here, os.path.join(_here, "..", "..", "Tools")]
+sys.path.insert(0, os.path.join(_here, "..", "..", "Tools"))
 import erf_plotfile  # noqa: E402
 
 L, U, XC, A0 = 1000.0, 10.0, 500.0, 1.0
 PEAK0 = 0.5 * A0        # A_0 (1 + cos(0)) / 4
 
 
-def plot_time(plotfile):
-    with open(os.path.join(plotfile, "Header")) as f:
-        lines = f.read().split("\n")
-    nvars = int(lines[1])
-    return float(lines[2 + nvars + 1])
-
-
 def main(argv):
-    args = [a for a in argv[1:] if not a.startswith("--")]
+    args = argv[1:]
     if len(args) != 1:
         print(__doc__)
         return 2
-    t = plot_time(args[0])
-    _, d = erf_plotfile.read_fields(args[0], ["scalar"])
+    hdr, d = erf_plotfile.read_fields(args[0], ["scalar"])
+    t = hdr["time"]
     s = d["scalar"]
     nx, ny, nz = len(s), len(s[0]), len(s[0][0])
     dx = L / nx

@@ -288,11 +288,17 @@ struct MoistureComponentIndices {
     // handed out by the microphysics interface.  Slot numbers are scheme
     // specific, which is exactly why they belong in this per-scheme map.
     // ---------------------------------------------------------------------
-    int rain_accum  = absent;  //!< accumulated surface rain
-    int snow_accum  = absent;  //!< accumulated surface snow
-    int graup_accum = absent;  //!< accumulated surface graupel
-    int rel_hum     = absent;  //!< relative humidity
-    int cond_rate   = absent;  //!< condensation rate
+    //
+    // The accumulations are what reached the ground, in mm of liquid water:
+    // rain, snow and graupel each hold that species alone, and precip_accum
+    // holds everything that fell out -- those three plus whatever cloud water
+    // and cloud ice the scheme sediments -- so it can exceed their sum.
+    int rain_accum    = absent;  //!< accumulated surface rain
+    int snow_accum    = absent;  //!< accumulated surface snow
+    int graupel_accum = absent;  //!< accumulated surface graupel
+    int precip_accum  = absent;  //!< accumulated surface precipitation, all species
+    int rel_hum       = absent;  //!< relative humidity
+    int cond_rate     = absent;  //!< condensation rate
 
     /**
      * @brief Construct the conserved-state component map.
@@ -377,10 +383,13 @@ struct MoistureComponentIndices {
 
         case MoistureType::Kessler:
             // Warm rain in three moist components; qmoist is {rain_accum}.
-            mi.qv         = RhoQ1_comp;
-            mi.qc         = RhoQ2_comp;
-            mi.qr         = RhoQ3_comp;
-            mi.rain_accum = 0;
+            // Rain is the only species that falls, so the precipitation total
+            // is the rain accumulation itself.
+            mi.qv           = RhoQ1_comp;
+            mi.qc           = RhoQ2_comp;
+            mi.qr           = RhoQ3_comp;
+            mi.rain_accum   = 0;
+            mi.precip_accum = 0;
             break;
 
         case MoistureType::SBM:
@@ -394,25 +403,27 @@ struct MoistureComponentIndices {
         case MoistureType::SAM_NoIce:
             // The SAM class always allocates six moist components, so rain sits
             // in the fourth slot even with the ice species switched off.
-            mi.qv         = RhoQ1_comp;
-            mi.qc         = RhoQ2_comp;
-            mi.qr         = RhoQ4_comp;
-            mi.rain_accum = 0;
+            mi.qv           = RhoQ1_comp;
+            mi.qc           = RhoQ2_comp;
+            mi.qr           = RhoQ4_comp;
+            mi.rain_accum   = 0;
+            mi.precip_accum = 3;
             break;
 
         case MoistureType::SAM:
         case MoistureType::WSM6:
             // Single-moment mixed phase; qmoist is
-            // {rain_accum, snow_accum, graup_accum}.
-            mi.qv          = RhoQ1_comp;
-            mi.qc          = RhoQ2_comp;
-            mi.qi          = RhoQ3_comp;
-            mi.qr          = RhoQ4_comp;
-            mi.qs          = RhoQ5_comp;
-            mi.qg          = RhoQ6_comp;
-            mi.rain_accum  = 0;
-            mi.snow_accum  = 1;
-            mi.graup_accum = 2;
+            // {rain_accum, snow_accum, graupel_accum, precip_accum}.
+            mi.qv            = RhoQ1_comp;
+            mi.qc            = RhoQ2_comp;
+            mi.qi            = RhoQ3_comp;
+            mi.qr            = RhoQ4_comp;
+            mi.qs            = RhoQ5_comp;
+            mi.qg            = RhoQ6_comp;
+            mi.rain_accum    = 0;
+            mi.snow_accum    = 1;
+            mi.graupel_accum = 2;
+            mi.precip_accum  = 3;
             break;
 
         case MoistureType::Morrison:
@@ -429,9 +440,10 @@ struct MoistureComponentIndices {
             mi.nr          = RhoQ9_comp;
             mi.ns          = RhoQ10_comp;
             mi.ng          = RhoQ11_comp;
-            mi.rain_accum  = 0;
-            mi.snow_accum  = 1;
-            mi.graup_accum = 2;
+            mi.rain_accum    = 0;
+            mi.snow_accum    = 1;
+            mi.graupel_accum = 2;
+            mi.precip_accum  = 3;
             break;
 
         case MoistureType::Morrison_NoIce:
@@ -442,9 +454,10 @@ struct MoistureComponentIndices {
             mi.qv         = RhoQ1_comp;
             mi.qc         = RhoQ2_comp;
             mi.qr         = RhoQ4_comp;
-            mi.nc         = RhoQ7_comp;
-            mi.nr         = RhoQ9_comp;
-            mi.rain_accum = 0;
+            mi.nc           = RhoQ7_comp;
+            mi.nr           = RhoQ9_comp;
+            mi.rain_accum   = 0;
+            mi.precip_accum = 3;
             break;
 
         case MoistureType::WDM6:
@@ -460,9 +473,10 @@ struct MoistureComponentIndices {
             mi.nc          = RhoQ7_comp;
             mi.nn          = RhoQ8_comp;
             mi.nr          = RhoQ9_comp;
-            mi.rain_accum  = 0;
-            mi.snow_accum  = 1;
-            mi.graup_accum = 2;
+            mi.rain_accum    = 0;
+            mi.snow_accum    = 1;
+            mi.graupel_accum = 2;
+            mi.precip_accum  = 3;
             break;
 
         case MoistureType::SuperDroplets:
@@ -476,10 +490,11 @@ struct MoistureComponentIndices {
             mi.qr         = RhoQ4_comp;
             mi.qs         = RhoQ5_comp;
             mi.qg         = RhoQ6_comp;
-            mi.cond_rate  = 3;
-            mi.rel_hum    = 7;
-            mi.rain_accum = 8;
-            mi.snow_accum = 10;
+            mi.cond_rate    = 3;
+            mi.rel_hum      = 7;
+            mi.rain_accum   = 8;
+            mi.snow_accum   = 10;
+            mi.precip_accum = 11;
             break;
 
         default:
@@ -614,7 +629,8 @@ struct MoistureComponentIndices {
     [[nodiscard]] int qmoist_index_for_var (const std::string& name) const {
         if (name == "rain_accum")        { return rain_accum; }
         if (name == "snow_accum")        { return snow_accum; }
-        if (name == "graup_accum")       { return graup_accum; }
+        if (name == "graupel_accum")     { return graupel_accum; }
+        if (name == "precip_accum")      { return precip_accum; }
         if (name == "rel_humidity")      { return rel_hum; }
         if (name == "condensation_rate") { return cond_rate; }
         return absent;
@@ -652,7 +668,8 @@ struct MoistureComponentIndices {
 
         // Moist diagnostics, either from a qmoist array or derived at output time
         if ( (name == "rain_accum") || (name == "snow_accum") ||
-             (name == "graup_accum") || (name == "rel_humidity") ||
+             (name == "graupel_accum") || (name == "precip_accum") ||
+             (name == "rel_humidity") ||
              (name == "condensation_rate") ) {
             return {true, qmoist_index_for_var(name) != absent};
         }
@@ -1332,6 +1349,17 @@ struct SolverChoice {
         pp.queryAdd("const_massflux_layer_hi", const_massflux_layer_hi);
 
         // Which type of inflow turbulent generation
+        // Real-data initialization uses parent controls unless explicitly overridden.
+        perturbation_auto = (init_type == InitType::WRFInput || init_type == InitType::Metgrid);
+        pp.queryAdd("perturbation_auto", perturbation_auto);
+        pp.queryAdd("perturbation_auto_period", perturbation_auto_period);
+        pp.queryAdd("perturbation_auto_pbl_fraction", perturbation_auto_pbl_fraction);
+        if (perturbation_auto &&
+            (!(perturbation_auto_period > zero) || !std::isfinite(perturbation_auto_period) ||
+             !(perturbation_auto_pbl_fraction > zero && perturbation_auto_pbl_fraction <= one))) {
+            amrex::Abort("Automatic perturbations require perturbation_auto_period > 0 and "
+                         "0 < perturbation_auto_pbl_fraction <= 1");
+        }
         pert_type.resize(max_level+1);
         for (int lev = 0; lev <= max_level; ++lev) {
             pert_type[lev] = PerturbationType::None; // Default
@@ -1436,6 +1464,18 @@ struct SolverChoice {
         turbChoice.resize(max_level+1);
         for (int lev = 0; lev <= max_level; lev++) {
             turbChoice[lev].init_params(lev,max_level,pp_prefix);
+        }
+
+        if (perturbation_auto) {
+            // Automatic forcing has a parent and a three-dimensional LES closure.
+            // A horizontal Smagorinsky closure paired with a PBL scheme is mesoscale.
+            for (int lev = 0; lev <= max_level; ++lev) {
+                const auto& tc = turbChoice[lev];
+                if (lev == 0 || tc.les_type == LESType::None || tc.smag2d ||
+                    tc.pbl_type != PBLType::None) {
+                    pert_type[lev] = PerturbationType::None;
+                }
+            }
         }
 
         // WRF's Smagorinsky-2D slope limiter divides K_h by the terrain slope factor of the
@@ -1882,6 +1922,11 @@ struct SolverChoice {
      */
     void check_params (int max_level, const amrex::Vector<amrex::Geometry>& geom_vect, amrex::GpuArray<ERF_BC, AMREX_SPACEDIM*2> phys_bc_type)
     {
+        if (perturbation_auto && any_perturbation() &&
+            (terrain_type == TerrainType::EB || terrain_type == TerrainType::ImmersedForcing)) {
+            amrex::Abort("Automatic perturbations currently support flat, stretched, and fitted-terrain meshes; "
+                         "immersed/embedded terrain requires a ground-relative parent PBL-height conversion");
+        }
 #if 0
         // Warn for PBL models and moisture - these may not yet be compatible
         for (int lev = 0; lev <= max_level; lev++) {
@@ -2065,6 +2110,11 @@ struct SolverChoice {
     void display (int max_level, std::string pp_prefix)
     {
         amrex::Print() << "SOLVER CHOICE: " << std::endl;
+        if (perturbation_auto) {
+            amrex::Print() << "Automatic LES-nest perturbations: parent update period = "
+                           << perturbation_auto_period << " s, PBL height fraction = "
+                           << perturbation_auto_pbl_fraction << std::endl;
+        }
         for (int lev = 0; lev <= max_level; lev++) {
             amrex::Print() << "At level " << lev << " : " << std::endl;
             if (anelastic[lev]) {
@@ -2590,22 +2640,40 @@ struct SolverChoice {
 
     /**
      * @brief Query whether any level uses a turbulent perturbation mode.
-     * @return True if at least one configured level has source, direct, or CPM perturbations.
+     * @return True if at least one configured level has source, direct, CPM, or CPM_W perturbations.
      */
     bool any_perturbation () const
     {
         for (const auto& type : pert_type) {
             if (type == PerturbationType::Source ||
                 type == PerturbationType::Direct ||
-                type == PerturbationType::CPM) {
+                type == PerturbationType::CPM ||
+                type == PerturbationType::CPM_W) {
                 return true;
             }
         }
         return false;
     }
 
+    // Prefer a PBL scheme's height even when the immediate parent is LES.
+    // An all-LES hierarchy instead uses the nearest LES surface-layer diagnostic.
+    int perturbation_pblh_level (int lev) const
+    {
+        for (int source = lev-1; source >= 0; --source) {
+            if (turbChoice[source].pbl_type != PBLType::None) { return source; }
+        }
+        for (int source = lev-1; source >= 0; --source) {
+            const auto& tc = turbChoice[source];
+            if (tc.les_type != LESType::None && !tc.smag2d) { return source; }
+        }
+        return -1;
+    }
+
     // Type of perturbation
     amrex::Vector<PerturbationType> pert_type;
+    bool perturbation_auto{false};
+    amrex::Real perturbation_auto_period{amrex::Real(600.0)}; // seconds between parent-based updates
+    amrex::Real perturbation_auto_pbl_fraction{amrex::Real(0.9)};
 
     // Numerical diffusion
     bool use_num_diff{false};
@@ -2941,6 +3009,14 @@ struct SolverChoice {
  * @brief Whether time-averaged velocity fields are output.
  * @var SolverChoice::pert_type
  * @brief Turbulent perturbation type for each AMR level.
+ * @var SolverChoice::perturbation_auto
+ * @brief Select LES nests, using parent winds and a PBL ancestor's height,
+ * or the nearest LES ancestor's diagnostic when no PBL scheme is present.
+ * Defaults to true for WRFInput and Metgrid initialization, false otherwise.
+ * @var SolverChoice::perturbation_auto_period
+ * @brief Seconds between automatic parent-wind and PBL-height updates.
+ * @var SolverChoice::perturbation_auto_pbl_fraction
+ * @brief Fraction of the selected ancestor's PBL height occupied by perturbations.
  * @var SolverChoice::use_num_diff
  * @brief Whether sixth-order numerical diffusion is enabled.
  * @var SolverChoice::num_diff_coeff

@@ -1292,6 +1292,11 @@ ERF::MakeNewLevelFromCoarse (int lev, Real time, const BoxArray& ba,
     }
 
     // ********************************************************************************************
+    // The RANS wall distance on the new grids: init_stuff reset it to bogus_large_value
+    // ********************************************************************************************
+    make_wall_dist(lev);
+
+    // ********************************************************************************************
     // Set up the Rayleigh damping vectors at this (new) level
     // ********************************************************************************************
     if (solverChoice.dampingChoice.rayleigh_damp_U ||solverChoice.dampingChoice.rayleigh_damp_V ||
@@ -2021,6 +2026,11 @@ ERF::RemakeLevel (int lev, Real time, const BoxArray& ba, const DistributionMapp
             }
         }
     }
+
+    // ********************************************************************************************
+    // The RANS wall distance on the new grids: init_stuff reset it to bogus_large_value
+    // ********************************************************************************************
+    make_wall_dist(lev);
 
     // ********************************************************************************************
     // Set up the Rayleigh damping vectors at this (new) level

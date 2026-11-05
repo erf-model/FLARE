@@ -22,6 +22,7 @@
 #include "ERF_IntervalMeansCheckpoint.H"
 #include "ERF_PlotfileSelection.H"
 #include "ERF_Utils.H"
+#include "ERF_PlanarBoundary.H"
 #include "ERF_TerrainMetrics.H"
 #include "ERF_TerrainFileChecks.H"
 #include "ERF_SrcHeaders.H"
@@ -997,7 +998,7 @@ ERF::post_timestep (int nstep, double time, double dt_lev0)
     }
 
     if (solverChoice.io_hurricane_eye_tracker and
-         (nstep == 0 or (m_plot3d_int_1 > 0 and (nstep+1)%m_plot3d_int_1 == 0))) {
+         (nstep == 0 or (m_plot3d_int_1 > 0 and nstep%m_plot3d_int_1 == 0))) {
 
         int levc=finest_level;
 
@@ -1452,13 +1453,20 @@ ERF::InitData_post ()
         d_u_geos.resize(max_level+1, Gpu::DeviceVector<Real>(0));
         h_v_geos.resize(max_level+1, Vector<Real>(0));
         d_v_geos.resize(max_level+1, Gpu::DeviceVector<Real>(0));
-        for (int lev = 0; lev <= finest_level; lev++) {
+        // Every level that can exist, not only those there now: a level made later, by a
+        //    regrid or after a restart with fewer levels, has no other place to get its profile.
+        //    The profile depends only on the level's geometry and z levels, which exist for
+        //    every level from the start.
+        for (int lev = 0; lev <= max_level; lev++) {
             const int domlen = geom[lev].Domain().length(2);
             h_u_geos[lev].resize(domlen, 0.0_rt);
             d_u_geos[lev].resize(domlen, 0.0_rt);
             h_v_geos[lev].resize(domlen, 0.0_rt);
             d_v_geos[lev].resize(domlen, 0.0_rt);
             if (solverChoice.custom_geostrophic_profile) {
+                // A custom profile may read the level's z_phys_cc, so a level not made yet
+                //    is filled when it first advances (ERF::advance_dycore updates it every step)
+                if (lev > finest_level) { continue; }
                 prob->update_geostrophic_profile(t_new[0],
                                                  h_u_geos[lev], d_u_geos[lev],
                                                  h_v_geos[lev], d_v_geos[lev],
@@ -1752,23 +1760,7 @@ ERF::InitData_post ()
 
     // Create wall distance field for RANS model
     for (int lev = 0; lev <= finest_level; lev++) {
-        if (solverChoice.turbChoice[lev].rans_type != RANSType::None) {
-            // Handle bottom boundary
-            poisson_wall_dist(lev);
-
-            // Correct the wall distance for immersed bodies
-            if (solverChoice.advChoice.have_zero_flux_faces) {
-                thinbody_wall_dist(walldist[lev],
-                                   solverChoice.advChoice.zero_xflux,
-                                   solverChoice.advChoice.zero_yflux,
-                                   solverChoice.advChoice.zero_zflux,
-                                   geom[lev],
-                                   z_phys_cc[lev]);
-
-                // The correction is only applied on the valid region
-                fill_wall_dist_ghost_cells(*walldist[lev], geom[lev]);
-            }
-        }
+        make_wall_dist(lev);
     }
 
 #ifdef ERF_USE_FIRE
@@ -2027,6 +2019,15 @@ ERF::InitData_post ()
             if ((n_faces == 1 || use_legacy_zlo_prefix) &&
                 static_cast<int>(ori) == Orientation::zlo()) {
                 face_pp_prefix = pp_prefix;
+            }
+            if (static_cast<int>(ori) == Orientation::zlo() &&
+                solverChoice.perturbation_auto && solverChoice.any_perturbation()) {
+                // Supply a diagnostic for PBL or LES ancestors using the selected bottom
+                // face's namespace. Preserve an explicit choice (including "none").
+                ParmParse pp_face(face_pp_prefix);
+                if (!pp_face.contains("most.pblh_calc")) {
+                    pp_face.add("most.pblh_calc", std::string("MYNN25"));
+                }
             }
             m_SurfaceLayer[ori] = std::make_unique<SurfaceLayer>(ori, geom, rotate, face_pp_prefix, Qv_prim,
                                                                  z_phys_nd,
@@ -3731,7 +3732,10 @@ ERF::init_only (int lev, double elapsed_time)
     }
 
     // Initialize turbulent perturbation
-    if (solverChoice.use_perturbation(lev)) {
+    // Automatic controls and uniform refresh first sample winds in Advance,
+    // after initialization is complete (also for delayed nests and restarts).
+    if (solverChoice.use_perturbation(lev) && !solverChoice.perturbation_auto &&
+        !turbPert.uniform_refresh_enabled(lev)) {
         turbPert_update(lev, zero);
         if (solverChoice.use_wvel_perturbation(lev)) {
             turbPert_amplitude_w(lev);
@@ -5174,9 +5178,11 @@ ERF::check_mesh_type (int lev)
    if (SolverChoice::mesh_type == MeshType::VariableDz) {
        MultiFab z_slab(convert(ba2d[lev],IntVect(1,1,1)),dmap[lev],1,0);
        int klo = geom[lev].Domain().smallEnd(2);
+       // The ground nodes under every box, including those that start above the ground
+       const auto z_ground = copy_ground_plane(*z_phys_nd[lev], klo);
        for (MFIter mfi(z_slab); mfi.isValid(); ++mfi) {
            Box nbx = mfi.tilebox();
-           Array4<Real const> const& z_arr      = z_phys_nd[lev]->const_array(mfi);
+           Array4<Real const> const& z_arr      = z_ground->const_array(mfi);
            Array4<Real      > const& z_slab_arr = z_slab.array(mfi);
            ParallelFor(nbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
            {

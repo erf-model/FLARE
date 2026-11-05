@@ -19,8 +19,10 @@
 
     Real pert_deltaT     =   zero; pp.query("pert_deltaT", pert_deltaT);
     Real pert_deltaQV    =   zero; pp.query("pert_deltaQV", pert_deltaQV);
-    Real pert_periods_T  =   zero; pp.query("pert_periods_T", pert_periods_T);
-    Real pert_periods_QV =   zero; pp.query("pert_periods_QV", pert_periods_QV);
+    // The periods default to 5, as pert_periods_U/V do: a zero period would make
+    //    cos(cval*(x-xc)) identically one, a uniform bias rather than a zero-mean wave
+    Real pert_periods_T  =   amrex::Real(5.0); pp.query("pert_periods_T", pert_periods_T);
+    Real pert_periods_QV =   amrex::Real(5.0); pp.query("pert_periods_QV", pert_periods_QV);
 
     auto problo_arr = geomdata.ProbLo();
     auto probhi_arr = geomdata.ProbHi();
@@ -43,6 +45,7 @@
         const Real x = prob_lo[0] + (i + myhalf) * dx[0];
         const Real y = prob_lo[1] + (j + myhalf) * dx[1];
         const Real z = use_z_phys ? z_cc(i,j,k) : prob_lo[2] + (k + myhalf) * dx[2];
+        const Real z_agl = z - erf_prob_heights::z_ground_cc(i,j,z_sfc_nd); // height above the ground
 
         // Define a point (xc,yc,zc) at the center of the domain
         const Real xc = myhalf * (prob_lo[0] + prob_hi[0]);
@@ -54,8 +57,8 @@
         // Temperature and qv perturbations: the random ones (T_0_Pert_Mag, qv_0_Pert_Mag)
         //     and the sinusoidal ones for regression tests (pert_deltaT, pert_deltaQV) are
         //     summed, then applied once, so that turning on one does not discard the other
-        const bool rand_T  = (z <= pert_ref_height) && (T_0_Pert_Mag != zero);
-        const bool rand_qv = use_moisture && (z <= pert_ref_height) && (qv_0_Pert_Mag != zero);
+        const bool rand_T  = (z_agl <= pert_ref_height) && (T_0_Pert_Mag != zero);
+        const bool rand_qv = use_moisture && (z_agl <= pert_ref_height) && (qv_0_Pert_Mag != zero);
         const bool sin_T   = (pert_deltaT != zero);
         const bool sin_qv  = use_moisture && (pert_deltaQV != zero);
 
@@ -71,10 +74,10 @@
             dqv += (rand_double*two - one)*qv_0_Pert_Mag;
         }
         if (sin_T || sin_qv) {
-            const Real zl = z / pert_ref_height;
+            const Real zl = z_agl / pert_ref_height;
             const Real damp = std::exp(-myhalf * zl * zl);
-            if (sin_T)  { dT  += tfac  * damp * z * std::cos(cval * (x - xc)); }
-            if (sin_qv) { dqv += qvfac * damp * z * std::cos(dval * (x - xc)); }
+            if (sin_T)  { dT  += tfac  * damp * z_agl * std::cos(cval * (x - xc)); }
+            if (sin_qv) { dqv += qvfac * damp * z_agl * std::cos(dval * (x - xc)); }
         }
 
         // Apply both at once (ERF_MoistPerturbation.H): the temperature perturbation at
