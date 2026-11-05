@@ -487,3 +487,89 @@ TEST(SplitHamiltonianAdvection, MixedFuelMapAdvancesEachRegionAtItsOwnRate)
     const Real x_lo = front_x(0.2 * LDOM), x_hi = front_x(0.8 * LDOM);
     EXPECT_LT(std::abs(x_lo - x_hi), DX) << "front skewed: x(0.2L)=" << x_lo << " x(0.8L)=" << x_hi;
 }
+
+namespace {
+
+/// nonburnable = 1 inside a rectangle ahead of the capsule, in the wind frame:
+/// d0 <= along-wind distance from the capsule centre <= d1 and |cross-wind| <= w
+/// (free function: nvcc rejects an extended device lambda in a gtest case body).
+void fill_block_mask (MultiFab& mask, Real cx, Real cy, Real ux, Real uy, Real d0, Real d1, Real w)
+{
+    for (MFIter mfi(mask); mfi.isValid(); ++mfi) {
+        auto m = mask.array(mfi);
+        ParallelFor(mfi.growntilebox(), [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+            const Real rx = (i + Real(0.5)) * DX - cx, ry = (j + Real(0.5)) * DX - cy;
+            const Real along = rx * ux + ry * uy, cross = -rx * uy + ry * ux;
+            m(i, j, k) = (along >= d0 && along <= d1 && std::abs(cross) <= w) ? Real(1.0) : Real(0.0);
+        });
+    }
+}
+
+/// max |a - b| over the cells where mask > 0.5
+Real max_change_in_mask (const MultiFab& a, const MultiFab& b, const MultiFab& mask)
+{
+    MultiFab diff(a.boxArray(), a.DistributionMap(), 1, 0);
+    MultiFab::Copy(diff, a, 0, 0, 1, 0);
+    MultiFab::Subtract(diff, b, 0, 0, 1, 0);
+    MultiFab::Multiply(diff, mask, 0, 0, 1, 0);
+    return diff.norminf();
+}
+
+} // namespace
+
+/// erf.fire.levelset.mask_mode = "wrf": as WRF-Fire, a non-burnable cell has no
+/// rate at all, so the split path leaves its level-set value exactly as it was
+/// (freeze_masked = true), even with the front running through the block; with
+/// freeze_masked = false the same block burns. Cells outside the block still
+/// burn in both cases.
+TEST(SplitHamiltonianAdvection, WrfMaskFreezesNonburnableCells)
+{
+    CapsuleFixture f(TARGET_RF);
+    const DirectionalRosState st = rothermel_state();
+    const Real th = f.wind_deg * Math::pi<Real>() / 180.0;
+    const Real ux = std::cos(th), uy = std::sin(th);
+
+    MultiFab mask(f.ba, f.dm, 1, 3), wind(f.ba, f.dm, 2, 0), slopes(f.ba, f.dm, 2, 0);
+    fill_block_mask(mask, f.cx, f.cy, ux, uy, 60.0, 110.0, 40.0);
+    wind.setVal(f.wx, 0, 1);
+    wind.setVal(f.wy, 1, 1);
+    slopes.setVal(0.0);
+
+    const Real dt = 0.1;
+    const int  nsteps = 200;   // 20 s: the head (6 m/s) crosses the block (60-110 m ahead of the centre)
+    const Real eps_visc = 0.4;
+
+    MultiFab phi0(f.ba, f.dm, 1, 3);
+    f.capsule(phi0);
+
+    Real change[2];
+    Real burned_outside[2];
+    for (int variant = 0; variant < 2; ++variant) {
+        const bool freeze = (variant == 0);
+        MultiFab phi(f.ba, f.dm, 1, 3);
+        MultiFab::Copy(phi, phi0, 0, 0, 1, 3);
+        for (int step = 0; step < nsteps; ++step) {
+            advect_levelset_directional_rk3_split(phi, wind, slopes, f.geom, dt, eps_visc, st,
+                                                  &mask, false, fire_levelset::LevelSetGradient{},
+                                                  nullptr, nullptr, 0, 0, nullptr, nullptr, nullptr, freeze);
+            fire_fill_boundary(phi, f.geom);
+        }
+        change[variant] = max_change_in_mask(phi, phi0, mask);
+
+        // cells outside the block that are burning at the end, as a +1/0 count
+        MultiFab burned(f.ba, f.dm, 1, 0), nm(f.ba, f.dm, 1, 0);
+        MultiFab::Copy(burned, phi, 0, 0, 1, 0);
+        for (MFIter mfi(burned); mfi.isValid(); ++mfi) {
+            auto b = burned.array(mfi);
+            auto m = mask.const_array(mfi);
+            ParallelFor(mfi.validbox(), [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+                b(i, j, k) = (b(i, j, k) < 0.0_rt && m(i, j, k) < 0.5_rt) ? 1.0_rt : 0.0_rt;
+            });
+        }
+        burned_outside[variant] = burned.sum(0);
+    }
+
+    EXPECT_LT(change[0], 1.0e-4) << "masked cells must not evolve with freeze_masked";
+    EXPECT_GT(change[1], 1.0)    << "without freeze_masked the block burns (the test must not be vacuous)";
+    EXPECT_GT(burned_outside[0], 100.0) << "the unmasked part of the fire still burns";
+}

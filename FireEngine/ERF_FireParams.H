@@ -176,6 +176,7 @@ struct FireParams
     amrex::Real       levelset_reinit_dtau    = -1.0;  ///< Reinitialization pseudo-dt [m] (<=0 = auto: 0.01*dx for both schemes, as in WRF-Fire)
     std::string       levelset_reinit_clamp   = "step_start"; ///< Reference of the reinit's final min(phi, phi_ref) clamp: "step_start" (WRF-Fire's, the level set before the subcycle's advection) or "post_advection" (the advected field, the form before 2026-10); see ERF_Reinitialize.H
     std::string       levelset_reinit_scheme  = "wrf"; ///< "wrf" (default, port of WRF-Fire's reinit_ls_rk3) or "jiang_peng" (Jiang & Peng 2000 HJ-WENO5 + SSP-RK3); see ERF_Reinitialize.H
+    std::string       levelset_mask_mode      = "wall"; ///< erf.fire.levelset.mask_mode: "wall" (non-burnable cells are walls: held at phi >= 0, wall stencil, skipped by reinit) or "wrf" (as WRF-Fire: zero rate in mask cells, no wall stencil, no hold, reinit acts on every cell; split-Hamiltonian level-set path only)
     amrex::Real       levelset_reinit_jp_sign_eps2 = -1.0; ///< jiang_peng only: term added to phi0^2 under the smoothed-sign sqrt (<=0 = auto dx^2, Jiang & Peng's "delta comparable to the spatial step size" read as an area scale); set to dx to test the literal-linear reading
     std::string       levelset_gradient       = "weno5z_front"; ///< One-sided derivatives: "upwind" (first order), "weno5z" (HJ-WENO5-Z everywhere) or "weno5z_front" (WENO within weno_band_cells of the front, first order elsewhere; the WRF-Fire default)
     int               levelset_grad_scheme    = 2;     ///< levelset_gradient resolved: 0 upwind, 1 weno5z, 2 weno5z_front
@@ -1116,6 +1117,8 @@ struct FireParams
        pp.query("levelset.reinit_dtau", levelset_reinit_dtau);
        pp.query("levelset.reinit_scheme", levelset_reinit_scheme);
        one_of("levelset.reinit_scheme", levelset_reinit_scheme, {"wrf", "jiang_peng"});
+       pp.query("levelset.mask_mode", levelset_mask_mode);
+       one_of("levelset.mask_mode", levelset_mask_mode, {"wall", "wrf"});
        pp.query("levelset.reinit_clamp", levelset_reinit_clamp);
        one_of("levelset.reinit_clamp", levelset_reinit_clamp, {"post_advection", "step_start"});
        pp.query("levelset.reinit_jp_sign_eps2", levelset_reinit_jp_sign_eps2);
@@ -1158,7 +1161,7 @@ struct FireParams
            }
        } else {
            for (const char* k : {"levelset.cfl", "levelset.eps_visc", "levelset.reinit_every", "levelset.reinit_iters",
-                                 "levelset.reinit_dtau", "levelset.reinit_scheme", "levelset.reinit_clamp", "levelset.reinit_jp_sign_eps2",
+                                 "levelset.reinit_dtau", "levelset.reinit_scheme", "levelset.reinit_clamp", "levelset.mask_mode", "levelset.reinit_jp_sign_eps2",
                                  "levelset.wall_extrapolate", "levelset.ellipse", "levelset.ellipse_lw",
                                  "levelset.ellipse_lw_max", "levelset.gradient", "levelset.weno_band_cells",
                                  "levelset.eps_visc_front", "levelset.visc_front_cells", "levelset.visc_transition_cells"}) {
