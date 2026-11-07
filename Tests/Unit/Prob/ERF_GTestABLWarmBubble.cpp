@@ -78,10 +78,20 @@ Real expected_dtheta (int i, int j, int k)
     return b_dT * c * c;
 }
 
+// Problem::phys_zlo/phys_zhi read the vertical levels on any mesh other than
+// ConstantDz, and SolverChoice::mesh_type is static: a test run earlier (in a
+// shuffled order) can leave it at VariableDz or StretchedDz, and the bubble then
+// read the empty m_zlevels_stag. The guard pins ConstantDz and restores the old type.
+// run_bubble sets the static SolverChoice::terrain_type, which a later init_params
+// turns into mesh_type = VariableDz, so the guard restores that one as well.
 struct ScopedBubbleParams
 {
+    MeshType    old_mesh_type    = SolverChoice::mesh_type;
+    TerrainType old_terrain_type = SolverChoice::terrain_type;
+
     ScopedBubbleParams ()
     {
+        SolverChoice::set_mesh_type(MeshType::ConstantDz);
         amrex::ParmParse pp_erf("erf");
         pp_erf.add("prob_name", std::string("ABL"));
         amrex::ParmParse pp("prob");
@@ -103,6 +113,8 @@ struct ScopedBubbleParams
                                 "bubble_x_r", "bubble_y_r", "bubble_z_r"}) {
             pp.remove(key);
         }
+        SolverChoice::set_mesh_type(old_mesh_type);
+        SolverChoice::terrain_type = old_terrain_type;
     }
 };
 
