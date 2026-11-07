@@ -1550,7 +1550,7 @@ function(add_test_fire TEST_NAME SUITE_DIR INPUT_FILE NSTEPS)
         else()
             set(NP ${ADD_TEST_FIRE_NRANKS})
         endif()
-        set(MPI_COMMANDS "${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
+        set(MPI_COMMANDS "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
     else()
         set(NP 1)
         unset(MPI_COMMANDS)
@@ -1601,7 +1601,7 @@ function(add_test_abort TEST_NAME SOURCE_DIR INPUT_FILE EXPECTED_MESSAGE RUNTIME
     file(COPY ${TEST_FILES} DESTINATION "${CURRENT_TEST_BINARY_DIR}/")
 
     if(ERF_ENABLE_MPI)
-        set(MPI_COMMANDS "\"${MPIEXEC_EXECUTABLE}\" ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
+        set(MPI_COMMANDS "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
     else()
         unset(MPI_COMMANDS)
     endif()
@@ -1647,7 +1647,7 @@ function(add_test_fire_check TEST_NAME SUITE_DIR INPUT_FILE NSTEPS CHECK_SCRIPT)
         else()
             set(NP ${ADD_TEST_FIRE_CHECK_NRANKS})
         endif()
-        set(MPI_COMMANDS "${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
+        set(MPI_COMMANDS "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
     else()
         set(NP 1)
         unset(MPI_COMMANDS)
@@ -1695,6 +1695,8 @@ function(add_test_fire_script TEST_NAME SUITE_DIR SCRIPT)
     else()
         set(NP ${ADD_TEST_FIRE_SCRIPT_NRANKS})
     endif()
+    # unquoted on purpose: the scripts expand ${MPIRUN} unquoted, so ERF_SH_MPI_LAUNCHER's
+    # quotes would reach the shell as literal characters; the callers are NOT WIN32 only
     set(MPI_COMMANDS "${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
 
     resolve_test_exe("" "erf_exec" TEST_EXE)
@@ -1721,8 +1723,8 @@ function(add_test_fire_restart_abort TEST_NAME SUITE_DIR INPUT_FILE WRITE_NRANKS
     file(MAKE_DIRECTORY ${CURRENT_TEST_BINARY_DIR})
     file(GLOB TEST_FILES "${PROJECT_SOURCE_DIR}/Exec/RegTests/${SUITE_DIR}/*")
     file(COPY ${TEST_FILES} DESTINATION "${CURRENT_TEST_BINARY_DIR}/")
-    set(MPI_WRITE "\"${MPIEXEC_EXECUTABLE}\" ${MPIEXEC_NUMPROC_FLAG} ${WRITE_NRANKS} ${MPIEXEC_PREFLAGS}")
-    set(MPI_RESTART "\"${MPIEXEC_EXECUTABLE}\" ${MPIEXEC_NUMPROC_FLAG} ${RESTART_NRANKS} ${MPIEXEC_PREFLAGS}")
+    set(MPI_WRITE "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} ${WRITE_NRANKS} ${MPIEXEC_PREFLAGS}")
+    set(MPI_RESTART "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} ${RESTART_NRANKS} ${MPIEXEC_PREFLAGS}")
     resolve_test_exe("" "erf_exec" TEST_EXE)
     set(test_log "${CURRENT_TEST_BINARY_DIR}/${TEST_NAME}.log")
     set(write_log "${CURRENT_TEST_BINARY_DIR}/write.log")
@@ -3381,13 +3383,16 @@ add_test_fire_abort(FireWindRefHtPerFuel_warn FireLineFire inputs_wind2p5
 add_test_fire_abort(FireModelSummary_print FireLineFire inputs_wind2p5
     "Models \\(erf.fire key = value.*reaction_velocity_formula = albini  \\(default\\).*wind limit form +wind_limit = fuel_class  \\(set\\)" "erf.fire.fire_debug=false erf.fire.use_wind_limit=true erf.fire.wind_limit=fuel_class max_step=0")
 # the domain must be deeper than the wind's sampling height; until 2026-10 the
-# check compared the absolute top, so this 4 m deep domain at z = 156 to 160 m ran
+# check compared the absolute top, so a 4 m deep domain at a raised bottom (here
+# z = 145 to 149 m) ran.
+# Since erf-model/ERF#4827 the sounding starts at geometry.prob_lo[2], hence the
+# _z145 soundings (the same profiles shifted up to the raised bottom)
 add_test_fire_abort(FireDomainDepth_abort FireLineFire inputs_nowind
-    "Domain depth 4.0+ m .* should exceed the wind's sampling height 6.1" "geometry.prob_lo=0\ 0\ 156 geometry.prob_hi=400\ 80\ 160 max_step=1")
+    "Domain depth 4.0+ m .* should exceed the wind's sampling height 6.1" "geometry.prob_lo=0\ 0\ 145 geometry.prob_hi=400\ 80\ 149 erf.input_sounding_file=input_sounding_u0_z145 max_step=1")
 # with erf.fire.wind_sample_ht the wind is sampled there: a 15 m deep domain
 # cannot sample at 20 m (the check compared the 6.1 m target until 2026-10)
 add_test_fire_abort(FireDomainDepthSample_abort FireLineFire inputs_wind2p5
-    "Domain depth 15.0+ m .* should exceed the wind's sampling height 20" "geometry.prob_lo=0\ 0\ 145 geometry.prob_hi=400\ 80\ 160 erf.fire.wind_sample_ht=20 max_step=1")
+    "Domain depth 15.0+ m .* should exceed the wind's sampling height 20" "geometry.prob_lo=0\ 0\ 145 geometry.prob_hi=400\ 80\ 160 erf.input_sounding_file=input_sounding_u2p5_z145 erf.fire.wind_sample_ht=20 max_step=1")
 
 # A firebreak with a t = 0 polyline ignition stays in the non-burnable mask: all
 # 750 break cells. Until 2026-10 the mask read the break back from phi after the
@@ -3661,7 +3666,7 @@ function(add_test_checked TEST_NAME CASE_DIR INPUT_FILE NSTEPS CHECK_SCRIPT)
 
     if(ERF_ENABLE_MPI)
         set(NP ${ERF_TEST_NRANKS})
-        set(MPI_COMMANDS "${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
+        set(MPI_COMMANDS "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
     else()
         set(NP 1)
         unset(MPI_COMMANDS)
@@ -3919,7 +3924,7 @@ function(add_test_inflow_profile_parity TEST_NAME CASE_DIR INPUT_FILE NSTEPS OPT
 
     if(ERF_ENABLE_MPI)
         set(NP ${ERF_TEST_NRANKS})
-        set(MPI_COMMANDS "${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
+        set(MPI_COMMANDS "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
     else()
         set(NP 1)
         unset(MPI_COMMANDS)
@@ -3997,6 +4002,8 @@ function(add_test_rans_dt TEST_NAME CLOSURE)
 
     # a 4 x 4 x 200 column: one rank
     if(ERF_ENABLE_MPI)
+        # unquoted on purpose: the command is split by shlex inside \"...\", which nested
+        # quotes would break; the test is registered for NOT WIN32 only
         set(MPI_COMMANDS "${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}")
     else()
         unset(MPI_COMMANDS)

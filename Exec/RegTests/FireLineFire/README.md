@@ -37,6 +37,12 @@ code version Coen et al. (2013) ran was not checked. Nine decks share one base:
   the plume does not fill: 1600 m in x, a 480 m lid, a 200 m line in 400 m of
   y, 10 m cells, 600 s at a 0.5 s step. Reported, not checked.
 
+`input_sounding_u0_z145` and `input_sounding_u2p5_z145` are the `u0` and `u2p5`
+profiles moved up by 145 m. No deck uses them; they serve only the
+`FireDomainDepth_abort` and `FireDomainDepthSample_abort` CTests, which raise the
+domain bottom to 145 m. A sounding has to start at `geometry.prob_lo[2]`
+(erf-model/ERF#4827).
+
 ```
 MPIRUN="mpirun -np 4" ./run_linefire.sh /path/to/erf_exec
 ```

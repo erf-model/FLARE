@@ -515,6 +515,22 @@ Real max_change_in_mask (const MultiFab& a, const MultiFab& b, const MultiFab& m
     return diff.norminf();
 }
 
+/// number of cells outside the mask (mask < 0.5) that are burning (phi < 0); a free
+/// function because nvcc rejects extended device lambdas in the private TestBody
+Real count_burned_outside_mask (const MultiFab& phi, const MultiFab& mask)
+{
+    MultiFab burned(phi.boxArray(), phi.DistributionMap(), 1, 0);
+    MultiFab::Copy(burned, phi, 0, 0, 1, 0);
+    for (MFIter mfi(burned); mfi.isValid(); ++mfi) {
+        auto b = burned.array(mfi);
+        auto m = mask.const_array(mfi);
+        ParallelFor(mfi.validbox(), [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+            b(i, j, k) = (b(i, j, k) < 0.0_rt && m(i, j, k) < 0.5_rt) ? 1.0_rt : 0.0_rt;
+        });
+    }
+    return burned.sum(0);
+}
+
 } // namespace
 
 /// erf.fire.levelset.mask_mode = "wrf": as WRF-Fire, a non-burnable cell has no
@@ -557,16 +573,7 @@ TEST(SplitHamiltonianAdvection, WrfMaskFreezesNonburnableCells)
         change[variant] = max_change_in_mask(phi, phi0, mask);
 
         // cells outside the block that are burning at the end, as a +1/0 count
-        MultiFab burned(f.ba, f.dm, 1, 0), nm(f.ba, f.dm, 1, 0);
-        MultiFab::Copy(burned, phi, 0, 0, 1, 0);
-        for (MFIter mfi(burned); mfi.isValid(); ++mfi) {
-            auto b = burned.array(mfi);
-            auto m = mask.const_array(mfi);
-            ParallelFor(mfi.validbox(), [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
-                b(i, j, k) = (b(i, j, k) < 0.0_rt && m(i, j, k) < 0.5_rt) ? 1.0_rt : 0.0_rt;
-            });
-        }
-        burned_outside[variant] = burned.sum(0);
+        burned_outside[variant] = count_burned_outside_mask(phi, mask);
     }
 
     EXPECT_LT(change[0], 1.0e-4) << "masked cells must not evolve with freeze_masked";
