@@ -38,7 +38,9 @@ saltation flux still rises with the threshold, so crust, suppression and
 moisture changed the emission by a few percent with the wrong sign.
 :cpp:`erf.dust.ustar_t_base` overrides the formula when non-negative (0.0385
 reproduces the old runs). The bin diameters of :cpp:`erf.dust.bin_diameters`
-are the emitted sizes, used by settling, deposition and the PM classes only.
+are the emitted aerodynamic sizes, used by settling, deposition and the PM
+classes only; the threshold takes the saltation diameter and
+:cpp:`erf.dust.particle_density`.
 The per-cell threshold (``compute_ustar_t_full`` in ``ERF_DustThreshold.H``)
 is then
 
@@ -164,7 +166,8 @@ were 163x low),
    \quad [\mathrm{g/VKT}]
 
 with :math:`s` the silt content in percent and :math:`W` the vehicle mass in
-tonnes (AP-42's :math:`W` is in US short tons, a 4 % difference in the
+tonnes, converted to the US short tons of AP-42's :math:`W` (factor 1.10231;
+until November 2026 the tonnes went in as short tons, 4.3 % low in the
 weight factor). The column ``vkt_per_h`` is vehicle *kilometres* per hour,
 the unit of :math:`E`. The mass rate :math:`M = 10^{-3} E\, \mathrm{VKT}/3600`
 [kg/s] is spread over the :math:`n` dust cells whose centre lies in the

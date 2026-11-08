@@ -22,7 +22,9 @@ CTest runs it as `FireDustCoupling_check`.
 See the check script's output; the deposition reference is recorded in
 `check_firedust.py` (`DEP_REF`). Since October 2026 the column is the
 deposited mass in kg (the integral over the bins and the 625 m² cells); the
-reference is 24.159 kg: 31.591 kg with the fire wind's u* applied in every
+reference is 9.5983 kg since November 2026, when the bin diameters became
+aerodynamic diameters settling as unit-density spheres (23.969 kg on the build
+before, with 2650 kg/m³ geometric spheres; 24.159 kg recorded); before that 31.591 kg with the fire wind's u* applied in every
 cell, 24 % less once it applies inside the fire perimeter only (the check
 `outside` counts the unburned cells that keep the surface layer's u*); 31.591
 was 2 % under the former cell sum of kg/m² (5.1697e-02,

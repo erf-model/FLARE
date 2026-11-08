@@ -41,14 +41,14 @@ struct FireParams
     amrex::Real       ignition_x          = 0.0;         ///< Ignition center x [m]
     amrex::Real       ignition_y          = 0.0;         ///< Ignition center y [m]
     amrex::Real       ignition_r          = 20.0;        ///< Ignition radius [m]
-    amrex::Real       wind_ref_ht         = 6.1;         ///< MOST wind reference height [m]
+    amrex::Real       wind_ref_ht         = 6.1;         ///< Height above ground of the reference wind [m] (interpolated in height; 6.1 m counts as the 20 ft wind of the WAF)
     bool              prescribed_wind     = false;       ///< Bypass atmospheric wind interpolation
-    amrex::Real       prescribed_wind_x   = 0.0;         ///< Constant reference wind, x [m/s]; exact everywhere only with use_waf=false and use_terrain_wind=false (WAF and the FARSITE terrain corrections still apply downstream otherwise)
+    amrex::Real       prescribed_wind_x   = 0.0;         ///< Constant reference wind at wind_ref_ht, x [m/s]; exact everywhere only with use_waf=false and use_terrain_wind=false (WAF and the FARSITE terrain corrections still apply downstream otherwise), and FBP, Cheney-Gould and Cruz read it brought to 10 m
     amrex::Real       prescribed_wind_y   = 0.0;         ///< Constant reference wind, y [m/s]; see prescribed_wind_x
     // Phase 13A: Per-fuel wind height
     bool              use_per_fuel_wind_ht = false; ///< Use per-fuel fcwh table for wind height
     bool              use_waf             = true;        ///< Apply Wind Adjustment Factor
-    std::string       waf_formula         = "andrews";   ///< "andrews" or "behaviorplus"
+    std::string       waf_formula         = "andrews";   ///< "andrews" (Albini and Baughman 1979, unsheltered); "behaviorplus" was removed in November 2026 (no published source)
     bool              use_wind_limit      = true;        ///< Apply the wind limit to the midflame wind (Rothermel, BEHAVE)
     // Which limit (erf.fire.wind_limit): "rothermel" (default) is Rothermel's
     // (1972) eq. 87, U_max = 0.9 I_R [ft/min, I_R in BTU/ft2/min], the limit
@@ -301,6 +301,11 @@ struct FireParams
         // length.
         std::string       launch_from         = "burned";
         int               front_band          = 2;       ///< "front": band width [fire cells]
+        // Anderson model (1-7, 9-13) whose Albini (1983) Table 4 thermal fit
+        // the lofting height uses for launch cells whose own code has none
+        // (Scott-Burgan codes, custom fuels, Anderson 8); 0 = none, and such
+        // a cell aborts the run.
+        int               thermal_fuel_model  = 0;
     } spotting;
 
     // Phase 9: Crown fire initiation parameters.
@@ -313,13 +318,13 @@ struct FireParams
         amrex::Real   canopy_depth    = 10.0;   ///< Canopy depth [m]
         amrex::Real   foliar_moisture = 1.0;    ///< Foliar moisture M_fold [fraction]
         amrex::Real   h_crown_BTU_lb  = 8000.0; ///< Canopy heat content [BTU/lb]
-        amrex::Real   wind_10m_kmh    = 0.0;    ///< 10-m wind speed [km/h]; 0 = derive from fire_wind_eff
+        amrex::Real   wind_10m_kmh    = 0.0;    ///< 10-m wind speed [km/h]; 0 = the reference wind brought to 10 m (fire_wind_ref_10m)
         std::string   ros_model       = "cruz"; ///< Crown ROS model: "cruz", "rothermel1991", "van_wagner_proxy"
         bool          use_passive_blend = false; ///< Use Van Wagner passive-to-active ROS blend
     } crown;
 
     // Phase 9: Flame temperature diagnostic
-    std::string       flame_temp_method   = "byram_radiant"; ///< "byram_radiant", "mcalpine_heat", "nelson_emissivity"
+    std::string       flame_temp_method   = "byram_radiant"; ///< "byram_radiant" or "mcalpine_heat" ("nelson_emissivity" was removed in November 2026)
     amrex::Real       flame_temp_T_amb    = 300.0;           ///< Ambient temperature for flame temp formula [K]
 
     // Phase 9: Flame tilt angle diagnostic
@@ -650,8 +655,8 @@ struct FireParams
         amrex::Real curing   = 1.0;   ///< Degree of curing [0-1]; 1 = fully cured
         int         pasture  = 0;     ///< cheney_gould::pasture_natural (0) or ::pasture_grazed (1)
         int         curing_curve = 0; ///< cheney_gould::curing_cruz2015 (0) or ::curing_cheney1998 (1)
-        /// 0 = the reference-height wind (fire_wind_ref; set wind_ref_ht = 10 without
-        /// use_per_fuel_wind_ht, the model's U10), 1 = the midflame wind after the Wind Adjustment Factor
+        /// 0 = the reference-height wind brought to 10 m with the neutral log profile
+        /// (fire_wind_ref_10m, the model's U10), 1 = the midflame wind after the Wind Adjustment Factor
         int         wind_source = 0;
     } cheney_gould;
 
@@ -671,8 +676,8 @@ struct FireParams
         amrex::Real pc        = 50.0;   ///< Percent conifer (M1, M2)
         amrex::Real pdf       = 50.0;   ///< Percent dead fir (M3, M4)
         bool        use_slope = true;   ///< Slope through the equivalent wind
-        /// 0 = the reference-height wind (fire_wind_ref; set wind_ref_ht = 10 without use_per_fuel_wind_ht),
-        /// 1 = the midflame wind after the Wind Adjustment Factor (fire_wind_eff)
+        /// 0 = the reference-height wind brought to 10 m with the neutral log profile
+        /// (fire_wind_ref_10m), 1 = the midflame wind after the Wind Adjustment Factor (fire_wind_eff)
         int         wind_source = 0;
     } fbp;
 
@@ -945,7 +950,11 @@ struct FireParams
        }
        pp.query("use_waf", use_waf);
        pp.query("waf_formula", waf_formula);
-       one_of("waf_formula", waf_formula, {"andrews", "behaviorplus"});
+       if (waf_formula == "behaviorplus") {
+           fail("erf.fire.waf_formula = \"behaviorplus\" was removed in November 2026: its 0.36 + 0.004 H has no"
+                " published source (BehavePlus uses the Albini and Baughman 1979 form, Andrews 2012); use \"andrews\"");
+       }
+       one_of("waf_formula", waf_formula, {"andrews"});
        pp.query("use_wind_limit", use_wind_limit);
        {
            std::string wl = (wind_limit_mode == 1) ? "fuel_class" : "rothermel";
@@ -973,6 +982,13 @@ struct FireParams
                fail("erf.fire.wind_sample_z0 must be positive and below the height of the reference wind"
                     " (erf.fire.wind_ref_ht, or 6.096 m with erf.fire.use_per_fuel_wind_ht), got "
                     + std::to_string(wind_sample_z0) + " with that height " + std::to_string(z_target) + " m");
+           }
+           // the same profile brings the reference wind to the 20 ft (6.096 m) wind of
+           // the WAF and to the 10 m wind of FBP, Cheney-Gould and Cruz, so the
+           // roughness must also sit below the lower of those
+           if (!(wind_sample_z0 < 6.096)) {
+               fail("erf.fire.wind_sample_z0 must be below 6.096 m, the 20 ft height the wind adjustment"
+                    " factor takes the wind at, got " + std::to_string(wind_sample_z0));
            }
        }
        pp.query("use_terrain_wind", use_terrain_wind);
@@ -1256,7 +1272,15 @@ struct FireParams
        pp.query("spotting.random_seed",         sp.random_seed);
        pp.query("spotting.spotting_interval",   sp.spotting_interval);
        pp.query("spotting.fuel_system",         sp.fuel_system);
+       pp.query("spotting.thermal_fuel_model",  sp.thermal_fuel_model);
        if (sp.enable) {
+           if (sp.thermal_fuel_model != 0) {
+               const int m = sp.thermal_fuel_model;   // albini_thermal_fit's table
+               if (m < 1 || m > 13 || m == 8) {
+                   fail("erf.fire.spotting.thermal_fuel_model must be 0 or an Anderson model in Albini (1983) "
+                        "Table 4 (1-7 or 9-13), got " + std::to_string(sp.thermal_fuel_model));
+               }
+           }
            positive("spotting.I_B_min", sp.I_B_min);
            positive("spotting.terminal_velocity", sp.terminal_velocity);
            if (sp.n_traj_steps < 1) fail("erf.fire.spotting.n_traj_steps must be >= 1, got " + std::to_string(sp.n_traj_steps));
@@ -1271,7 +1295,7 @@ struct FireParams
                  {"spotting.I_B_min", "spotting.P_base", "spotting.terminal_velocity",
                   "spotting.n_traj_steps", "spotting.spot_radius", "spotting.launch_from",
                   "spotting.front_band", "spotting.P_catch", "spotting.reentry_fuel_thresh",
-                  "spotting.random_seed", "spotting.spotting_interval"});
+                  "spotting.random_seed", "spotting.spotting_interval", "spotting.thermal_fuel_model"});
 
        // Phase 9: Crown fire initiation parameters
        auto& cr = crown;
@@ -1286,12 +1310,18 @@ struct FireParams
        one_of("crown.ros_model", cr.ros_model, {"cruz", "rothermel1991", "van_wagner_proxy"});
        pp.query("crown.use_passive_blend", cr.use_passive_blend);
        // the canopy geometry multiplies and divides in the Van Wagner / Cruz
-       // kernels; foliar moisture [%] and the 10 m wind [km/h] enter as given
+       // kernels; the 10 m wind [km/h] enters as given. Foliar moisture is a
+       // fraction (the Van Wagner kernel multiplies it by 100): a value given in
+       // percent (100 for 100 %) would raise I0 from 1.9e3 to 1.5e6 kW/m at a 5 m
+       // crown base, so it is held to [0.3, 3.0]
        positive("crown.canopy_base_ht",  cr.canopy_base_ht);
        positive("crown.canopy_bulk_den", cr.canopy_bulk_den);
        positive("crown.canopy_depth",    cr.canopy_depth);
        positive("crown.h_crown_BTU_lb",  cr.h_crown_BTU_lb);
-       nonneg("crown.foliar_moisture",   cr.foliar_moisture);
+       if (!(cr.foliar_moisture >= 0.3 && cr.foliar_moisture <= 3.0)) {
+           fail("erf.fire.crown.foliar_moisture is a fraction (1.0 = 100 %) and must be in [0.3, 3.0], got "
+                + std::to_string(cr.foliar_moisture));
+       }
        nonneg("crown.wind_10m_kmh",      cr.wind_10m_kmh);
        if (!cr.enable) {
            // a surface-only control deck keeps the canopy keys; say they are idle
@@ -1306,15 +1336,25 @@ struct FireParams
 
        // Flame temperature diagnostic
        pp.query("flame_temp_method", flame_temp_method);
-       one_of("flame_temp_method", flame_temp_method, {"byram_radiant", "mcalpine_heat", "nelson_emissivity"});
+       if (flame_temp_method == "nelson_emissivity") {
+           fail("erf.fire.flame_temp_method = \"nelson_emissivity\" was removed in November 2026: it put the"
+                " fireline intensity [W/m] into the Stefan-Boltzmann law as a flux [W/m2]; use \"mcalpine_heat\""
+                " or \"byram_radiant\"");
+       }
+       one_of("flame_temp_method", flame_temp_method, {"byram_radiant", "mcalpine_heat"});
        pp.query("flame_temp_T_amb",  flame_temp_T_amb);
-       positive("flame_temp_T_amb", flame_temp_T_amb);   // [K], a divisor of the heat-balance forms
+       // [K], a divisor of the heat-balance forms; a value in degrees C (25) aborts
+       if (!(flame_temp_T_amb >= 150.0 && flame_temp_T_amb <= 400.0)) {
+           fail("erf.fire.flame_temp_T_amb is in K and must be in [150, 400], got " + std::to_string(flame_temp_T_amb));
+       }
 
        // Flame tilt angle diagnostic
        pp.query("compute_flame_tilt", compute_flame_tilt);
        pp.query("flame_tilt_T_amb",   flame_tilt_T_amb);
        pp.query("flame_tilt_rho_air", flame_tilt_rho_air);
-       positive("flame_tilt_T_amb",   flame_tilt_T_amb);     // [K]
+       if (!(flame_tilt_T_amb >= 150.0 && flame_tilt_T_amb <= 400.0)) {   // [K]; degrees C abort
+           fail("erf.fire.flame_tilt_T_amb is in K and must be in [150, 400], got " + std::to_string(flame_tilt_T_amb));
+       }
        positive("flame_tilt_rho_air", flame_tilt_rho_air);   // [kg/m3]
 
        // Phase 10: fuel map
@@ -1348,8 +1388,13 @@ struct FireParams
        pp.query("ignition.threshold_temp",       ig.threshold_temp);
        pp.query("ignition.threshold_radius",     ig.threshold_radius);
        pp.query("ignition.threshold_start_time", ig.threshold_start_time);
-       if (ig.threshold_temp <= 0.0 || ig.threshold_radius < 0.0 || ig.threshold_start_time < 0.0) {
-           amrex::Abort("erf.fire.ignition.threshold_temp must be > 0 K; threshold_radius and threshold_start_time must be >= 0");
+       // the k = 0 air temperature [K] above which a cell ignites; a value given in degrees
+       // C (up to 300) would sit at or below the ambient air and ignite every cell
+       if (!(ig.threshold_temp >= 305.0 && ig.threshold_temp <= 2000.0)
+           || ig.threshold_radius < 0.0 || ig.threshold_start_time < 0.0) {
+           amrex::Abort("erf.fire.ignition.threshold_temp is in K and must be in [305, 2000], got "
+                        + std::to_string(ig.threshold_temp)
+                        + "; threshold_radius and threshold_start_time must be >= 0");
        }
 
        // Phase 12: fire acceleration
@@ -1646,6 +1691,12 @@ struct FireParams
                     + fuel_map.fuel_set + "\"" + (fuel_map.sb40_crosswalk ? " with sb40_crosswalk" : "") + " (needs \"" + want + "\")");
            }
        }
+       // The lofting height reads Albini's Table 4, which has Anderson models
+       // only: Scott-Burgan codes need a model to stand in for them.
+       if (spotting.enable && spotting.fuel_system == "40" && spotting.thermal_fuel_model == 0) {
+           fail("erf.fire.spotting.fuel_system = \"40\" needs erf.fire.spotting.thermal_fuel_model: the Albini (1983) "
+                "lofting height uses Table 4, which has Anderson models 1-7 and 9-13 only");
+       }
        if (fuel_map.fuel_set == "scott_burgan40") {
            const bool ok13 = (fuel_model_id >= 1 && fuel_model_id <= 13);
            const bool ok40 = (fuel_slot(fuel_model_id) >= 14);
@@ -1895,12 +1946,6 @@ struct FireParams
            one_of("cheney_gould.wind_source", ws, {"reference", "midflame"});
            cg.wind_source = (ws == "midflame") ? 1 : 0;
        }
-       // the 1998 model reads the reference wind as its 10 m open wind
-       if (uses_model("cheney_gould") && cg.wind_source == 0 && std::abs(sampled_wind_ht() - 10.0) > 1.0e-6) {
-           amrex::Print() << "[FIRE] WARNING: erf.fire.ros_model = cheney_gould reads the reference wind, at "
-                          << sampled_wind_ht() << " m, as the model's 10 m open wind (cheney_gould.wind_source = reference);"
-                          << " set wind_ref_ht = 10 without use_per_fuel_wind_ht for the published fit\n";
-       }
        // the 1998 model's pasture, curing curve and wind are read by it alone;
        // grass_simple takes the moisture and curing only
        if (!uses_model("cheney_gould")) {
@@ -1934,12 +1979,17 @@ struct FireParams
                || fb.pc < 0.0 || fb.pc > 100.0 || fb.pdf < 0.0 || fb.pdf > 100.0) {
                amrex::Abort("erf.fire.fbp: ffmc in [0,101], bui >= 0, curing/pc/pdf in [0,100]");
            }
-           // the system reads the reference wind as its 10 m open wind
-           if (fb.wind_source == 0 && std::abs(sampled_wind_ht() - 10.0) > 1.0e-6) {
-               amrex::Print() << "[FIRE] WARNING: erf.fire.ros_model = fbp reads the reference wind, at "
-                              << sampled_wind_ht() << " m, as the system's 10 m open wind (fbp.wind_source = reference);"
-                              << " set wind_ref_ht = 10 without use_per_fuel_wind_ht for the published fits\n";
-           }
+       }
+       // Anderson's length-to-width ratio takes the effective midflame wind (Finney
+       // 1998, eq. 13); FBP and the 1998 Cheney-Gould model reading the reference wind
+       // hand the directional ellipse their 10 m open wind instead (L/W 3.2 instead of
+       // 1.4 at a 5 m/s 10 m wind over fuel model 1), so that pairing stops here
+       if (directional_ros && directional_ellipse_lw == 1
+           && ((uses_model("fbp") && fb.wind_source == 0)
+               || (uses_model("cheney_gould") && cg.wind_source == 0))) {
+           fail("erf.fire.directional_ellipse_lw = \"anderson\" takes the midflame wind, but FBP and"
+                " cheney_gould with wind_source = \"reference\" give it their 10 m open wind: set their"
+                " wind_source = \"midflame\" or directional_ellipse_lw = \"model\"");
        }
 
        // Phase 15: BEHAVE parameters

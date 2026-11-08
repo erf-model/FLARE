@@ -55,8 +55,8 @@ first, with values just inside and just outside each band.
   cell's model load; 96% of it comes from the deck-defined block, so a run that
   ignored the block could not pass.
 * **crossed** — the ignition circle straddles the block edge, so one front
-  burns in both fuels. At 60 s it has burned 318 cells of the deck-defined code
-  at 0.0547 m/s and 246 of GR2 at 0.1559 m/s: the deck's properties reach the
+  burns in both fuels. At 60 s it has burned 322 cells of the deck-defined code
+  at 0.06003 m/s and 246 of GR2 at 0.2753 m/s: the deck's properties reach the
   per-cell kernel, not just the uniform path. The front is asymmetric because
   the sounding's wind carries the head fire east into the block and leaves a
   backing fire in GR2, so the burned counts are a wind effect, not a fuel one;
@@ -66,7 +66,7 @@ first, with values just inside and just outside each band.
   factor was taken per cell: the block's 2 m bed gives 0.560 against the 1 ft
   uniform model's 0.362, so its midflame wind rose by 55% and its rate by 3.4%.
   GR2's own bed is 1 ft, so its rate is unchanged.
-* **slower** — the coarse bed spreads at 0.0547 m/s against grass's 0.2160 m/s.
+* **slower** — the coarse bed spreads at 0.06003 m/s against grass's 0.4625 m/s.
   The deck's properties drive the spread; they are not a published model in
   disguise.
 * **box parity** — the map run on the default decomposition and on one box
@@ -103,36 +103,48 @@ first, with values just inside and just outside each band.
 
   | `ros_model` | grass [m/s] | deck fuel [m/s] |
   | --- | --- | --- |
-  | `rothermel` | 0.2160244347 | 0.05470070803 |
-  | `balbi` | 0.4534711647 | 0.00221418181 |
-  | `behave` | 0.2160244347 | 0.06701721308 |
-  | `macarthur` | 1.793275906 | 6.309411001 |
-  | `cheney_gould` | 0.1962616261 | 0.2316395252 |
+  | `rothermel` | 0.6746785108 | 0.06343788554 |
+  | `balbi` | 0.4534711647 | 0.005781985511 |
+  | `behave` | 0.6746785108 | 0.08237936874 |
+  | `macarthur` | 1.793275906 | 6 |
+  | `cheney_gould` | 1.343976782 | 1.343976782 |
 
-  MacArthur and Cheney-Gould rise rather than fall: they are grassland
-  correlations driven by the load and the bed depth, so a deeper, heavier bed
-  speeds them up where Rothermel's reaction term and Balbi's radiation, which
-  read the surface-area-to-volume ratio, slow down.
+  MacArthur rises rather than falls: it is a grassland correlation driven by
+  the load and the bed depth, so a deeper, heavier bed speeds it up where
+  Rothermel's reaction term and Balbi's radiation, which read the
+  surface-area-to-volume ratio, slow down. Cheney-Gould 1998 reads no fuel bed
+  property at all: its rate comes from the 10 m wind, the curing, the moisture
+  and `erf.fire.cheney_gould.pasture`. The check therefore requires it to give
+  the **same** rate for both fuels. Before this was changed the script asked it
+  to differ, and that check failed on the base binary too (1.2112 m/s for both
+  fuels); its rate is now higher because the reference wind is brought from
+  6.1 m to 10 m.
 
 ## Measured numbers
 
 | variant | active fire cells at 60 s | max ROS [m/s] | fuel at 0 s [kg] | fuel at 60 s [kg] |
 | --- | --- | --- | --- | --- |
-| `anderson1` | 774 | 0.2160244347 | 8496.8 | 8305.8 |
-| `custom_grass` | 774 | 0.2160244347 | 8496.8 | 8305.8 |
-| `custom_heavy` | 548 | 0.05470070803 | 1126379.1 | 1118114.9 |
-| `custom_map` | 564 | 0.1558625579 | 193418.8 | 188824.2 |
-| `custom_map_altid` | 564 | 0.1558625579 | 193418.8 | 188824.2 |
+| `anderson1` | 926 | 0.462504577 | 8497.1 | 8268.3 |
+| `custom_grass` | 926 | 0.462504577 | 8497.1 | 8268.3 |
+| `custom_heavy` | 552 | 0.06002690628 | 1126391.0 | 1122149.7 |
+| `custom_map` | 568 | 0.2752908476 | 193425.1 | 191018.7 |
+| `custom_map_altid` | 568 | 0.2752908476 | 193425.1 | 191018.7 |
+
+These numbers were re-measured with the unit-audit changes. The grass rates
+were already higher than the earlier table on the base binary (0.6747 m/s for
+grass in the 10 s Rothermel sweep on both binaries), so that part of the change
+predates the audit. The deck-defined rows moved because the deck's 1 h
+surface-area-to-volume ratio is now 328.084 1/m (100 1/ft, the lowest value
+the range check accepts) instead of 200 1/m.
 
 `custom_map` is re-measured twice over. With the level-set path reading the
 per-cell coefficients (#444) it burned 558 cells at 60 s where it burned 774
 before, since the front no longer spreads at the uniform grass rate inside the
-coarse block. With the wind adjustment factor taken per cell it burns 564: the
+coarse block. With the wind adjustment factor taken per cell it burned 564 (568 with the current deck): the
 block's 2 m bed sees more of the wind than the 1 ft uniform model allowed it.
 
 `custom_map`'s max ROS is GR2's rate, the fastest fuel on its grid; the
-deck-defined block spreads at 0.0547 m/s in the same run (0.05287 m/s before
-the factor was per cell).
+deck-defined block spreads at 0.06003 m/s in the same run.
 
 `custom_map_altid` is listed because its agreeing with `custom_map` to the last
 digit is the point of the deck; it differed in the two Byram diagnostics and in

@@ -90,7 +90,7 @@ projection's exact solution (the Wulff shape) 0.14155 m/s, 57 % of it. Rates
 | `projection` | 0.18487 (-25.9 %; 40 % of the way from the Wulff tip to Rothermel) | 0.02396 | 0.02400 |
 | `projection_key` | arrival times identical to `projection` bit for bit | | |
 | `ellipse` | 0.24775 (-0.67 %) | 0.02388 | 0.02403 |
-| `ellipse_anderson` (800 s) | 0.24832 (-0.44 %) | 0.02396 | 0.06534 (exact 0.06538; LW 2.091) |
+| `ellipse_anderson` (800 s) | 0.24802 (-0.57 %) | 0.02400 | 0.10155 (exact 0.10175; LW 1.344) |
 | `advective` | 0.24849 (-0.38 %) | 0.02396 | 0.02446 (+1.77 %) |
 
 Back and flanks match the exact rates (R0 = 0.02404 m/s, and b / LW for
@@ -101,8 +101,10 @@ cos(theta) clamp's kink at theta = 90 deg, which the ellipse's smooth support
 function does not have). All 34 checks of the six decks in the script pass;
 of the 44 checks over the eight decks and scheme variants below (before
 `ellipse_anderson` was added), the two on the upwind ellipse's head fail.
-With Anderson's flanks the fire is 2.7 times wider than with the model's,
-while its head and back are unchanged.
+With Anderson's flanks the fire is 4.2 times wider than with the model's,
+while its head and back are unchanged. (Measured 2026-11-07, after Anderson's
+ratio took the midflame wind in m/s; it was fed mi/h before, L/W 2.091 and
+flanks 0.06534 m/s.)
 
 The head against the level-set scheme, with extra arguments on the same decks:
 

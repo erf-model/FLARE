@@ -84,6 +84,7 @@ class ERF;
  * |----------------|-------|----------------------------------------------|
  * | fire_phi       | 1     | Level-set: <0 burned, >0 unburned, ≈0 front  |
  * | fire_wind_ref  | 2     | u,v at FireParams::sampled_wind_ht() above ground, interpolated from the atmospheric columns |
+ * | fire_wind_ref_10m | 2  | fire_wind_ref brought to 10 m (neutral log profile): FBP, Cheney-Gould, Cruz |
  * | fire_wind_eff  | 2     | After WAF + terrain corrections              |
  * | fire_slopes    | 2     | dz/dx, dz/dy (static, computed at init)      |
  * | fire_surface_z | 1     | Ground elevation [m] of the atmospheric column |
@@ -798,6 +799,7 @@ private:
     // Fire state MultiFabs (all on m_fg grid, C*nx × C*ny × 1)
     std::unique_ptr<amrex::MultiFab>         fire_phi;          // Level-set
     std::unique_ptr<amrex::MultiFab>         fire_wind_ref;     // Wind at z_ref
+    std::unique_ptr<amrex::MultiFab>         fire_wind_ref_10m; // fire_wind_ref brought to 10 m (neutral log profile): the open wind of FBP, Cheney-Gould 1998 and Cruz 2005
     std::unique_ptr<amrex::MultiFab>         fire_wind_eff;     // Effective wind
     std::unique_ptr<amrex::MultiFab>         fire_wind_extract_z; // Wind extraction height [m] (z_surf + z_ref)
     std::unique_ptr<amrex::MultiFab>         fire_slopes;       // Terrain slopes
@@ -825,7 +827,7 @@ private:
     std::unique_ptr<amrex::MultiFab>         fire_fireline_intensity; // Byram fireline intensity h w0 R [kW/m]
     std::unique_ptr<amrex::MultiFab>         fire_heat_release;       // h (w0 - w) R [kW/m], the intensity's pre-2026-10 form
     std::unique_ptr<amrex::MultiFab>         fire_fuel_load_initial;  // Initial fuel load per cell [kg/m2]
-    std::unique_ptr<amrex::MultiFab>         fire_flame_length;       // Thomas flame length [m]
+    std::unique_ptr<amrex::MultiFab>         fire_flame_length;       // Byram (1959) flame length [m]
     std::unique_ptr<amrex::MultiFab>         fire_flame_tilt;         // Flame tilt angle [deg from vertical] (Phase 9)
     std::unique_ptr<amrex::MultiFab>         fire_flame_temp;         // Flame temperature [K] (Phase 9)
 
@@ -1152,7 +1154,7 @@ public:
      * - Sensible heat flux [W/m²] in fire_heat_flux
      * - Fuel load depletion via exponential burnout model
      * - Byram fireline intensity [kW/m] in fire_fireline_intensity
-     * - Thomas flame length [m] in fire_flame_length
+     * - Byram (1959) flame length [m] in fire_flame_length
      *
      * @param[in] dt_fire_s  The atmospheric step [s] (advance() passes dt): the
      *                       burnout and the crown-load depletion are applied

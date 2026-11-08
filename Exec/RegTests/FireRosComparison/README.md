@@ -76,7 +76,7 @@ the Rothermel wind limit, 0.9 I_R, instead of the 300 ft/min fuel-class cap, so
 the sounding's midflame wind counts in full and the head runs at 0.444 m/s
 over 240 cells (0.250 m/s and 112 cells under the old cap, which
 `erf.fire.wind_limit = fuel_class` restores); `cheney_gould` is the 1998 model
-(0.927 m/s, 484 cells) and `grass_simple` the earlier fit it replaced (0.180
+(1.033 m/s, 556 cells; see below) and `grass_simple` the earlier fit it replaced (0.180
 m/s, 88 cells, the `cheney_gould` rows of the 2026-09 table). The Balbi and
 MacArthur rows are unchanged.
 
@@ -111,8 +111,8 @@ ordering below are unchanged.
 | `hybrid_wind` | 216 | 0.482 | 6400 |
 | `macarthur_isotropic` | 680 | 1.015 | - |
 | `macarthur_directional` | 156 | 1.015 | - |
-| `cheney_gould_isotropic` | 484 | 0.927 | - |
-| `cheney_gould_directional` | 116 | 0.927 | - |
+| `cheney_gould_isotropic` | 556 | 1.033 | - |
+| `cheney_gould_directional` | 126 | 1.033 | - |
 | `grass_simple_isotropic` | 88 | 0.180 | - |
 | `grass_simple_directional` | 84 | 0.180 | - |
 | `behave_isotropic` | 240 | 0.444 | - |
@@ -120,8 +120,8 @@ ordering below are unchanged.
 | `rothermel_nearest` | 240 | 0.444 | - |
 | `balbi2020_reference_wind` | 468 | 0.933 | - |
 | `balbi2020_extinction_wet` | 52 | 0.000 | - |
-| `hybrid_behave_cheney` | 320 | 0.927 | 3840 |
-| `hybrid_behave_cheney_directional` | 104 | 0.927 | 3840 |
+| `hybrid_behave_cheney` | 350 | 1.033 | 3840 |
+| `hybrid_behave_cheney_directional` | 110 | 1.033 | 3840 |
 | `hybrid_blend_width` | 238 | 0.516 | 3840 |
 | `rothermel_code0_legacy` | 240 | 0.444 | - |
 | `rothermel_code0_masked` | 202 | 0.444 | - |
@@ -171,7 +171,7 @@ and loses the most area to the directional switch (680 to 156). The
 `grass_simple` fit is nearly isotropic by construction, its rate depending
 weakly on direction, so the switch changes it least (88 to 84); the
 Cheney-Gould 1998 model carries the full wind response and loses most of its
-area to the switch (484 to 116). BEHAVE on FM1, a single dead class with no
+area to the switch (556 to 126). BEHAVE on FM1, a single dead class with no
 live fuel, reduces exactly to Rothermel: 240 and 80, the same digits. `rothermel_nearest` matches `rothermel_isotropic` because the wind is
 uniform, so the two horizontal mappings must agree; a difference here would
 mean they disagree on a uniform field.
@@ -184,11 +184,19 @@ exactly zero and the burned area stays at the ignition disc (52 cells against
 the 50 stamped, the difference being the reinitialisation band).
 
 **Hybrids of two generic members.** BEHAVE upwind of x = 800 m and
-Cheney-Gould downwind gives 320 cells isotropic and 104 directional, between
-the members' own results (240 and 80, 484 and 116) because the head runs at
+Cheney-Gould downwind gives 350 cells isotropic and 110 directional, between
+the members' own results (240 and 80, 556 and 126) because the head runs at
 the Cheney-Gould rate downwind while the flanks and the back run at BEHAVE's.
 `hybrid_blend_width` ramps the weight over 200 m instead of stepping it and
 lands at `hybrid_region`'s count (238).
+
+**Cheney-Gould re-measured, November 2026.** The four rows that read
+Cheney-Gould changed when the reference wind was brought from 6.1 m to the
+10 m open wind the 1998 model is fitted to (neutral log profile,
+z0 = 0.1 m, a factor of 1.12). The head rate rose from 0.927 to 1.033 m/s
+and the burned cells from 484 to 556 (isotropic), 116 to 126 (directional),
+320 to 350 and 104 to 110 (the BEHAVE-Cheney hybrids). Every other row is
+unchanged to the last digit.
 
 **Non-burnable fuel codes.** `rothermel_code0_legacy` puts a 100 m strip of
 fuel code 0 (the nodata value) one cell downwind of the ignition disc and

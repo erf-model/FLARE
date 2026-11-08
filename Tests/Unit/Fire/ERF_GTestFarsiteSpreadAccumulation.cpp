@@ -327,7 +327,7 @@ TEST(FarsiteFrontCell, HeadFlankAndBackRatesRectangle)
         at.array(mfi)(10, 10, 0)  = 0.0_rt;
     }
     Real a = 0, b = 0, c = 0;
-    LW_ratio_to_richards_coefficients(anderson_LW_ratio(U * 2.237_rt), a, b, c);
+    LW_ratio_to_richards_coefficients(anderson_LW_ratio(U), a, b, c);
 
     FarsiteParams fp;
     fp.shape = farsite_shape::rectangle;

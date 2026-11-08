@@ -18,9 +18,9 @@ static constexpr double TOL = (sizeof(amrex::Real) == 8) ? 1e-12 : 1e-5;
 TEST(LevelSetEllipse, HeadFlankBackRates)
 {
     const amrex::Real R = 0.5;          // head rate [m/s]
-    const amrex::Real U = 3.0;          // midflame wind [m/s], 6.71 mph
+    const amrex::Real U = 3.0;          // midflame wind [m/s]
     const SpreadEllipse e = spread_ellipse(R, U, 0.0, 8.0);
-    const amrex::Real LB = anderson_LW_ratio(U * 2.23694);
+    const amrex::Real LB = anderson_LW_ratio(U);
     const amrex::Real s  = std::sqrt(LB * LB - 1.0);
     const amrex::Real HB = (LB + s) / (LB - s);
     EXPECT_NEAR(e.LB, LB, TOL);
@@ -56,8 +56,26 @@ TEST(LevelSetEllipse, FixedRatioAndCap)
 {
     const SpreadEllipse f = spread_ellipse(1.0, 10.0, 3.0, 8.0);   // fixed LB = 3 regardless of the wind
     EXPECT_NEAR(f.LB, 3.0, TOL);
-    const SpreadEllipse c = spread_ellipse(1.0, 30.0, 0.0, 4.0);   // Anderson would exceed 4 at 67 mph
+    const SpreadEllipse c = spread_ellipse(1.0, 30.0, 0.0, 4.0);   // Anderson would give 8 (capped) at 30 m/s
     EXPECT_NEAR(c.LB, 4.0, TOL);
     const SpreadEllipse d = spread_ellipse(1.0, 30.0, 0.0, 8.0);   // Anderson's own cap
     EXPECT_NEAR(d.LB, 8.0, TOL);
+}
+
+// Motivation: anderson_LW_ratio takes the midflame wind in m/s (Finney 1998,
+// RMRS-RP-4, eq. 13). Until November 2026 every caller passed mi/h, which gave
+// L/W 1.70 for the BehavePlus case below and reached the cap of 8 at 3.8 m/s.
+// Pins: BehavePlus (Andrews 2018, RMRS-GTR-371) gives L/W 1.24 for a 2.52 mi/h
+// (1.1265 m/s) midflame wind; the BehavePlus mi/h form 0.936 e^{0.1147 U} +
+// 0.461 e^{-0.0692 U} - 0.397 gives 1.3439 at 1.5 m/s (3.355 mi/h) and reaches
+// 8 at 8.49 m/s.
+TEST(LevelSetEllipse, AndersonRatioTakesMetresPerSecond)
+{
+    EXPECT_NEAR(anderson_LW_ratio(1.12654), 1.24, 5.0e-3);
+    EXPECT_NEAR(anderson_LW_ratio(1.5), 1.34385, 1.0e-3);
+    EXPECT_NEAR(anderson_LW_ratio(0.0), 1.0, TOL);
+    EXPECT_LT(anderson_LW_ratio(8.4), 8.0);
+    EXPECT_NEAR(anderson_LW_ratio(8.6), 8.0, TOL);
+    // spread_ellipse applies the same ratio to the m/s wind it is given
+    EXPECT_NEAR(spread_ellipse(1.0, 1.5, 0.0, 8.0).LB, anderson_LW_ratio(1.5), TOL);
 }

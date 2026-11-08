@@ -162,6 +162,7 @@ void FireLayer::initialize(const ERF& erf,
 
     fire_phi        = std::make_unique<MultiFab>(m_fg.ba, m_fg.dm, 1, 3);
     fire_wind_ref   = std::make_unique<MultiFab>(m_fg.ba, m_fg.dm, 2, 0);
+    fire_wind_ref_10m = std::make_unique<MultiFab>(m_fg.ba, m_fg.dm, 2, 0);
     fire_wind_eff   = std::make_unique<MultiFab>(m_fg.ba, m_fg.dm, 2, 0);
     fire_wind_extract_z = std::make_unique<MultiFab>(m_fg.ba, m_fg.dm, 1, 0);
     fire_slopes     = std::make_unique<MultiFab>(m_fg.ba, m_fg.dm, 2, 1);
@@ -213,6 +214,7 @@ void FireLayer::initialize(const ERF& erf,
     fire_phi->setVal(1.0);
     fire_spread_vec->setVal(0.0_rt);
     fire_wind_ref->setVal(0.0);
+    fire_wind_ref_10m->setVal(0.0);
     fire_wind_eff->setVal(0.0);
     fire_wind_extract_z->setVal(0.0);
     fire_slopes->setVal(0.0);
@@ -582,7 +584,7 @@ void FireLayer::initialize(const ERF& erf,
                                << "%, curing=" << m_params.cheney_gould.curing
                                << ", phi_C=" << m_cgc.phi_C
                                << (cg_model == cheney_gould::model_cg98
-                                   ? (m_params.cheney_gould.wind_source == 1 ? ", midflame wind" : ", reference wind (set wind_ref_ht = 10 without use_per_fuel_wind_ht)")
+                                   ? (m_params.cheney_gould.wind_source == 1 ? ", midflame wind" : ", reference wind brought to 10 m")
                                    : ", midflame wind")
                                << "; head rate at 0 and 18 km/h: " << cheney_gould_ros(0.0_rt, m_cgc)
                                << " " << cheney_gould_ros(5.0_rt, m_cgc) << " m/s\n";
@@ -837,6 +839,15 @@ void FireLayer::advance(const FireForcing& forcing)
     }
 
     MultiFab::Copy(*fire_wind_eff, *fire_wind_ref, 0, 0, 2, 0);
+
+    // FBP, Cheney et al. (1998) and Cruz et al. (2005) are fitted to the 10 m open
+    // wind. Until November 2026 they read the reference wind (6.1 m by default) as
+    // that wind, 11 % low over z0 = 0.1 m; the neutral log profile of
+    // wind_sample_z0 now brings it to 10 m (a no-op at wind_ref_ht = 10).
+    MultiFab::Copy(*fire_wind_ref_10m, *fire_wind_ref, 0, 0, 2, 0);
+    if (std::abs(z_wind - 10.0_rt) > 1.0e-6_rt) {
+        fire_wind_ref_10m->mult(neutral_wind_height_factor(10.0_rt, z_wind, m_params.wind_sample_z0), 0, 2, 0);
+    }
 
     if (m_params.use_waf) {
         if (m_params.fire_debug)
@@ -1191,7 +1202,7 @@ void FireLayer::advance(const FireForcing& forcing)
         // slopes and state are fixed within the step: one reduction)
         amrex::Real fbp_bound = 0.0_rt;
         if (m_params.directional_ros && m_params.uses_model("fbp")) {
-            const MultiFab& fbp_wind = (m_params.fbp.wind_source == 1) ? *fire_wind_eff : *fire_wind_ref;
+            const MultiFab& fbp_wind = (m_params.fbp.wind_source == 1) ? *fire_wind_eff : *fire_wind_ref_10m;
             fbp_bound = max_fbp_ros_bound(fbp_wind, *fire_slopes, m_fbp);
             // the stages multiply the crown factor into the surface rate
             if (fire_crown_factor && m_params.crown.enable) { fbp_bound *= amrex::max(fire_crown_factor->max(0), 1.0_rt); }
@@ -1271,7 +1282,7 @@ void FireLayer::advance(const FireForcing& forcing)
                 spec.rc_tbl_size = hyb_per_fuel ? static_cast<int>(m_d_rc_table.size()) : 0;
                 spec.fuel_set    = m_params.fuel_map.fuel_set_id();
                 spec.wind_eff   = fire_wind_eff.get();
-                spec.wind_ref   = fire_wind_ref.get();
+                spec.wind_ref   = fire_wind_ref_10m.get();   // read by FBP and Cheney-Gould only
                 spec.cheney_uses_ref = (m_params.cheney_gould.wind_source == 0);
                 spec.fbp_uses_ref    = (m_params.fbp.wind_source == 0);
                 spec.balbi_wind = (m_params.balbi.wind_source == 1)
@@ -1310,7 +1321,7 @@ void FireLayer::advance(const FireForcing& forcing)
                 const bool dir_per_fuel = !m_d_rc_table.empty() && fire_fuel_model;
                 if (m_params.directional_split_hamiltonian) {
                     advect_levelset_directional_rk3_split(*fire_phi,
-                                                    fbp_ref ? *fire_wind_ref : *fire_wind_eff,
+                                                    fbp_ref ? *fire_wind_ref_10m : *fire_wind_eff,
                                                     *fire_slopes, m_fg.geom, dt_ls,
                                                     m_params.levelset_eps_visc,
                                                     dir_state, fire_nonburnable.get(), wall_extrap,
@@ -1323,7 +1334,7 @@ void FireLayer::advance(const FireForcing& forcing)
                                                     cell_mc.active() ? &cell_mc : nullptr,
                                                     &m_ls_scratch, wrf_mask);
                 } else {
-                    advect_levelset_directional_rk3(*fire_phi, fbp_ref ? *fire_wind_ref : *fire_wind_eff,
+                    advect_levelset_directional_rk3(*fire_phi, fbp_ref ? *fire_wind_ref_10m : *fire_wind_eff,
                                                     *fire_slopes, m_fg.geom, dt_ls,
                                                     m_params.levelset_eps_visc,
                                                     dir_state, fire_nonburnable.get(), wall_extrap,
@@ -1726,17 +1737,22 @@ void FireLayer::apply_waf_to_wind()
     // carries the difference. Taking the depth from erf.fire.fuel_model_id
     // reduced the whole grid by one factor the raster could not change -- 27 %
     // of the effective wind between those two on the FireCustomFuel mixed map.
-    const int formula_id = (m_params.waf_formula == "andrews")      ? 0
-                         : (m_params.waf_formula == "behaviorplus") ? 1
-                         : -1;
-    if (formula_id < 0) {
+    if (m_params.waf_formula != "andrews") {
         amrex::Abort("[FIRE] Unknown waf_formula '" + m_params.waf_formula + "'");
     }
+    // The factor turns the 20 ft (6.096 m) open wind into the midflame wind
+    // (Albini and Baughman 1979). A reference wind sampled elsewhere (wind_ref_ht =
+    // 10 for FBP or Cheney-Gould in a hybrid) is first brought to 20 ft with the
+    // neutral log profile; until November 2026 it was used as the 20 ft wind
+    // (12 % high at 10 m over z0 = 0.1 m). 6.1 m counts as 20 ft.
+    const Real z_wind = m_params.sampled_wind_ht();
+    const Real to_20ft = (std::abs(z_wind - 6.096_rt) > 0.01_rt)
+                       ? neutral_wind_height_factor(6.096_rt, z_wind, m_params.wind_sample_z0)
+                       : 1.0_rt;
 
     if (!m_has_spatial_fuel || !fire_fuel_model) {
-        const Real waf = (formula_id == 0) ? compute_waf_unsheltered(m_fuel_bed_depth_ft)
-                                           : compute_waf_behaviorplus(m_fuel_bed_depth_ft);
-        fire_wind_eff->mult(waf, 0, 2, 0);
+        const Real waf = compute_waf_unsheltered(m_fuel_bed_depth_ft);
+        fire_wind_eff->mult(to_20ft * waf, 0, 2, 0);
         return;
     }
 
@@ -1754,11 +1770,10 @@ void FireLayer::apply_waf_to_wind()
             const int fuel_code = static_cast<int>(code_arr(i, j, k) + 0.5_rt);
             const FuelModelParams fp_cell =
                 fuel_params_at_code(fuel_code, fuel_set, M_live, fp_tbl, fp_tbl_size);
-            // delta is the bed depth in feet, which is what both formulas take;
+            // delta is the bed depth in feet, which is what the formula takes;
             // compute_waf_unsheltered floors it, so a zero-depth entry cannot
             // divide by zero here.
-            const Real waf_cell = (formula_id == 0) ? compute_waf_unsheltered(fp_cell.delta)
-                                                    : compute_waf_behaviorplus(fp_cell.delta);
+            const Real waf_cell = to_20ft * compute_waf_unsheltered(fp_cell.delta);
             wind_arr(i, j, k, 0) *= waf_cell;
             wind_arr(i, j, k, 1) *= waf_cell;
         });
@@ -1873,9 +1888,9 @@ void FireLayer::compute_heat_flux_and_diagnostics(Real dt_fire_s)
 {
     FuelModelParams fp = uniform_fuel_params();
 
-    Real sigma_agg = dead_fuel_weighted_sav(fp.w_d1, fp.w_d10, fp.w_d100, fp.sigma_d1);
-
-    Real tau_sav = compute_residence_time_s(sigma_agg, fp.rho_p);
+    // the residence time takes the characteristic (surface-area-weighted) SAV of
+    // Rothermel (1983, appendix C), not the load-weighted dead mean
+    Real tau_sav = compute_residence_time_s(characteristic_sav(fp));
     Real tau_sav_floor = (m_params.tau_residence_s > 0.0_rt) ? m_params.tau_residence_s : tau_sav;
 
     if (m_params.fire_debug) {
@@ -2054,9 +2069,10 @@ void FireLayer::apply_crown_fire_ros()
     for (MFIter mfi(*fire_ros); mfi.isValid(); ++mfi) {
         const Box& bx = mfi.validbox();
         auto const phi_arr = fire_phi->const_array(mfi);
-        // Cruz's U_10 is an open wind: the reference wind (at sampled_wind_ht()), not the
-        // WAF-reduced midflame wind (about 0.4x, which made R_crown 2.3x low).
-        auto const wind_arr = fire_wind_ref->const_array(mfi);
+        // Cruz's U_10 is the 10 m open wind: the reference wind brought to 10 m, not
+        // the WAF-reduced midflame wind (about 0.4x, which made R_crown 2.3x low),
+        // nor the 6.1 m reference wind itself (11 % low, until November 2026).
+        auto const wind_arr = fire_wind_ref_10m->const_array(mfi);
         auto const surface_ros_arr = surface_ros.const_array(mfi);
         auto const surface_I_B_arr = surface_intensity.const_array(mfi);
         Array4<const Real> mc_arr;
@@ -2409,7 +2425,7 @@ void FireLayer::fill_ros_for_model(const std::string& model,
                        m_bc_default, m_params.balbi, balbi_in);
     } else if (model == "cheney_gould") {
         // the 1998 model's U10 is the reference-height wind unless told otherwise
-        fill_cheney_gould_ros(out, (m_params.cheney_gould.wind_source == 1) ? *fire_wind_eff : *fire_wind_ref, m_cgc);
+        fill_cheney_gould_ros(out, (m_params.cheney_gould.wind_source == 1) ? *fire_wind_eff : *fire_wind_ref_10m, m_cgc);
     } else if (model == "grass_simple") {
         fill_cheney_gould_ros(out, *fire_wind_eff, m_cgc);
     } else if (model == "behave") {
@@ -2428,7 +2444,7 @@ void FireLayer::fill_ros_for_model(const std::string& model,
     } else if (model == "macarthur") {
         fill_macarthur_ros(out, *fire_wind_eff, m_params.macarthur_ros_max);
     } else if (model == "fbp") {
-        fill_fbp_ros(out, (m_params.fbp.wind_source == 1) ? *fire_wind_eff : *fire_wind_ref, *fire_slopes, m_fbp);
+        fill_fbp_ros(out, (m_params.fbp.wind_source == 1) ? *fire_wind_eff : *fire_wind_ref_10m, *fire_slopes, m_fbp);
     } else if (model == "prescribed") {
         fill_prescribed_ros(out);
     } else {

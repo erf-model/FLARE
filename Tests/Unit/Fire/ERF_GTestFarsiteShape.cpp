@@ -28,10 +28,13 @@ namespace {
 
 const Real tol_t = (sizeof(Real) == 8) ? 1.0e-9 : 1.0e-3;
 
-/// Anderson (1983) as fitted in FARSITE (Finney 1998, eq. 8), U in mi/h
-double anderson_lb (double U_mph)
+/// Anderson (1983) as fitted in FARSITE (Finney 1998, RMRS-RP-4, eq. 13), U the
+/// midflame wind in m/s. The arrival checks below are exact, so this is the code's
+/// own form; until November 2026 both this helper and the code fed it mi/h. The
+/// BehavePlus mi/h form pins the unit separately (LevelSetEllipse test).
+double anderson_lb (double U_mps)
 {
-    return std::max(1.0, std::min(8.0, 0.936 * std::exp(0.2566 * U_mph) + 0.461 * std::exp(-0.1548 * U_mph) - 0.397));
+    return std::max(1.0, std::min(8.0, 0.936 * std::exp(0.2566 * U_mps) + 0.461 * std::exp(-0.1548 * U_mps) - 0.397));
 }
 
 double hb_of (double LB) { const double s = std::sqrt(LB * LB - 1.0); return (LB + s) * (LB + s); }
@@ -107,7 +110,7 @@ TEST(FarsiteShape, GaugeIsTheEllipseTravelTime)
 TEST(FarsiteShape, HeadBackAndFlankFromAPointSource)
 {
     const Real U = 0.5_rt, R = 0.1_rt, h = 10.0_rt;
-    const double LB = anderson_lb(U * 2.237), HB = hb_of(LB);
+    const double LB = anderson_lb(U), HB = hb_of(LB);
     FarsiteParams fp;
     ASSERT_EQ(fp.shape, farsite_shape::ellipse) << "the ellipse is the default";
     const MultiFab at = point_source(U, fp, 50);
@@ -131,8 +134,9 @@ TEST(FarsiteShape, HeadBackAndFlankFromAPointSource)
  * point-source value gauge(x, y) / R exactly (a chain through another cell
  * can only be later, by the triangle inequality of the convex gauge); the
  * quadrant update alone lagged the flank by a factor of three at L/W = 2.1.
- * 41 x 41 cells of 10 m, R = 0.1 m/s, a 1.5 m/s wind (L/W = 2.09), 1200 s:
- * the head reaches 12 cells, the flank 3 rows.
+ * 41 x 41 cells of 10 m, R = 0.1 m/s, a 1.5 m/s wind (L/W = 1.34; 2.09 until
+ * November 2026, when the ratio was fed mi/h), 1200 s: the head reaches 12
+ * cells, the flank 5 rows.
  */
 void point_source_arrivals_are_exact (bool stamp_by_update, Real angle_deg = 0.0_rt, Real U = 1.5_rt, int min_checked = 40)
 {
@@ -161,7 +165,7 @@ void point_source_arrivals_are_exact (bool stamp_by_update, Real angle_deg = 0.0
         advance_fire_subcycle(phi, work, disp, at, vel, ros, geom, 10.0_rt, n * 10.0_rt, fp);
     }
     // the shape of the test's own wind, as the update builds it
-    const double LB = anderson_lb(U * 2.237);
+    const double LB = anderson_lb(U);
     const SpreadEllipse e = spread_ellipse_from_lw(1.0_rt, Real(LB));
     farsite_front::Shape s;
     s.wx = cw; s.wy = sw; s.a = e.a; s.b = e.b; s.c = e.c; s.sx = 0.0_rt; s.sy = 0.0_rt;
@@ -190,9 +194,10 @@ void point_source_arrivals_are_exact (bool stamp_by_update, Real angle_deg = 0.0
     EXPECT_LT(err, 1.0e-6) << "every burned cell within the stencil carries its point-source arrival";
     if (angle_deg == 0.0_rt && U == 1.5_rt) {
         // the flank: the third row across the wind is reached (semi-minor rate
-        // a = 0.255 R puts it at 1180 s; the across-wind rate alone would need 4200 s)
+        // a = 0.446 R puts it at 673 s; a = 0.255 R and 1180 s with the ratio of a
+        // mi/h wind until November 2026; the across-wind rate alone would need 4200 s)
         EXPECT_GE(n_flank, 1) << "the ellipse's flank grows at its semi-minor rate";
-        EXPECT_NEAR(e.a, 0.255, 0.01);
+        EXPECT_NEAR(e.a, 0.446, 0.01);
     }
 }
 
@@ -202,14 +207,15 @@ TEST(FarsiteShape, PointSourceArrivalsAreExactWithinTheStencil) { point_source_a
 /// its clock at burn is the clock at t0, so the direct paths from it are exact
 TEST(FarsiteShape, ACellTheUpdateDatesIsAnExactSource) { point_source_arrivals_are_exact(true); }
 
-/// A wind at 45 degrees to the grid, 3 m/s (L/W = 5): the ellipse reaches the
-/// diagonal cell (21, 21) at 141 s, long before any face neighbour of it burns
-/// (the cell beside the source along x is reached at 1523 s), so a candidate
-/// test on the face neighbours alone burned nothing for 1200 s; the direct
-/// sources must be tried on every cell with a burned cell in its stencil
+/// A wind at 45 degrees to the grid, 3 m/s (L/W = 1.91; 5.0 with the mi/h ratio
+/// used until November 2026): the ellipse reaches the
+/// diagonal cell (21, 21) at 141 s (the head rate along the diagonal), before
+/// any face neighbour of it burns, so a candidate test on the face neighbours
+/// alone burned nothing for 1200 s; the direct sources must be tried on every
+/// cell with a burned cell in its stencil
 TEST(FarsiteShape, AnObliqueWindReachesTheDiagonalCellsFirst)
 {
-    // 23 cells burn in 1200 s (the exact count); the defect burned none
+    // more than 20 cells burn in 1200 s; the defect burned none
     point_source_arrivals_are_exact(false, 45.0_rt, 3.0_rt, 20);
 }
 
@@ -251,7 +257,7 @@ TEST(FarsiteShape, ACellDatedByAnotherWriterSpreadsFromItsOwnTime)
         if (mfi.validbox().contains(IntVect(is, js, 0))) { phi.array(mfi)(is, js, 0) = -1.0_rt; at.array(mfi)(is, js, 0) = t_spot; }
     }
     for (; n < 200; ++n) { advance_fire_subcycle(phi, work, disp, at, vel, ros, geom, 10.0_rt, n * 10.0_rt, fp); }
-    const double LB = anderson_lb(U * 2.237);
+    const double LB = anderson_lb(U);
     const SpreadEllipse e = spread_ellipse_from_lw(1.0_rt, Real(LB));
     farsite_front::Shape s;
     s.wx = 1.0_rt; s.wy = 0.0_rt; s.a = e.a; s.b = e.b; s.c = e.c; s.sx = 0.0_rt; s.sy = 0.0_rt;
@@ -435,7 +441,7 @@ TEST(FarsiteShape, ALullIsIntegratedOverThePath)
         if (n * 10.0_rt >= t_lull) { ros.setVal(R2); }
         advance_fire_subcycle(phi, work, disp, at, vel, ros, geom, 10.0_rt, n * 10.0_rt, fp);
     }
-    const double LB = anderson_lb(U * 2.237);
+    const double LB = anderson_lb(U);
     const SpreadEllipse e = spread_ellipse_from_lw(1.0_rt, Real(LB));
     farsite_front::Shape s;
     s.wx = 1.0_rt; s.wy = 0.0_rt; s.a = e.a; s.b = e.b; s.c = e.c; s.sx = 0.0_rt; s.sy = 0.0_rt;

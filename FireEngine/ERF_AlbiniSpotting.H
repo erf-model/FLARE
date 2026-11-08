@@ -60,22 +60,102 @@
 
 // ─── Albini lofting height ──────────────────────────────────────────────────
 
+namespace albini {
+/// Wind range of the fits behind Table 4 [m/s at 10 m] (INT-309 Tables 1-3)
+constexpr amrex::Real U10_FIT_MIN = 5.0;
+constexpr amrex::Real U10_FIT_MAX = 30.0;
+} // namespace albini
+
 /**
- * @brief Compute firebrand lofting height [m].
+ * @brief Albini (1983, INT-309) Table 4: E / I = A U^B, the strength of the
+ *        line thermals per unit fire intensity, for an Anderson (1982) model.
  *
- * H_z = 12.2 × I_B^(1/3)   [Albini 1983 INT-309, eq. 1]
+ * A is in seconds and U is the mean 10 m wind in m/s. Model 8 (closed timber
+ * litter) is not in the table. The values are those printed in Table 4; the
+ * paper's example 1 uses B = -1.465 for short grass where the table has
+ * -1.456.
  *
- * Returns 0 when I_B_kW is below I_B_min_kW.
- *
- * @param[in] I_B_kW       Byram fireline intensity [kW/m]
- * @param[in] I_B_min_kW   Minimum intensity threshold [kW/m]
- * @return Lofting height H_z [m], or 0.0 if below threshold.
+ * @param[in]  anderson  Anderson fuel model 1-13
+ * @param[out] A         Coefficient [s]
+ * @param[out] B         Exponent [-]
+ * @return false for model 8 and for codes outside 1-13
  */
-inline amrex::Real
-albini_lofting_height(amrex::Real I_B_kW, amrex::Real I_B_min_kW = 100.0)
+inline bool
+albini_thermal_fit(int anderson, amrex::Real& A, amrex::Real& B) noexcept
+{
+    switch (anderson) {
+        case  1: A = 162.0; B = -1.456; return true;   // short grass
+        case  2: A = 166.0; B = -1.282; return true;   // grassy understory
+        case  3: A = 129.0; B = -1.238; return true;   // tall grass
+        case  4: A =  83.9; B = -1.040; return true;   // mature chaparral
+        case  5: A =  94.4; B = -0.881; return true;   // young chaparral
+        case  6: A =  74.1; B = -0.906; return true;   // dormant brush
+        case  7: A =  75.1; B = -0.884; return true;   // southern rough
+        case  9: A = 154.0; B = -1.151; return true;   // hardwood litter
+        case 10: A =  66.1; B = -0.810; return true;   // overgrown slash
+        case 11: A =  63.6; B = -0.776; return true;   // light conifer slash
+        case 12: A =  69.6; B = -0.818; return true;   // medium conifer slash
+        case 13: A =  71.8; B = -0.835; return true;   // heavy conifer slash
+        default: return false;
+    }
+}
+
+/**
+ * @brief Strength of a line thermal, E = I A U^B [kJ/m] (INT-309 eqs. 7-8).
+ *
+ * U is held to the 5-30 m/s range the power laws were fitted over (Tables
+ * 1-3): B < 0, so the fit grows without bound as U goes to zero.
+ *
+ * @param[in] I_kW   Mean fireline intensity [kW/m]
+ * @param[in] U10    Mean wind at 10 m [m/s]
+ * @param[in] A, B   Table 4 coefficients (albini_thermal_fit)
+ */
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real albini_thermal_strength(amrex::Real I_kW, amrex::Real U10,
+                                    amrex::Real A, amrex::Real B) noexcept
+{
+    const amrex::Real U = amrex::min(amrex::max(U10, albini::U10_FIT_MIN), albini::U10_FIT_MAX);
+    return I_kW * A * std::pow(U, B);
+}
+
+/**
+ * @brief Maximum firebrand lofting height H = 0.173 E^(1/2) [m]
+ *        (Albini 1983, INT-309, eq. 2; E in kJ/m).
+ *
+ * Returns 0 when I_B_kW is below I_B_min_kW. INT-309's examples: short grass,
+ * 2000 kW/m, U10 = 5 m/s gives E = 30 660 kJ/m and H = 30 m; mature
+ * chaparral, 50 000 kW/m, 20 m/s gives E = 186 000 kJ/m and H = 75 m.
+ *
+ * Until November 2026 this was 12.2 I_B^(1/3), cited as INT-309 eq. 1 but
+ * not in the paper (its eq. 1 is the plume-separation intensity 17.5 U^3);
+ * it gave 154 m at example 1.
+ *
+ * @param[in] I_B_kW      Byram fireline intensity [kW/m]
+ * @param[in] U10         Mean wind at 10 m [m/s]
+ * @param[in] A, B        Table 4 coefficients (albini_thermal_fit)
+ * @param[in] I_B_min_kW  Minimum intensity threshold [kW/m]
+ * @return Lofting height [m], or 0.0 below the threshold.
+ */
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real albini_lofting_height(amrex::Real I_B_kW, amrex::Real U10,
+                                  amrex::Real A, amrex::Real B,
+                                  amrex::Real I_B_min_kW = 100.0) noexcept
 {
     if (I_B_kW < I_B_min_kW) { return 0.0; }
-    return 12.2 * std::cbrt(I_B_kW);
+    return amrex::Real(0.173) * std::sqrt(albini_thermal_strength(I_B_kW, U10, A, B));
+}
+
+/**
+ * @brief The Anderson model whose Table 4 fit a launch cell uses: its own code
+ *        under spotting.fuel_system = "13" when Table 4 has it, otherwise
+ *        spotting.thermal_fuel_model; 0 when neither applies.
+ */
+inline int
+albini_thermal_model(int code, const std::string& fuel_system, int thermal_fuel_model) noexcept
+{
+    amrex::Real A, B;
+    if (fuel_system == "13" && albini_thermal_fit(code, A, B)) { return code; }
+    return thermal_fuel_model;
 }
 
 /**
@@ -220,6 +300,7 @@ struct LaunchCell {
     int  i, j;
     amrex::Real I_B;      ///< Byram intensity [kW/m]
     amrex::Real cap;      ///< maximum spotting distance of the cell's fuel [m]
+    int  model;           ///< Anderson model of the cell's Table 4 fit (albini_thermal_model)
 };
 
 } // namespace albini_detail
@@ -235,7 +316,10 @@ struct LaunchCell {
  *     front_band cells of an unburned cell), plus the extra launch sites of
  *     burning structures. Each rank's list is gathered to every rank and sorted
  *     by cell, so the random draws below do not depend on the decomposition.
- *  2. The lofting height H_z = 12.2 × I_B^(1/3) of each launch cell.
+ *  2. The lofting height H = 0.173 (I A U10^B)^(1/2) of each launch cell
+ *     (INT-309 eqs. 2, 7, 8), with A and B from Table 4 for the cell's
+ *     Anderson model (albini_thermal_model) and U10 the reference wind
+ *     brought to 10 m on the same log profile as the drift.
  *  3. Stochastic launch: draw uniform random; launch if draw < P_launch.
  *  4. Forward-Euler trajectory over n_traj_steps sub-steps, drifting on the
  *     reference-height wind scaled to the brand's height above ground with a
@@ -368,7 +452,7 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
     }
     Gpu::streamSynchronize();
 
-    // This rank's launch cells, packed as (i, j, I_B, cap) for the gather
+    // This rank's launch cells, packed as (i, j, I_B, cap, model) for the gather
     std::vector<Real> local_rec;
     for (MFIter mfi(launch); mfi.isValid(); ++mfi) {
         const Box& bx = mfi.validbox();
@@ -378,10 +462,18 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
             const Real I = L(i, j, 0, 0);
             if (I <= 0.0) { return; }
             const int code = (L(i, j, 0, 1) >= 0.0) ? static_cast<int>(L(i, j, 0, 1) + Real(0.5)) : fuel_model_id;
+            const int model = albini_thermal_model(code, fuel_system, sp.thermal_fuel_model);
+            if (model == 0) {
+                Abort("[FIRE] Spotting: fuel code " + std::to_string(code) + " (spotting.fuel_system = \""
+                      + fuel_system + "\") has no Albini (1983) Table 4 thermal fit, which covers "
+                      "Anderson models 1-7 and 9-13 only. Set erf.fire.spotting.thermal_fuel_model "
+                      "to the Anderson model whose fit such cells should use.");
+            }
             local_rec.push_back(static_cast<Real>(i));
             local_rec.push_back(static_cast<Real>(j));
             local_rec.push_back(I);
             local_rec.push_back(scott_max_spot_dist(code, fuel_system));
+            local_rec.push_back(static_cast<Real>(model));
         });
     }
 
@@ -405,9 +497,10 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
     all_rec = local_rec;
 #endif
     std::vector<albini_detail::LaunchCell> front_cells;
-    front_cells.reserve(all_rec.size() / 4);
-    for (std::size_t n = 0; n + 3 < all_rec.size(); n += 4) {
-        front_cells.push_back({static_cast<int>(all_rec[n]), static_cast<int>(all_rec[n + 1]), all_rec[n + 2], all_rec[n + 3]});
+    front_cells.reserve(all_rec.size() / 5);
+    for (std::size_t n = 0; n + 4 < all_rec.size(); n += 5) {
+        front_cells.push_back({static_cast<int>(all_rec[n]), static_cast<int>(all_rec[n + 1]), all_rec[n + 2], all_rec[n + 3],
+                               static_cast<int>(all_rec[n + 4] + Real(0.5))});
     }
     std::sort(front_cells.begin(), front_cells.end(),
               [](const albini_detail::LaunchCell& a, const albini_detail::LaunchCell& b) {
@@ -449,7 +542,14 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         const int  si  = front_cells[fc].i;
         const int  sj  = front_cells[fc].j;
         const Real I_B = front_cells[fc].I_B;
-        const Real H_z = albini_lofting_height(I_B, sp.I_B_min);
+        // INT-309: the thermal strength takes the mean 10 m wind, brought
+        // from the reference height on the same log profile as the drift.
+        const std::size_t sidx = static_cast<std::size_t>(sj) * nx + si;
+        const Real U10 = std::sqrt(h_u[sidx] * h_u[sidx] + h_v[sidx] * h_v[sidx])
+                       * albini_wind_profile_factor(Real(10.0), z_ref, z0);
+        Real A_th = 0.0, B_th = 0.0;
+        albini_thermal_fit(front_cells[fc].model, A_th, B_th);
+        const Real H_z = albini_lofting_height(I_B, U10, A_th, B_th, sp.I_B_min);
         if (H_z <= 0.0) { continue; }
         const Real cx  = prob_lo[0] + (si + 0.5) * dx[0];
         const Real cy  = prob_lo[1] + (sj + 0.5) * dx[1];

@@ -7,7 +7,7 @@ A 50 m radius disc centred at (500, 960) m burns short grass (Anderson fuel
 model 1 at 5.5 %) on flat ground in a uniform 3 m/s westerly for 10 minutes on
 the FARSITE path. With erf.fire.farsite.shape = ellipse (the default) the spread
 shape is the Richards (1990) ellipse of Anderson's length-to-width ratio L/W of
-the midflame wind in mph with Alexander's head-to-back ratio
+the midflame wind (m/s) with Alexander's head-to-back ratio
 HB = (L/W + sqrt((L/W)^2 - 1))^2: the head runs at R, the back at R / HB and
 the flanks at the semi-minor rate a = (R + R/HB) / (2 L/W), and the exact
 burned region is the disc swept by that ellipse. With shape = rectangle (the
@@ -61,8 +61,10 @@ def check(name, ok, detail):
 
 def richards(u_mid, shape):
     """Head, flank and back coefficients (of R) of the FARSITE spread shape."""
-    mph = u_mid * 2.237
-    lw = 1.0 if mph < 1.0 else min(max(0.936 * math.exp(0.2566 * mph) + 0.461 * math.exp(-0.1548 * mph) - 0.397, 1.0), 8.0)
+    # BehavePlus form of Anderson's ratio in mi/h (Andrews 2018); the code uses the m/s
+    # coefficients of Finney (1998, eq. 13). Until 2026-11 both fed mi/h to those.
+    mph = u_mid / 0.44704
+    lw = 1.0 if mph <= 0.0 else min(max(0.936 * math.exp(0.1147 * mph) + 0.461 * math.exp(-0.0692 * mph) - 0.397, 1.0), 8.0)
     if shape == "rectangle":
         return 1.0, 1.2 / (2.0 * lw), 0.2, lw
     hb = (lw + math.sqrt(lw * lw - 1.0)) ** 2       # Alexander (1985)

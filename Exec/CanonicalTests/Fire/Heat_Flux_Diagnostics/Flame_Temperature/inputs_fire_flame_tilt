@@ -1,20 +1,16 @@
-# Wind adjustment factor, BehavePlus formulation.
+# Flame tilt diagnostic with the default byram_radiant flame temperature.
 #
-# Companion to inputs_fire_waf_andrews; the only difference is the WAF formula,
-# so the pair isolates its effect on midflame wind and spread rate.
+# Until November 2026 this deck ran flame_temp_method = "nelson_emissivity",
+# which was removed (it put the fireline intensity [W/m] into the
+# Stefan-Boltzmann law as a flux [W/m2]); it is kept for the tilt diagnostic,
+# which no other deck turns on.
 #
 # Expected result:
-#   - Effective midflame wind differs from the Andrews case for the same fuel
-#     bed depth, and spread rate shifts in the same direction.
-#   - The run does not fall back to the default WAF: an unrecognised
-#     waf_formula prints a warning and uses 0.4, so a silent match with neither
-#     reference value means the string was not recognised.
+#   - Flame temperature is finite and above ambient in burning cells.
+#   - The flame tilt is finite, in [0, 90) degrees, and zero in unburned cells.
 #
 # Configuration:
-#   - use_waf = true with waf_formula = "behaviorplus".
-#
-# Notes:
-#   - Both cases use fuel model 1, whose bed depth drives the WAF.
+#   - flame_temp_method = "byram_radiant" (the default); compute_flame_tilt = true.
 geometry.prob_lo = 0.0 0.0 0.0
 geometry.prob_hi = 2000.0 2000.0 500.0
 amr.n_cell = 40 40 50
@@ -54,7 +50,7 @@ erf.check_int = -1
 # plotfiles. (erf.plot_int/erf.plot_vars, set here before 2026-09-10, were read
 # by nothing, so none was written either; ERF reads erf.plot_int_1/plot_vars_1.)
 erf.plot_int_1 = -1
-erf.fire.plot_file = plt_fire_waf_behaviorplus_
+erf.fire.plot_file = plt_fire_flame_tilt_
 erf.fire.plot_int = 100
 
 erf.fire.enable = true
@@ -70,7 +66,7 @@ erf.fire.ignition_y = 1000.0
 erf.fire.ignition_r = 30.0
 erf.fire.wind_ref_ht = 6.1
 erf.fire.use_waf = true
-erf.fire.waf_formula = "behaviorplus"
+erf.fire.waf_formula = "andrews"
 erf.fire.use_wind_limit = true
 erf.fire.use_terrain_wind = false
 erf.fire.ros_model = "rothermel"
@@ -78,5 +74,5 @@ erf.fire.farsite.cfl_fire = 0.5
 erf.fire.coupling_type = "passive"
 erf.fire.write_fire_stats_csv = true
 erf.fire.flame_temp_method = "byram_radiant"
-erf.fire.compute_flame_tilt = false
-erf.fire.fire_stats_csv_file = "fire_stats_waf_behaviorplus.csv"
+erf.fire.compute_flame_tilt = true
+erf.fire.fire_stats_csv_file = "fire_stats_flame_tilt.csv"

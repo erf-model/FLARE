@@ -51,14 +51,19 @@ struct SpreadEllipse
 };
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-amrex::Real anderson_LW_ratio(amrex::Real wind_speed_mph) noexcept
+amrex::Real anderson_LW_ratio(amrex::Real U_mps) noexcept
 {
-    // Anderson (1983) as fitted in FARSITE (Finney 1998, eq. 8), U in mi/h:
-    // L/W = 0.936 e^{0.2566 U} + 0.461 e^{-0.1548 U} - 0.397, which is 1 at U = 0.
-    // The second term used to be -0.397 sqrt(U), 22 % narrower at 5 mi/h.
-    if (wind_speed_mph <= 0.0) { return 1.0; }
-    amrex::Real lw = 0.936 * std::exp(0.2566 * wind_speed_mph)
-                   + 0.461 * std::exp(-0.1548 * wind_speed_mph)
+    // Anderson (1983) as fitted in FARSITE (Finney 1998, RMRS-RP-4, eq. 13), U the
+    // effective midflame wind in m/s:
+    // L/W = 0.936 e^{0.2566 U} + 0.461 e^{-0.1548 U} - 0.397, which is 1 at U = 0,
+    // capped at 8. BehavePlus writes the same fit for U in mi/h with 0.1147 and
+    // 0.0692 (Andrews 2018, RMRS-GTR-371): 0.2566 = 0.1147 x 2.237. Until
+    // November 2026 every caller passed mi/h to these m/s coefficients, so the
+    // ellipse was too narrow (L/W 2.09 instead of 1.34 at 1.5 m/s) and reached
+    // the cap of 8 at 3.8 m/s instead of 8.5 m/s.
+    if (U_mps <= 0.0) { return 1.0; }
+    amrex::Real lw = 0.936 * std::exp(0.2566 * U_mps)
+                   + 0.461 * std::exp(-0.1548 * U_mps)
                    - 0.397;
     return amrex::max(static_cast<amrex::Real>(1.0), static_cast<amrex::Real>(amrex::min(static_cast<amrex::Real>(lw), static_cast<amrex::Real>(8.0))));
 }
@@ -109,7 +114,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 SpreadEllipse spread_ellipse(amrex::Real R, amrex::Real U_mps,
                              amrex::Real lw_fixed, amrex::Real lw_max) noexcept
 {
-    amrex::Real LB = (lw_fixed > 0.0) ? lw_fixed : anderson_LW_ratio(U_mps * 2.23694);
+    amrex::Real LB = (lw_fixed > 0.0) ? lw_fixed : anderson_LW_ratio(U_mps);
     LB = amrex::max(amrex::Real(1.0), amrex::min(LB, lw_max));
     return spread_ellipse_from_lw(R, LB);
 }
@@ -376,12 +381,12 @@ void advance_farsite_one_step_legacy(
                 Real a = fp.coeff_a, b = fp.coeff_b, c = fp.coeff_c;
                 if (fp.use_anderson_lw != 0) {
                     LW_ratio_to_richards_coefficients(
-                        anderson_LW_ratio(wind_mag * 2.237), a, b, c);
+                        anderson_LW_ratio(wind_mag), a, b, c);
                 }
                 if (fp.shape == farsite_shape::ellipse) {
                     // the ellipse of the Anderson ratio, or of the ratio the
                     // given coefficients imply, (a + c) / (2 b)
-                    const Real LB = (fp.use_anderson_lw != 0) ? anderson_LW_ratio(wind_mag * 2.237)
+                    const Real LB = (fp.use_anderson_lw != 0) ? anderson_LW_ratio(wind_mag)
                                                               : (a + c) / (2.0 * amrex::max(b, Real(1.0e-6)));
                     scale = ellipse_normal_speed(spread_ellipse_from_lw(Real(1.0), LB), cos_t, sin_t);
                 } else {
@@ -834,11 +839,11 @@ void advance_farsite_front_cells(
                 s.wy = uy * inv_wind;
                 Real a = coef_a, b = coef_b, c = coef_c;
                 if (use_anderson_lw != 0) {
-                    LW_ratio_to_richards_coefficients(anderson_LW_ratio(wind_mag * 2.237_rt), a, b, c);
+                    LW_ratio_to_richards_coefficients(anderson_LW_ratio(wind_mag), a, b, c);
                 }
                 if (ellipse) {
                     // Anderson's ratio, or the ratio the given coefficients imply
-                    const Real LB = (use_anderson_lw != 0) ? anderson_LW_ratio(wind_mag * 2.237_rt)
+                    const Real LB = (use_anderson_lw != 0) ? anderson_LW_ratio(wind_mag)
                                                            : (a + c) / (2.0_rt * amrex::max(b, coef_min));
                     const SpreadEllipse e = spread_ellipse_from_lw(1.0_rt, LB);
                     s.a = amrex::max(e.a, coef_min);

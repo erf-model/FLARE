@@ -23,7 +23,7 @@
 #include <string>
 
 namespace DustVisibilityConst {
-    constexpr amrex::Real KOSCHMIEDER_COEFF = 3.912;  ///< Koschmieder constant [m]
+    constexpr amrex::Real KOSCHMIEDER_COEFF = 3.912;  ///< Koschmieder constant, -ln(0.02) [dimensionless]
     constexpr amrex::Real EPSILON            = 1.0e-12; ///< Cutoff for near-zero PM10 [kg/m³]
 }
 

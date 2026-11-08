@@ -196,8 +196,8 @@ erf.fire.ignition.polygon_time = 0.0
 erf.fire.ignition.polygon_interior_ros = 0.0
 erf.fire.ignition.polygon_interior_tau = 0.0
 # Temperature-threshold ignition: every burnable, unburned fire cell whose
-# k = 0 potential temperature (the field the fuel-moisture update reads)
-# exceeds threshold_temp [K] ignites as a disc of threshold_radius [m] (0 =
+# k = 0 air temperature (theta times the Exner function, the field the
+# fuel-moisture update reads) exceeds threshold_temp [K, 305-2000] ignites as a disc of threshold_radius [m] (0 =
 # one fire cell), from threshold_start_time [s] on; off by default
 erf.fire.ignition.threshold_enable = false
 erf.fire.ignition.threshold_temp = 573.15
@@ -208,8 +208,10 @@ erf.fire.ignition.threshold_start_time = 0.0
 # WIND AND TERRAIN ADJUSTMENT FACTORS
 # ============================================================================
 
-# Wind measurement reference height [m] (typical MOST: 6.1 m)
-# Fire model extracts wind at this height and adjusts to 10 m canopy height
+# Height above ground the reference wind is sampled at [m]. 6.1 m counts as the
+# 20 ft wind of the wind adjustment factor; at any other height the wind is
+# brought to 20 ft for the WAF, and to 10 m for FBP, Cheney-Gould and Cruz, with
+# the neutral log profile of wind_sample_z0
 erf.fire.wind_ref_ht = 6.1
 
 # Bypass atmospheric wind interpolation with a constant reference wind, for
@@ -245,7 +247,8 @@ erf.fire.use_per_fuel_wind_ht = false
 erf.fire.use_waf = true
 
 # WAF formula selection
-# Options: "andrews" (default), "behaviorplus"
+# Options: "andrews" (default, the only one; "behaviorplus" was removed in
+# November 2026: no published source)
 erf.fire.waf_formula = "andrews"
 
 
@@ -568,7 +571,7 @@ erf.fire.fuel_map.load_from_map = false
 #   erf.fire.custom_fuel.1000.w_100h_kg_m2       = 0.0     # [0, 500] kg/m2
 #   erf.fire.custom_fuel.1000.w_live_herb_kg_m2  = 0.0     # [0, 500] kg/m2, no curing transfer
 #   erf.fire.custom_fuel.1000.w_live_woody_kg_m2 = 0.0     # [0, 500] kg/m2
-#   erf.fire.custom_fuel.1000.sav_1h_1_m         = 5000.0  # [10, 12000] 1/m
+#   erf.fire.custom_fuel.1000.sav_1h_1_m         = 5000.0  # [328.084, 12000] 1/m (>= 100 1/ft)
 #   erf.fire.custom_fuel.1000.sav_live_herb_1_m  = 5000.0  # [10, 12000] 1/m, default sav_1h_1_m
 #   erf.fire.custom_fuel.1000.sav_live_woody_1_m = 5000.0  # [10, 12000] 1/m, default sav_1h_1_m
 #   erf.fire.custom_fuel.1000.depth_m            = 0.60    # (0.01, 50] m
@@ -696,9 +699,9 @@ erf.fire.cheney_gould.moisture = 10.0  # Dead fine fuel moisture [%]
 erf.fire.cheney_gould.curing = 1.0     # Degree of curing [0-1], 1 = fully cured
 # The 1998 model's pasture coefficients ("natural" or "grazed"), its curing
 # coefficient ("cruz2015" Cruz et al. 2015, or the paper's "cheney1998") and
-# the wind it reads: "reference" is the wind at wind_ref_ht (the model's U10,
-# so set wind_ref_ht = 10 without use_per_fuel_wind_ht), "midflame" the
-# WAF-reduced wind. Read only with
+# the wind it reads: "reference" is the wind at wind_ref_ht brought to 10 m
+# with the neutral log profile (the model's U10), "midflame" the WAF-reduced
+# wind. Read only with
 # ros_model = "cheney_gould" (grass_simple takes moisture and curing alone).
 erf.fire.cheney_gould.pasture = "natural"
 erf.fire.cheney_gould.curing_curve = "cruz2015"
@@ -708,8 +711,8 @@ erf.fire.cheney_gould.wind_source = "reference"
 # CANADIAN FBP SYSTEM (used only when ros_model = "fbp")
 # ============================================================================
 # Fuel type C1-C7, D1, M1-M4, S1-S3, O1A, O1B; daily indices uniform over the
-# domain; the wind is the reference-height wind (set wind_ref_ht = 10) or the
-# midflame wind; slope through the system's equivalent wind
+# domain; the wind is the reference-height wind brought to 10 m with the
+# neutral log profile, or the midflame wind; slope through the system's equivalent wind
 erf.fire.fbp.fuel_type = "C2"
 erf.fire.fbp.ffmc = 90.0
 erf.fire.fbp.bui = 60.0
@@ -967,6 +970,12 @@ erf.fire.spotting.spotting_interval = 5
 # Options: "13" (Anderson FBFM13), "40" (Scott-Burgan 40-class)
 erf.fire.spotting.fuel_system = "13"
 
+# Anderson model (1-7, 9-13) whose Albini (1983) Table 4 thermal fit the lofting
+# height uses for launch cells whose own code has none (Scott-Burgan codes,
+# custom fuels, Anderson 8). 0 = none: such a cell aborts the run, and
+# spotting.fuel_system = "40" needs a value.
+erf.fire.spotting.thermal_fuel_model = 0
+
 # ============================================================================
 # PHASE 9: CROWN FIRE INITIATION (Van Wagner + Cruz models)
 # ============================================================================
@@ -989,9 +998,8 @@ erf.fire.crown.canopy_bulk_den = 0.2
 # Typical: 10-30 m
 erf.fire.crown.canopy_depth = 10.0
 
-# Foliar moisture content (canopy water content) [fraction 0-1]
-# 1.0 = 100% moisture (saturated, hard to burn)
-# 0.5 = 50% moisture (typical moist condition)
+# Foliar moisture content [fraction, 0.3-3.0]: 1.0 = 100 % of the dry mass
+# (a value given in percent aborts)
 erf.fire.crown.foliar_moisture = 1.0
 
 # Canopy heat content (energy released when canopy burns) [BTU/lb]
@@ -999,7 +1007,7 @@ erf.fire.crown.foliar_moisture = 1.0
 erf.fire.crown.h_crown_BTU_lb = 8000.0
 
 # 10-m wind speed for crown ROS calculations [km/h]
-# 0.0 = auto-derive from fire_wind_eff
+# 0.0 = the reference wind brought to 10 m with the neutral log profile
 # >0 = use this fixed value (for testing/sensitivity)
 erf.fire.crown.wind_10m_kmh = 0.0
 
@@ -1023,10 +1031,11 @@ erf.fire.crown.use_passive_blend = false
 # Options:
 #   "byram_radiant"     — Byram (1959): T = T_amb + 800 × (I_B/1000)^0.25
 #   "mcalpine_heat"     — McAlpine & Xanthopoulos (1989): adiabatic flame temp
-#   "nelson_emissivity" — Nelson (1980): Stefan-Boltzmann law with emissivity
+#   ("nelson_emissivity" was removed in November 2026: it treated the
+#   fireline intensity [W/m] as a flux [W/m2])
 erf.fire.flame_temp_method = "byram_radiant"
 
-# Ambient temperature for flame temperature formula [K]
+# Ambient temperature for flame temperature formula [K, 150-400]
 # Used in Byram and McAlpine formulas
 erf.fire.flame_temp_T_amb = 300.0
 
@@ -1039,7 +1048,7 @@ erf.fire.flame_temp_T_amb = 300.0
 # true: compute tilt angle [degrees from vertical]
 erf.fire.compute_flame_tilt = false
 
-# Ambient temperature for flame tilt formula [K]
+# Ambient temperature for flame tilt formula [K, 150-400]
 # Used in buoyancy velocity calculation
 erf.fire.flame_tilt_T_amb = 300.0
 

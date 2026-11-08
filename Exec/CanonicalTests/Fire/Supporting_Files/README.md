@@ -121,7 +121,7 @@ Documentation and utility scripts:
 - **Elliptical_Propagation/**: FARSITE elliptical fire expansion method
 
 ### Heat Output Tests
-- **Heat_Flux_and_Intensity/**: Heat flux computation, fuel depletion, Byram fireline intensity, Thomas flame length
+- **Heat_Flux_and_Intensity/**: Heat flux computation, fuel depletion, Byram fireline intensity, Byram flame length
 
 ### Atmospheric Coupling Tests
 - **Lagged_Coupling/**: Fire heat flux injected one step lagged into atmospheric equations
@@ -155,7 +155,7 @@ Heat flux computation test with diagnostics:
 - 8% fuel moisture
 - Heat flux computation via Albini exponential burnout model
 - Fuel load depletion via forward Euler
-- Byram fireline intensity and Thomas flame length diagnostics
+- Byram fireline intensity and Byram flame length diagnostics
 - CSV output with max heat flux tracking
 - **Expected outputs**: fire_heat_flux > 0 in burned cells, fuel_load decreasing, flame length consistent with Byram
 - **Purpose**: Regression test for heat flux, fuel depletion, fireline intensity, and flame length
@@ -203,7 +203,7 @@ Phase 8 test case with Albini (1983) ember spotting:
 - 8 m/s nominal wind to drive firebrand trajectories downwind
 - 8% fuel moisture
 - Passive coupling (no fire-atmosphere thermal feedback) to isolate spotting physics
-- Albini lofting height H_z = 12.2 * I_B^(1/3) [m], Albini (1983) INT-309
+- Lofting height H_z = 0.173 (I_B A U10^B)^(1/2) [m], Albini (1983) INT-309 eqs. 2, 7, 8 (A, B from its Table 4 for FM4)
 - Forward-Euler trajectory: 20 sub-steps, terminal velocity 0.5 m/s
 - Deterministic spotting with fixed random_seed = 42
 - 15-minute simulation (900 s)
@@ -213,7 +213,8 @@ Phase 8 test case with Albini (1983) ember spotting:
 
 #### test_albini_spotting.py (Unit_Tests/)
 Unit tests for the Albini (1983) firebrand lofting and spotting distance model.
-Verifies H_z = 12.2 × I_B^(1/3) against Albini (1983) INT-309 Table 1 reference values,
+Checks the lofting height H_z = 0.173 (I_B A U10^B)^(1/2) against INT-309's two worked examples
+(30 m and 75 m),
 spotting distance scaling with wind speed and terminal velocity, and threshold behaviour.
 
 Run: `python3 Exec/CanonicalTests/Fire/Unit_Tests/test_albini_spotting.py`
@@ -277,7 +278,7 @@ Heat flux tests additionally output:
 - `fire_heat_flux`: Sensible heat flux [W/m²]
 - `fire_fuel_load`: Remaining fuel load [kg/m²]
 - `fire_fireline_intensity`: Byram fireline intensity [kW/m]
-- `fire_flame_length`: Thomas flame length [m]
+- `fire_flame_length`: Byram (1959) flame length [m]
 
 Fire-atmosphere coupling tests additionally output:
 - `fire_heating_rate`: Heating rate induced by fire [K/s]

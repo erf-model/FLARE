@@ -5894,7 +5894,7 @@ Fuel and moisture
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.custom_fuel.N.w_live_woody_kg_m2**  | Live woody load [kg/m2]                                    | Real in [0, 500]               | 0.0                    |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.custom_fuel.N.sav_1h_1_m**          | 1-h dead surface-area-to-volume ratio [1/m]                | Real in [10, 12000]            | required               |
+| **erf.fire.custom_fuel.N.sav_1h_1_m**          | 1-h dead surface-area-to-volume ratio [1/m]                | Real in [328.084, 12000]       | required               |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.custom_fuel.N.sav_live_herb_1_m**   | Live herbaceous surface-area-to-volume ratio [1/m]; kept   | Real in [10, 12000]            | sav_1h_1_m             |
 |                                                | only where that load is > 0                                |                                |                        |
@@ -6006,7 +6006,8 @@ Ignition
 |                                                | temperature (theta times the Exner function) exceeds       |                                |                        |
 |                                                | threshold_temp                                             |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.ignition.threshold_temp**           | Ignition temperature [K]                                   | Real > 0                       | 573.15                 |
+| **erf.fire.ignition.threshold_temp**           | k = 0 air temperature (theta times the Exner function)     | Real in [305, 2000]            | 573.15                 |
+|                                                | above which an unburned cell ignites [K]                   |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.ignition.threshold_radius**         | Radius [m] of the disc stamped around each hot cell;       | Real >= 0                      | 0.0                    |
 |                                                | 0 = one fire cell                                          |                                |                        |
@@ -6022,12 +6023,16 @@ Wind
 | Parameter                                      | Definition                                                 | Acceptable Values              | Default                |
 +================================================+============================================================+================================+========================+
 | **erf.fire.wind_ref_ht**                       | Height above local ground at which the atmospheric wind is | Real > 0                       | 6.1                    |
-|                                                | sampled [m]                                                |                                |                        |
+|                                                | sampled [m]. 6.1 m counts as the 20 ft wind of the wind    |                                |                        |
+|                                                | adjustment factor; at any other height the wind is brought |                                |                        |
+|                                                | to 20 ft for the WAF, and to 10 m for FBP, Cheney-Gould and|                                |                        |
+|                                                | Cruz, with the neutral log profile of wind_sample_z0       |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.prescribed_wind**                   | Bypass atmospheric wind interpolation with a constant      | Boolean                        | false                  |
 |                                                | reference wind, for controlled idealized-wind test cases;  |                                |                        |
 |                                                | exact everywhere only with use_waf = false and             |                                |                        |
-|                                                | use_terrain_wind = false                                   |                                |                        |
+|                                                | use_terrain_wind = false; FBP, Cheney-Gould and Cruz read  |                                |                        |
+|                                                | it brought to 10 m unless wind_ref_ht = 10                 |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.prescribed_wind_x**                 | Constant reference wind, x, when prescribed_wind [m/s]     | Real                           | 0.0                    |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
@@ -6041,10 +6046,10 @@ Wind
 |                                                | to wind_ref_ht (6.096 m with use_per_fuel_wind_ht) with a  | use_per_fuel_wind_ht), or 0    |                        |
 |                                                | log profile (CFBM); 0 = off                                |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.wind_sample_z0**                    | Roughness length [m] of every log profile the fire reads:  | 0 < Real < wind_ref_ht, or     | 0.1                    |
-|                                                | the two-height resampling, the wind below the first cell   | < 6.096 with                   |                        |
-|                                                | centre and the ember drift; below the height of the        | use_per_fuel_wind_ht           |                        |
-|                                                | reference wind, which is 6.096 m with use_per_fuel_wind_ht |                                |                        |
+| **erf.fire.wind_sample_z0**                    | Roughness length [m] of every log profile the fire reads:  | 0 < Real < 6.096 and below     | 0.1                    |
+|                                                | the two-height resampling, the wind below the first cell   | the reference wind's height    |                        |
+|                                                | centre, the ember drift, and the reference wind brought to | (6.096 m with                  |                        |
+|                                                | 20 ft (WAF) and to 10 m (FBP, Cheney-Gould, Cruz)          | use_per_fuel_wind_ht)          |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_below_first_cell**             | Wind at a target below the first cell centre: "clamp"      | "clamp", "log"                 | "clamp"                |
 |                                                | takes the centre's wind unchanged; "log" scales it by the  |                                |                        |
@@ -6057,9 +6062,13 @@ Wind
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.use_waf**                           | Apply the wind adjustment factor to the reference wind     | Boolean                        | true                   |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.waf_formula**                       | Wind adjustment factor formula, from the fuel bed depth:   | "andrews", "behaviorplus"      | "andrews"              |
+| **erf.fire.waf_formula**                       | Wind adjustment factor formula, from the fuel bed depth:   | "andrews"                      | "andrews"              |
 |                                                | the domain model's on a uniform fuel, each cell's own      |                                |                        |
-|                                                | wherever a spatial fuel map is read                        |                                |                        |
+|                                                | wherever a spatial fuel map is read. The factor takes      |                                |                        |
+|                                                | the 20 ft wind; a wind_ref_ht other than 6.1 m is first    |                                |                        |
+|                                                | brought to 20 ft with the neutral log profile of           |                                |                        |
+|                                                | wind_sample_z0. "behaviorplus" was removed in November     |                                |                        |
+|                                                | 2026 (no published source)                                 |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.use_wind_limit**                    | Bound the midflame wind by Rothermel's (1972, eq. 87)      | Boolean                        | true                   |
 |                                                | limit U <= 0.9 I_R (Rothermel and BEHAVE kernels); false:  |                                |                        |
@@ -6177,9 +6186,9 @@ Rate of spread
 | **erf.fire.cheney_gould.curing_curve**         | Curing coefficient: Cruz et al. (2015) or Cheney et al.    | "cruz2015",                    | "cruz2015"             |
 |                                                | (1998)                                                     | "cheney1998"                   |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.cheney_gould.wind_source**          | Wind the 1998 model reads: the reference wind at           | "reference",                   | "reference"            |
-|                                                | wind_ref_ht (set it to 10 m) or the WAF-reduced midflame   | "midflame"                     |                        |
-|                                                | wind                                                       |                                |                        |
+| **erf.fire.cheney_gould.wind_source**          | Wind the 1998 model reads: the reference wind brought to   | "reference",                   | "reference"            |
+|                                                | 10 m with the neutral log profile of wind_sample_z0        | "midflame"                     |                        |
+|                                                | (the model's U10), or the WAF-reduced midflame wind        |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.fbp.fuel_type**                     | Canadian FBP fuel type (ros_model = fbp)                   | C1-C7, D1, M1-M4, S1-S3,       | "C2"                   |
 |                                                |                                                            | O1A, O1B                       |                        |
@@ -6196,8 +6205,9 @@ Rate of spread
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.fbp.use_slope**                     | Slope through the system's equivalent wind                 | Boolean                        | true                   |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.fbp.wind_source**                   | The reference-height wind (set wind_ref_ht = 10) or the    | "reference", "midflame"        | "reference"            |
-|                                                | midflame wind after the Wind Adjustment Factor             |                                |                        |
+| **erf.fire.fbp.wind_source**                   | The reference wind brought to 10 m with the neutral log    | "reference", "midflame"        | "reference"            |
+|                                                | profile of wind_sample_z0 (the system's 10 m open wind),   |                                |                        |
+|                                                | or the midflame wind after the Wind Adjustment Factor      |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.behave.dynamic_transfer_lo**        | BEHAVE live herbaceous moisture [fraction] at and below    | Real < dynamic_transfer_hi     | 0.30                   |
 |                                                | which the whole live herbaceous load transfers to dead,    |                                |                        |
@@ -6578,6 +6588,11 @@ Spotting
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.spotting.fuel_system**              | Fuel system of the maximum-distance table                  | "13", "40"                     | "13"                   |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.spotting.thermal_fuel_model**       | Anderson model whose Albini (1983) Table 4 thermal fit     | 0, or 1-7, 9-13                | 0                      |
+|                                                | the lofting height uses for launch cells whose own code    |                                |                        |
+|                                                | has none (Scott-Burgan, custom, Anderson 8); 0 aborts at   |                                |                        |
+|                                                | such a cell; required with fuel_system = "40"              |                                |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 
 
 Crown fire
@@ -6594,13 +6609,14 @@ Crown fire
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.crown.canopy_depth**                | Canopy depth [m]                                           | Real > 0                       | 10.0                   |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.crown.foliar_moisture**             | Foliar moisture [fraction]                                 | Real                           | 1.0                    |
+| **erf.fire.crown.foliar_moisture**             | Foliar moisture [fraction; 1.0 = 100 %]                    | Real in [0.3, 3.0]             | 1.0                    |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.crown.h_crown_BTU_lb**              | Canopy heat content [BTU/lb]                               | Real > 0                       | 8000.0                 |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.crown.wind_10m_kmh**                | Fixed 10 m wind for the crown rate [km/h]; 0 derives it    | Real >= 0                      | 0.0                    |
-|                                                | from the effective wind                                    |                                |                        |
+| **erf.fire.crown.wind_10m_kmh**                | Fixed 10 m wind for the crown rate [km/h]; 0 takes the     | Real >= 0                      | 0.0                    |
+|                                                | reference wind brought to 10 m with the neutral log        |                                |                        |
+|                                                | profile of wind_sample_z0                                  |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.crown.ros_model**                   | Active crown rate-of-spread model                          | "cruz", "rothermel1991",       | "cruz"                 |
 |                                                |                                                            | "van_wagner_proxy"             |                        |
@@ -6616,15 +6632,14 @@ Diagnostics and output
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | Parameter                                      | Definition                                                 | Acceptable Values              | Default                |
 +================================================+============================================================+================================+========================+
-| **erf.fire.flame_temp_method**                 | Flame temperature estimate                                 | "byram_radiant",               | "byram_radiant"        |
-|                                                |                                                            | "mcalpine_heat",               |                        |
-|                                                |                                                            | "nelson_emissivity"            |                        |
+| **erf.fire.flame_temp_method**                 | Flame temperature estimate ("nelson_emissivity" was        | "byram_radiant",               | "byram_radiant"        |
+|                                                | removed in November 2026)                                  | "mcalpine_heat"                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.flame_temp_T_amb**                  | Ambient temperature for the flame temperature [K]          | Real                           | 300.0                  |
+| **erf.fire.flame_temp_T_amb**                  | Ambient temperature for the flame temperature [K]          | Real in [150, 400]             | 300.0                  |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.compute_flame_tilt**                | Compute the flame tilt diagnostic                          | Boolean                        | false                  |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.flame_tilt_T_amb**                  | Ambient temperature for the tilt buoyancy velocity [K]     | Real                           | 300.0                  |
+| **erf.fire.flame_tilt_T_amb**                  | Ambient temperature for the tilt buoyancy velocity [K]     | Real in [150, 400]             | 300.0                  |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.flame_tilt_rho_air**                | Air density for the tilt buoyancy velocity [kg/m3]         | Real                           | 1.2                    |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
@@ -6713,12 +6728,14 @@ checked once at startup and abort with a message naming the input to fix.
 | **erf.dust.n_size_bins**                     | Number of particle size bins; each bin is one component of | Integer 1-8              | 3                                  |
 |                                              | the emission flux                                          |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
-| **erf.dust.bin_diameters**                   | Per-bin diameter of the emitted dust [m], one per bin (the | Reals                    | 7.0e-6 2.5e-6 50.0e-6              |
-|                                              | count must equal n_size_bins); they drive settling,        |                          |                                    |
-|                                              | deposition and the PM classes, not the threshold (see      |                          |                                    |
-|                                              | saltation_diameter)                                        |                          |                                    |
+| **erf.dust.bin_diameters**                   | Per-bin aerodynamic diameter of the emitted dust [m], one  | Reals                    | 7.0e-6 2.5e-6 50.0e-6              |
+|                                              | per bin (the count must equal n_size_bins); they drive     |                          |                                    |
+|                                              | settling and deposition (as unit-density spheres), the PM  |                          |                                    |
+|                                              | classes and the AP-42 PM-10 road bin, not the threshold    |                          |                                    |
+|                                              | (see saltation_diameter)                                   |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
-| **erf.dust.particle_density**                | Bulk particle density [kg/m³]                              | Real > 0                 | 2650.0                             |
+| **erf.dust.particle_density**                | Particle density of the saltating grains [kg/m³] (the      | Real > 0                 | 2650.0                             |
+|                                              | threshold); the bins settle by their aerodynamic diameter  |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 | **erf.dust.rho_air**                         | Air density used in the threshold and saltation flux       | Real > 0                 | 1.225                              |
 |                                              | [kg/m³]                                                    |                          |                                    |
@@ -6935,7 +6952,7 @@ on the same scalar.
 
 
 Fire coupling (FLARE)
---------------------------
+---------------------
 
 Read from the ``erf`` prefix in ``Source/ERF.cpp`` when both the fire and dust
 models are enabled; see :ref:`sec:DustFire`.
@@ -6972,12 +6989,14 @@ models are enabled; see :ref:`sec:DustFire`.
 | **erf.fire_dust_lofting_Q_threshold**        | Fire heat flux below which there is no lofting [W/m²]      | Real >= 0                | 50.0                               |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 | **erf.fire_dust_lofting_Q_ref**              | Heat flux scale of the lofting factor [W/m²]; 0 or         | Real                     | 500.0                              |
-|                                              | negative disables it                                       |                          |                                    |
+|                                              | negative disables it. With the defaults the factor reaches |                          |                                    |
+|                                              | its cap at 0.55 kW/m², below the 10-100 kW/m² of flaming   |                          |                                    |
+|                                              | cells, so it acts as an on/off switch there                |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 
 
 MRF boundary layer with fire (FLARE)
------------------------------------------
+------------------------------------
 
 Read from the ``erf`` prefix in ``Source/DataStructs/ERF_TurbStruct.H`` for
 the MRF scheme; every key also accepts a per-level ``_lev<N>`` form. See the

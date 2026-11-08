@@ -221,8 +221,10 @@ TEST(DustBudget, HaulRoadEmitsTheAP42MassRateOverTheCellsItCovers)
     flux.setVal(0.0);
     apply_road_schedule(flux, geom, sched, Real(10.0), Real(1.0), false, "", 1);
     const Real M = road_mass_rate_kg_s(ev);
-    // E = 423 (8/12)^0.9 (40/3)^0.45 g/VKT; M = 1e-3 E 12 / 3600
-    const Real E = 423.0 * std::pow(8.0 / 12.0, 0.9) * std::pow(40.0 / 3.0, 0.45);
+    // E = 423 (8/12)^0.9 (W/3)^0.45 g/VKT with W = 40 t = 44.09 short tons (AP-42's
+    // unit; the tonnes went in as short tons until November 2026, 4.3 % low);
+    // M = 1e-3 E 12 / 3600
+    const Real E = 423.0 * std::pow(8.0 / 12.0, 0.9) * std::pow(40.0 * 1.10231 / 3.0, 0.45);
     EXPECT_NEAR(M, 1.0e-3 * E * 12.0 / 3600.0, REAL_RTOL * M);
     const Real total = flux.sum(0) * 100.0 * 100.0;   // sum of flux x cell area
     EXPECT_NEAR(total, M, REAL_RTOL * M)

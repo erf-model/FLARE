@@ -34,28 +34,29 @@
  */
 struct FuelModelParams
 {
-    // Fuel load [lb/ft² or kg/m², converted as needed]
+    // Every member is in US units (custom fuels are converted on input, ERF_CustomFuel.cpp)
+    // Fuel load [lb/ft²]
     amrex::Real w_d1;       ///< 1-hour dead fuel load
     amrex::Real w_d10;      ///< 10-hour dead fuel load
     amrex::Real w_d100;     ///< 100-hour dead fuel load
     amrex::Real w_lh;       ///< Live herbaceous fuel load
     amrex::Real w_lw;       ///< Live woody fuel load
 
-    // Surface area to volume ratio [1/ft or 1/m]
+    // Surface area to volume ratio [1/ft]
     amrex::Real sigma_d1;   ///< 1-hour SAV
     amrex::Real sigma_lh;   ///< Herbaceous SAV
     amrex::Real sigma_lw;   ///< Woody SAV
 
-    // Fuel bed depth [ft or m]
+    // Fuel bed depth [ft]
     amrex::Real delta;
 
     // Fuel moisture of extinction [fraction]
     amrex::Real Mx;
 
-    // Heat content [BTU/lb or J/kg]
+    // Heat content [BTU/lb]
     amrex::Real heat_content;
 
-    // Fuel particle density [lb/ft³ or kg/m³]
+    // Fuel particle density [lb/ft³]
     amrex::Real rho_p;
 };
 
@@ -543,7 +544,7 @@ amrex::Real rothermel_ros_cell(
     // Effective wind speed [m/s]
     amrex::Real U_eff = std::sqrt(ux_eff*ux_eff + uy_eff*uy_eff);
 
-    // Wind factor: φ_w = C * U_eff^B * (β/β_opt)^E
+    // Wind factor: φ_w = C * U_eff^B * (β/β_opt)^(-E) (Rothermel 1972, eq. 47)
     // Convert to ft/min for Rothermel calculation
     amrex::Real U_eff_ftmin = U_eff * rc.wind_conv;
 

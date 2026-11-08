@@ -257,7 +257,9 @@ TEST(CustomFuel, CoarseHeavyDeckFuelSpreadsSlowerThanGrass)
     // ratio and a heavy load, which Rothermel's reaction term punishes.
     deck.add(CODE, "w_1h_kg_m2",             Real(2.0));
     deck.add(CODE, "w_10h_kg_m2",            Real(20.0));
-    deck.add(CODE, "sav_1h_1_m",             Real(200.0));
+    // 100 1/ft, the smallest 1-h SAV the deck accepts (until November 2026 a
+    // smaller value was clamped up to it in the reaction term, silently)
+    deck.add(CODE, "sav_1h_1_m",             Real(328.084));
     deck.add(CODE, "depth_m",                Real(2.0));
     deck.add(CODE, "moisture_ext",           Real(0.35));
     deck.add(CODE, "heat_content_J_kg",      Real(1.86e7));

@@ -350,10 +350,10 @@ DirectionalEllipse directional_ellipse_cell(const DirectionalRosState& st,
     d.e.b  = amrex::Real(0.5) * (R_h + R0);
     d.e.c  = amrex::Real(0.5) * (R_h - R0);
     if (lw_mode == DIRECTIONAL_ELLIPSE_LW_ANDERSON) {
-        // Flanks from Anderson's ratio at the effective wind speed [mph]
+        // Flanks from Anderson's ratio at the effective wind speed [m/s]
         const amrex::Real U_eff = directional_effective_wind(st, R_h);
         const amrex::Real LB = amrex::max(amrex::Real(1.0),
-                                          amrex::min(anderson_LW_ratio(U_eff * amrex::Real(2.23694)), lw_max));
+                                          amrex::min(anderson_LW_ratio(U_eff), lw_max));
         d.e.a  = d.e.b / LB;
         d.e.LB = LB;
     } else {

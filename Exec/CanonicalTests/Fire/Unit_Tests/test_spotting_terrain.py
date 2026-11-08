@@ -20,13 +20,15 @@ import sys
 import math
 
 
-def lofting_height(I_B_kW, I_B_min=100.0):
+def lofting_height(I_B_kW, I_B_min=100.0, U10=5.0, A=83.9, B=-1.040):
     """
-    Albini (1983) lofting height, H_z = 12.2 I_B^(1/3), zero below threshold.
+    Albini (1983, INT-309) lofting height, H_z = 0.173 (I_B A U10^B)^(1/2),
+    U10 held to 5-30 m/s, zero below threshold (default A, B: Anderson 4).
     """
     if I_B_kW < I_B_min:
         return 0.0
-    return 12.2 * I_B_kW ** (1.0 / 3.0)
+    U = min(max(U10, 5.0), 30.0)
+    return 0.173 * math.sqrt(I_B_kW * A * U ** B)
 
 
 def fly(H_z, z_src, ground_of_x, u_wind, w_terminal, n_steps=20,
@@ -167,14 +169,17 @@ def test_step_size_covers_the_longest_fall():
 
 
 def test_lofting_height_threshold():
-    """No loft below the minimum intensity; cube-root growth above it."""
+    """No loft below the minimum intensity; square-root growth above it."""
     failures = []
     check(failures, "No loft below the intensity threshold",
           lofting_height(50.0) == 0.0)
     h1 = lofting_height(100.0)
     h8 = lofting_height(800.0)
-    check(failures, "Loft grows as the cube root of intensity",
-          abs(h8 / h1 - 2.0) < 1.0e-12, f"ratio {h8 / h1}")
+    h4 = lofting_height(400.0)
+    check(failures, "Loft grows as the square root of intensity",
+          abs(h4 / h1 - 2.0) < 1.0e-12, f"ratio {h4 / h1}")
+    check(failures, "Loft falls as the wind rises (B < 0)",
+          lofting_height(800.0, U10=20.0) < h8)
     return failures
 
 

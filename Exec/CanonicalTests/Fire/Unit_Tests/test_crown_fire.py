@@ -54,13 +54,6 @@ def compute_flame_temp_byram(i_b, t_amb):
     return 0.0 if i_b <= 0.0 else max(0.0, t_amb + 800.0 * ((i_b / 1000.0) ** 0.25))
 
 
-def compute_flame_temp_nelson(i_b):
-    if i_b <= 0.0:
-        return 0.0
-    t_flame = (i_b * 1000.0 / (SIGMA * 0.9)) ** 0.25
-    return max(300.0, min(t_flame, 1800.0))
-
-
 def compute_flame_tilt_angle_deg(i_b, wind_speed, rho_air, t_amb):
     if i_b <= 0.0 or wind_speed <= 0.0 or rho_air <= 0.0 or t_amb <= 0.0:
         return 0.0
@@ -200,12 +193,6 @@ def test_byram_radiant_monotone():
     print("✓ test_byram_radiant_monotone PASSED")
 
 
-def test_nelson_emissivity_range():
-    t_flame = compute_flame_temp_nelson(200.0)
-    assert 300.0 <= t_flame <= 1800.0, f"expected [300, 1800], got {t_flame}"
-    print("✓ test_nelson_emissivity_range PASSED")
-
-
 def main():
     tests = [
         test_van_wagner_formula,
@@ -226,7 +213,6 @@ def main():
         test_flame_tilt_increases_with_wind,
         test_byram_radiant_positive,
         test_byram_radiant_monotone,
-        test_nelson_emissivity_range,
     ]
 
     failed = []

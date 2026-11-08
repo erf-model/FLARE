@@ -1,28 +1,28 @@
 # Flame_Temperature
 
 ## Purpose
-Covers the two flame-temperature formulations not exercised elsewhere. The
-`byram_radiant` default is used throughout the other fire cases, so these two
-complete the set.
+Covers the McAlpine flame temperature, which no other deck uses, and the flame
+tilt diagnostic. The `byram_radiant` default is used throughout the other fire
+cases. A third method, `nelson_emissivity`, was removed in November 2026: it put
+the fireline intensity [W/m] into the Stefan-Boltzmann law as a flux [W/m²]; its
+deck became `inputs_fire_flame_tilt`.
 
 ## Physics / Model Features Exercised
 - Flame temperature diagnostic from fireline intensity
-- McAlpine heat-balance and Nelson emissivity formulations
-- Flame tilt diagnostic (Nelson case)
+- McAlpine heat-balance formulation (`inputs_fire_flame_temp_mcalpine`)
+- Flame tilt diagnostic with the default temperature (`inputs_fire_flame_tilt`)
 
 ## Expected Results
 Flame temperature should be finite and above ambient wherever the fire is
 burning, and equal to ambient in unburned cells. Peak temperature should track
-fireline intensity. The three methods differ in magnitude but should agree in
-sign and rough range; a large spread between them points at the intensity input
-rather than at the method.
+fireline intensity. The flame tilt is finite, in [0, 90) degrees, and zero in
+unburned cells.
 
 ## Key Parameters
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| `erf.fire.flame_temp_method` | `"mcalpine_heat"` / `"nelson_emissivity"` | Selects the formulation. |
-| `erf.fire.compute_flame_tilt` | `true` (Nelson case) | Also computes the flame tilt angle. |
+| `erf.fire.flame_temp_method` | `"mcalpine_heat"` / `"byram_radiant"` | Selects the formulation. |
+| `erf.fire.compute_flame_tilt` | `true` (tilt case) | Also computes the flame tilt angle. |
 
 ## References
 - McAlpine & Wakimoto 1991, The acceleration of fire from point source to equilibrium spread.
-- Nelson 2003, Power of the fire - a thermodynamic analysis.

@@ -35,9 +35,49 @@ same random draws on every rank whatever the decomposition:
 
    .. math::
 
-      H_z = 12.2\, I_B^{1/3} \quad [\mathrm{m}],
+      H_z = 0.173\, E^{1/2}, \qquad E = I_B\, A\, U_{10}^{B}
 
-   Albini's equation 1 for wind-driven surface fires.
+   (Albini 1983, INT-309, equations 2, 7 and 8), with :math:`H_z` in m,
+   :math:`E` the strength of the line thermals in kJ/m, :math:`I_B` the
+   fireline intensity in kW/m and :math:`U_{10}` the mean 10 m wind in m/s:
+   the reference wind brought to 10 m on the same log profile as the drift
+   in step 5. :math:`A` [s] and :math:`B` come from INT-309's Table 4 for the
+   launch cell's Anderson model:
+
+   ========================  =======  =======
+   Anderson model            A [s]    B
+   ========================  =======  =======
+   1 short grass             162      -1.456
+   2 grassy understory       166      -1.282
+   3 tall grass              129      -1.238
+   9 hardwood litter         154      -1.151
+   4 mature chaparral        83.9     -1.040
+   5 young chaparral         94.4     -0.881
+   6 dormant brush           74.1     -0.906
+   7 southern rough          75.1     -0.884
+   10 overgrown slash        66.1     -0.810
+   11 light conifer slash    63.6     -0.776
+   12 medium conifer slash   69.6     -0.818
+   13 heavy conifer slash    71.8     -0.835
+   ========================  =======  =======
+
+   Model 8 (closed timber litter) is not in the table. A launch cell whose
+   code has no entry (Anderson 8, Scott-Burgan codes, custom fuels) uses
+   :cpp:`erf.fire.spotting.thermal_fuel_model`; when that is 0 the run stops
+   naming it, and :cpp:`spotting.fuel_system = "40"` needs it at start-up.
+   The fits were made over 10 m winds of 5 to 30 m/s (INT-309 Tables 1-3);
+   since :math:`B < 0` they grow without bound as the wind falls, so
+   :math:`U_{10}` is held to that range. INT-309's example 1 (short grass,
+   2000 kW/m, 5 m/s) gives :math:`E` = 30 660 kJ/m and :math:`H_z` = 30 m
+   (with :math:`B = -1.465`; Table 4 prints -1.456, which gives 30.5 m), and
+   example 2 (mature chaparral, 50 000 kW/m, 20 m/s) gives 186 000 kJ/m and
+   75 m.
+
+   Until November 2026 the height was :math:`12.2\, I_B^{1/3}`, cited as
+   INT-309's equation 1. That form is not in the paper (its equation 1 is the
+   intensity at which a plume separates from the surface,
+   :math:`I = 17.5\,U^3`); it has no wind dependence and gave 154 m at
+   example 1, five times the paper's height.
 4. A brand is launched with probability :cpp:`erf.fire.spotting.P_base` per
    front cell per application (default 0.01).
 5. The brand falls at :cpp:`erf.fire.spotting.terminal_velocity` (default
@@ -127,8 +167,10 @@ not crown. Once a cell has crowned it stays crowned.
      R_{crown} = \frac{11.02}{60}\, U_{10}^{0.90}\, C_{BD}^{0.19}\, e^{-0.17\, M_{10}} \quad [\mathrm{m/s}],
 
   with :math:`U_{10}` the 10 m wind in km/h (the reference wind at
-  :cpp:`erf.fire.wind_ref_ht`, an open wind, not the WAF-reduced midflame
-  wind; or fixed by :cpp:`erf.fire.crown.wind_10m_kmh` when positive) and
+  :cpp:`erf.fire.wind_ref_ht` brought to 10 m with the neutral log profile of
+  :cpp:`erf.fire.wind_sample_z0`, an open wind, not the WAF-reduced midflame
+  wind; or fixed by :cpp:`erf.fire.crown.wind_10m_kmh` when positive; until
+  November 2026 the 6.1 m wind was used as the 10 m wind, 11 % low) and
   :math:`M_{10}` the 10-hour dead moisture in percent;
 - ``"rothermel1991"``, :math:`R_{crown} = 3.34\, R_{surface}`;
 - ``"van_wagner_proxy"``, :math:`R_{crown} = (3 / C_{BD})\, f(M_{fol}) / 60`.

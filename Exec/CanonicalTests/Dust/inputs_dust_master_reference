@@ -67,12 +67,14 @@ erf.dust.grid_ratio = 1
 # flux [Integer 1-8]
 erf.dust.n_size_bins = 3
 
-# Per-bin diameter of the emitted dust [m], one per bin (the count must
-# equal n_size_bins); they drive settling, deposition and the PM classes,
-# not the threshold (see saltation_diameter) [Reals]
+# Per-bin aerodynamic diameter of the emitted dust [m], one per bin (the
+# count must equal n_size_bins); they drive settling and deposition (as
+# unit-density spheres), the PM classes and the AP-42 PM-10 road bin, not
+# the threshold (see saltation_diameter) [Reals]
 erf.dust.bin_diameters = 7.0e-6 2.5e-6 50.0e-6
 
-# Bulk particle density [kg/m³] [Real > 0]
+# Particle density of the saltating grains [kg/m³] (the threshold); the bins
+# settle by their aerodynamic diameter [Real > 0]
 erf.dust.particle_density = 2650.0
 
 # Air density used in the threshold and saltation flux [kg/m³] [Real > 0]
@@ -309,9 +311,11 @@ erf.fire_dust_wind_to_dust = true
 # read (warned) [Real > 0]
 erf.fire_dust_wind_z0 = 0.1
 
-# Reference height of that log law [m]: follows erf.fire.wind_ref_ht; with
-# the fire wind feeding the dust a different value aborts, otherwise the key
-# is not read (warned) [= erf.fire.wind_ref_ht]
+# Reference height of that log law [m]: follows the height of the fire's
+# wind (erf.fire.wind_ref_ht, or 6.096 m with
+# erf.fire.use_per_fuel_wind_ht); with the fire wind feeding the dust a
+# different value aborts, otherwise the key is not read (warned) [=
+# erf.fire.wind_ref_ht, or 6.096 with use_per_fuel_wind_ht]
 erf.fire_dust_wind_zref = 6.1
 
 # Multiply the emission flux by the convective lofting factor of the fire
@@ -324,8 +328,9 @@ erf.fire_dust_lofting_k_loft = 2.0
 # Fire heat flux below which there is no lofting [W/m²] [Real >= 0]
 erf.fire_dust_lofting_Q_threshold = 50.0
 
-# Heat flux scale of the lofting factor [W/m²]; 0 or negative disables it
-# [Real]
+# Heat flux scale of the lofting factor [W/m²]; 0 or negative disables it.
+# With the defaults the factor reaches its cap at 0.55 kW/m², below the
+# 10-100 kW/m² of flaming cells, so it acts as an on/off switch there [Real]
 erf.fire_dust_lofting_Q_ref = 500.0
 
 # ---------------------------------------------------------------------------

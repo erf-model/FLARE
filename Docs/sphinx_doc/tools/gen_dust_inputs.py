@@ -38,11 +38,13 @@ p("grid_ratio", "Dust grid refinement factor in x and y; every atmosphere box "
   "fire coupling is on", "Integer > 0", "1")
 p("n_size_bins", "Number of particle size bins; each bin is one component of "
   "the emission flux", "Integer 1-8", "3")
-p("bin_diameters", "Per-bin diameter of the emitted dust [m], one per bin "
-  "(the count must equal n_size_bins); they drive settling, deposition and "
-  "the PM classes, not the threshold (see saltation_diameter)",
+p("bin_diameters", "Per-bin aerodynamic diameter of the emitted dust [m], one "
+  "per bin (the count must equal n_size_bins); they drive settling and deposition "
+  "(as unit-density spheres), the PM classes and the AP-42 PM-10 road bin, not "
+  "the threshold (see saltation_diameter)",
   "Reals", "7.0e-6 2.5e-6 50.0e-6")
-p("particle_density", "Bulk particle density [kg/m³]", "Real > 0", "2650.0")
+p("particle_density", "Particle density of the saltating grains [kg/m³] (the "
+  "threshold); the bins settle by their aerodynamic diameter", "Real > 0", "2650.0")
 p("rho_air", "Air density used in the threshold and saltation flux [kg/m³]",
   "Real > 0", "1.225")
 p("z0_dust", "Roughness length of the emitting surface [m]: the log-law "
@@ -199,7 +201,9 @@ p("erf.fire_dust_lofting_k_loft", "Maximum lofting enhancement [-]", "Real >= 0"
 p("erf.fire_dust_lofting_Q_threshold", "Fire heat flux below which there is "
   "no lofting [W/m²]", "Real >= 0", "50.0")
 p("erf.fire_dust_lofting_Q_ref", "Heat flux scale of the lofting factor "
-  "[W/m²]; 0 or negative disables it", "Real", "500.0")
+  "[W/m²]; 0 or negative disables it. With the defaults the factor reaches "
+  "its cap at 0.55 kW/m², below the 10-100 kW/m² of flaming cells, so it acts "
+  "as an on/off switch there", "Real", "500.0")
 grp("MRF boundary layer with fire (FLARE)",
     "Read from the ``erf`` prefix in ``Source/DataStructs/ERF_TurbStruct.H`` "
     "for the MRF scheme; every key also accepts a per-level ``_lev<N>`` form. "

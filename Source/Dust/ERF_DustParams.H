@@ -52,7 +52,9 @@ struct DustParams {
                                                  ///<   All atmospheric box x,y sizes must be divisible
                                                  ///<   by grid_ratio. Set erf.dust.grid_ratio to match
                                                  ///<   the desired surface resolution.
-    amrex::Real particle_density    = 2650.0;  ///< Bulk particle density [kg/m^3]; quartz default
+    amrex::Real particle_density    = 2650.0;  ///< Particle density of the saltating grains [kg/m^3] (the
+                                                 ///<   threshold u*_t); quartz default. The bins settle by their
+                                                 ///<   aerodynamic diameter, as unit-density spheres.
     amrex::Real z0_dust             = 0.01;    ///< Aerodynamic roughness length over bare tailings [m]
     amrex::Real silt_fraction       = 0.10;    ///< Default surface silt mass fraction [dimensionless]
                                                  ///<   Used when no surface map file is provided.
@@ -167,8 +169,9 @@ struct DustParams {
                                                    ///<   disabled. 1 = full injection.
 
     // Phase 11: Stokes settling parameters
-    std::vector<amrex::Real> bin_diameters = {7.0e-6, 2.5e-6, 50.0e-6}; ///< Per-bin particle
-                                                   ///<   diameters [m]. Used for Stokes settling.
+    std::vector<amrex::Real> bin_diameters = {7.0e-6, 2.5e-6, 50.0e-6}; ///< Per-bin aerodynamic
+                                                   ///<   diameters [m]: the PM classes, the AP-42 PM-10 road bin,
+                                                   ///<   and Stokes settling as unit-density spheres.
                                                    ///<   Default: PM10 bin (7 um), PM2.5 bin (2.5 um),
                                                    ///<   coarse bin (50 um).
                                                    ///<   Reference: Seinfeld & Pandis (2006), Ch. 9.

@@ -8,9 +8,9 @@ erf.fire.balbi.formulation = "2020"
 erf.fire.directional_ros = true
 erf.fire.propagation_method = "levelset"
 erf.fire.coupling_type = "passive"
-# Albini spotting on a fixed seed. Grass lofts brands to about 170 m; the
-# fall speed is raised so they land within the 2 km domain, and the launch
-# set is the front so the count follows the fireline.
+# Albini spotting on a fixed seed. Grass lofts brands to a few tens of metres
+# (Albini 1983, INT-309); the raised fall speed keeps the landings close to
+# the front, and the launch set is the front so the count follows the fireline.
 erf.fire.spotting.enable = true
 erf.fire.spotting.random_seed = 11
 erf.fire.spotting.launch_from = "front"

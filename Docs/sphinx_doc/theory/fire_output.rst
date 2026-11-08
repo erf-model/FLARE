@@ -26,19 +26,20 @@ elsewhere:
   :math:`h\,(w_0 - w)\, R`, zero on the cell the front had just reached and
   largest far behind it; that form is kept as the plotfile variable
   ``fire_heat_release``.
-- **Thomas flame length** :math:`L = 0.0775\, I_B^{0.46}` [m].
+- **Byram (1959) flame length** :math:`L = 0.0775\, I_B^{0.46}` [m], the SI form of
+  :math:`0.45\, I_B^{0.46}` ft with :math:`I_B` in BTU/ft/s.
 - **Flame temperature**, by :cpp:`erf.fire.flame_temp_method`:
   ``"byram_radiant"`` (default) :math:`T = T_a + 800\,(I_B/1000)^{0.25}`;
   ``"mcalpine_heat"``, the adiabatic estimate of McAlpine and Xanthopoulos
   (1989) from the heat content and moisture, clipped to
-  :math:`T_a + 100 < T < 1500` K; ``"nelson_emissivity"``, the
-  Stefan-Boltzmann inversion :math:`T = (1000\, I_B / (\sigma \epsilon))^{0.25}`
-  with :math:`\epsilon = 0.9`. :math:`T_a` is
-  :cpp:`erf.fire.flame_temp_T_amb`.
+  :math:`T_a + 100 < T < 1500` K. :math:`T_a` is
+  :cpp:`erf.fire.flame_temp_T_amb` [K]. A third method,
+  ``"nelson_emissivity"``, was removed in November 2026: it put the fireline
+  intensity [W/m] into the Stefan-Boltzmann law as a flux [W/m²].
 - **Flame tilt** from vertical, :math:`\arctan(U / v_b)` in degrees, from
-  the effective wind speed and a buoyancy velocity built from the intensity,
-  flame length and radiant flux with :cpp:`erf.fire.flame_tilt_rho_air` and
-  :cpp:`erf.fire.flame_tilt_T_amb`. Off unless
+  the effective wind speed and the buoyancy velocity
+  :math:`v_b = (g I_B / (\rho c_p T_a))^{1/3}` with
+  :cpp:`erf.fire.flame_tilt_rho_air` and :cpp:`erf.fire.flame_tilt_T_amb` [K]. Off unless
   :cpp:`erf.fire.compute_flame_tilt` is set; a diagnostic only.
 
 Fire plotfiles
@@ -311,6 +312,4 @@ References
 ----------
 
 - Byram, G. M. (1959). Combustion of forest fuels. In: Forest Fire: Control and Use, McGraw-Hill, 61-89.
-- Thomas, P. H. (1963). The size of flames from natural fires. Ninth Symposium (International) on Combustion, 844-859.
 - McAlpine, R. S. and Xanthopoulos, G. (1989). Predicted vs. observed fire spread rates in Ponderosa pine fuel beds. Proceedings of the 10th Conference on Fire and Forest Meteorology.
-- Nelson, R. M. (1980). Flame characteristics for fires in southern fuels. USDA Forest Service Research Paper SE-205.

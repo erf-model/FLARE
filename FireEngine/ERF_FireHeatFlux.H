@@ -7,13 +7,14 @@
 // so that the energy handed to the atmosphere over the step, Q dt, is exactly
 // the heat of the fuel consumed in it, h (w_n - w_{n+1}). The instantaneous
 // power at the start of the step, h w_n / tau_res, used until 2026-10, is
-// larger by (dt/tau)/(1 - exp(-dt/tau)): 19 % for short grass (tau = 2.75 s)
-// at dt = 1 s, 13 % for the SFIRE grass burn time at dt = 2 s.
+// larger by (dt/tau)/(1 - exp(-dt/tau)): 19 % at tau = 2.75 s and dt = 1 s,
+// 13 % for the SFIRE grass burn time at dt = 2 s.
 //
 // tau_res is the effective cell residence time:
 //   tau_res [s] = dx_fire [m] / ROS [m/s]   (time for front to cross one fire cell)
 //
-// This is preferred over the SAV-based Rothermel tau (= BURNOUT_ALPHA * rho_p / sigma),
+// This is preferred over the SAV-based residence time (= 384 / sigma min, Anderson
+// 1969 as Rothermel 1983 writes it, with the characteristic sigma of the bed),
 // which describes particle burnout time (~seconds for fine fuels) rather than
 // the grid-scale burn duration. The SAV-based value is used only as a floor.
 //
@@ -42,11 +43,15 @@
 #include <AMReX_MultiFab.H>
 #include <ERF_Rothermel.H>
 #include <ERF_FuelModels.H>
+#include <ERF_Constants.H>
 #include <cmath>
 
-// BURNOUT_ALPHA [s·ft/lb from Rothermel (1983) GTR INT-143].
-// tau_i [s] = FIRE_BURNOUT_ALPHA * rho_p [lb/ft³] / sigma_i [ft⁻¹]
-constexpr amrex::Real FIRE_BURNOUT_ALPHA = 301.0;
+// Flame residence time of Anderson (1969, Res. Pap. INT-69: 8 min per inch of
+// particle diameter) as Rothermel (1983, GTR INT-143, appendix C) writes it,
+// t_r = 384 / sigma [min] with sigma in ft^-1, i.e. 23040 / sigma in seconds.
+// Until November 2026 the floor was 301 rho_p / sigma [s], which has no source
+// and gave 0.42 of this at rho_p = 32 lb/ft^3 (2.75 s against 6.58 s for FM1).
+constexpr amrex::Real FIRE_RESIDENCE_S_FT = 384.0 * 60.0;
 
 // Fixed SAV values [ft⁻¹] for 10-hr and 100-hr dead fuel classes
 // (Anderson 1982, FBFM13 table standard values).
@@ -57,9 +62,10 @@ constexpr amrex::Real FIRE_SIGMA_D100 =  30.0;
  * @brief Load-weighted surface-area-to-volume ratio of the dead fuel [1/ft].
  *
  * (w_d1 sigma_d1 + w_d10 sigma_d10 + w_d100 sigma_d100) / (w_d1 + w_d10 + w_d100),
- * sigma_d1 when there is no dead load. The moisture of extinction and the
- * residence time both use it; two of the four call sites used to drop the
- * 10-h and 100-h terms (FM10: 600 instead of 636.8 1/ft).
+ * sigma_d1 when there is no dead load. The moisture of extinction uses it (the
+ * residence time took it until November 2026 and now takes characteristic_sav);
+ * two of the four call sites used to drop the 10-h and 100-h terms (FM10: 600
+ * instead of 636.8 1/ft).
  */
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real dead_fuel_weighted_sav (amrex::Real w_d1, amrex::Real w_d10, amrex::Real w_d100,
@@ -74,17 +80,46 @@ amrex::Real dead_fuel_weighted_sav (amrex::Real w_d1, amrex::Real w_d10, amrex::
 }
 
 /**
- * @brief Compute SAV-based flame residence time [s].
+ * @brief Characteristic surface-area-to-volume ratio of the fuel bed [1/ft].
  *
- * tau [s] = FIRE_BURNOUT_ALPHA * rho_p [lb/ft³] / sigma [ft⁻¹]
+ * The surface-area-weighted mean over every class, sum(w_i sigma_i^2) /
+ * sum(w_i sigma_i) (the particle surface area of a class goes as w_i sigma_i /
+ * rho_p, rho_p the same for all), the sigma Rothermel (1983, appendix C) puts in
+ * the residence time: it returns the times of his Table C-1 (FM1 0.110, FM2
+ * 0.138, FM4 0.221, FM10 0.218 min). The load-weighted dead mean
+ * (dead_fuel_weighted_sav) over-weights the coarse classes, which carry load but
+ * little surface: FM4 954 against 1739 1/ft, FM10 638 against 1765.
+ * sigma_d1 when the bed has no load.
+ */
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real characteristic_sav (const FuelModelParams& fp)
+{
+    const amrex::Real a1  = fp.w_d1   * fp.sigma_d1;
+    const amrex::Real a10 = fp.w_d10  * FIRE_SIGMA_D10;
+    const amrex::Real a100= fp.w_d100 * FIRE_SIGMA_D100;
+    const amrex::Real alh = fp.w_lh   * fp.sigma_lh;
+    const amrex::Real alw = fp.w_lw   * fp.sigma_lw;
+    const amrex::Real area = a1 + a10 + a100 + alh + alw;
+    const amrex::Real num  = a1 * fp.sigma_d1 + a10 * FIRE_SIGMA_D10 + a100 * FIRE_SIGMA_D100
+                           + alh * fp.sigma_lh + alw * fp.sigma_lw;
+    // floored denominator before the select (an unselected 0/0 is speculated under the fpe traps)
+    const amrex::Real sav = num / amrex::max(area, amrex::Real(1.0e-10));
+    return (area > 1.0e-10) ? sav : fp.sigma_d1;
+}
+
+/**
+ * @brief Flame residence time from the surface-area-to-volume ratio [s].
+ *
+ * tau [s] = 23040 / sigma [ft⁻¹] (384 / sigma min; Anderson 1969, Rothermel 1983),
+ * sigma the characteristic SAV of the bed (characteristic_sav).
  * Used as a floor on the cell-based tau_res and for fallback when ROS ~ 0.
  * Returns a floor of 1.0 s.
  */
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-amrex::Real compute_residence_time_s(amrex::Real sigma_ft, amrex::Real rho_p_lbft3) noexcept
+amrex::Real compute_residence_time_s(amrex::Real sigma_ft) noexcept
 {
-    if (sigma_ft <= 0.0 || rho_p_lbft3 <= 0.0) { return 1.0; }
-    amrex::Real tau = FIRE_BURNOUT_ALPHA * rho_p_lbft3 / sigma_ft;
+    if (sigma_ft <= 0.0) { return 1.0; }
+    amrex::Real tau = FIRE_RESIDENCE_S_FT / sigma_ft;
     return amrex::max(static_cast<amrex::Real>(tau), static_cast<amrex::Real>(1.0));
 }
 
@@ -261,9 +296,7 @@ inline void fill_fire_heat_flux(
                 // take a burn time from erf.fire.fuel_model_id.
                 Real tau_floor = tau_sav_floor;
                 if (tau_from_fuel) {
-                    const Real sigma_cell = dead_fuel_weighted_sav(fp_cell.w_d1, fp_cell.w_d10,
-                                                                   fp_cell.w_d100, fp_cell.sigma_d1);
-                    tau_floor = compute_residence_time_s(sigma_cell, fp_cell.rho_p);
+                    tau_floor = compute_residence_time_s(characteristic_sav(fp_cell));
                 }
                 Real tau_cell  = amrex::max(dx_fire / ros_cell, tau_floor);
                 if (d_tau_burnout != nullptr) {
@@ -317,7 +350,10 @@ inline void compute_fire_latent_flux(
         return;
     }
 
-    constexpr amrex::Real L_V = 2.501e6;
+    // ERF's latent heat, the one the coupling divides the latent flux by to get
+    // the vapour mass, so the fuel water round-trips exactly (WRF-SFIRE's 2.501e6
+    // until November 2026 injected 0.04 % more vapour than the fuel held)
+    constexpr amrex::Real L_V = L_v;
     amrex::Real bmst = M_f / (1.0 + M_f);
     constexpr amrex::Real f_water = 0.56;
     amrex::Real ratio = L_V / h_fuel_Jkg;
