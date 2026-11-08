@@ -53,6 +53,7 @@ In addition to this documentation, there is API documentation for ERF generated 
    GettingStarted.rst
    buildingConfiguration.rst
    Inputs.rst
+   InputsSchema.rst
    SLM.rst
    Initialization.rst
    CloudChamber.rst
@@ -69,6 +70,7 @@ In addition to this documentation, there is API documentation for ERF generated 
    theory/GoverningEquations.rst
    theory/BaseState.rst
    theory/Buoyancy.rst
+   theory/MoistPotentialTemperatures.rst
    theory/Microphysics.rst
    SpectralBinMicrophysics.rst
    theory/DNSvsLES.rst
@@ -78,6 +80,8 @@ In addition to this documentation, there is API documentation for ERF generated 
    theory/Forcings.rst
    theory/WindFarmModels.rst
    theory/FireCoupling.rst
+   theory/ActuatorCore.rst
+   theory/StructureCoupling.rst
    theory/Radiation.rst
    Particles.rst
    SuperDroplets.rst

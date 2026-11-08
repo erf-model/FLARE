@@ -135,7 +135,7 @@
                      turbPert,
                      r_avg_to_pass, t_avg_to_pass,
                      forest_drag, &S_old[IntVars::cons],
-                     true);
+                     true, ib_wall_hfx[level].get(), ib_wall_ktarget[level].get(), ib_wall_qfx[level].get());
         // ******************************************************************************
         // Phase 10/11/12: Add dust emission flux, settling tendency, and deposition to cc_src
         // This must happen AFTER make_sources so it is not overwritten.
@@ -204,7 +204,7 @@
                                  (solverChoice.moisture_type != MoistureType::Morrison_NoIce &&
                                   solverChoice.moisture_type != MoistureType::SAM_NoIce) );
             add_moist_nudging_terms(S_data[IntVars::cons], cc_src, num_q, slow_dt,
-                                    start_time+old_stage_time,
+                                    old_stage_time, start_time,
                                     start_bdy_time, final_bdy_time, bdy_time_interval,
                                     bdy_factor, real_width, geom[level],
                                     bdy_data_xlo, bdy_data_xhi, bdy_data_ylo, bdy_data_yhi,
@@ -239,12 +239,12 @@
         // *****************************************************************************
         int num_q = micro->Get_Qstate_Moist_Size() - micro->Get_Qstate_Moist_NumConc_Size();
         make_buoyancy(level, S_data, S_prim, qt, buoyancy, fine_geom, solverChoice, base_to_use,
-                      num_q, get_eb(level), solverChoice.anelastic[level]);
+                      num_q, get_eb(level), solverChoice.compressibility_type[level] != CompressibilityType::FullyCompressible);
 
         // *****************************************************************************
         // Make remaining (not gradp or buoyancy) momentum sources
         // *****************************************************************************
-        make_mom_sources(old_stage_time, slow_dt,
+        make_mom_sources(level, old_stage_time, slow_dt,
                          S_data, zpn_to_use, zpc_to_use, stretched_dz_h[level],
                          xvel_new, yvel_new, zvel_new,
                          xmom_src, ymom_src, zmom_src,
@@ -259,6 +259,13 @@
                          (solverChoice.hindcast_lateral_forcing? &forecast_state_interp[level] : nullptr),
                          sounding_at_level(level), lsf_at_level(level), lsf_data[level],
                          get_eb(level), true);
+
+#ifdef ERF_USE_MOVING_BODIES
+        // The structures' force on the air (erf.structures.model), fixed over the step
+        if (m_structure_model && level == m_structure_model->level(finest_level)) {
+            m_structure_model->add_momentum_sources(level, xmom_src, ymom_src, zmom_src);
+        }
+#endif
 
         // Nudging of the velocity towards observations at stations
         if (solverChoice.nudging_from_observations && obs_nudging) {
@@ -296,12 +303,14 @@
                          native_shoc_driver[level].get(),
                          fr_as_crse, fr_as_fine, &base_to_use,
                          cloud_chamber_config.active ? &cloud_chamber_config : nullptr,
-                         cloud_chamber_budget.get());
+                         cloud_chamber_budget.get(),
+                         ib_wall_face13[level].get(), ib_wall_face23[level].get(),
+                         ib_wall_face33[level].get(), ib_wall_hfx[level].get());
 
         // Anelastic coarse/fine faces in time (ERF_CoarseFineFaces.cpp): a coarse level adds
         // this stage's mass fluxes to those of its step, a fine level registers the coarse
         // momenta its coarse/fine faces are filled from in this stage
-        if (solverChoice.anelastic[level]) {
+        if (solverChoice.compressibility_type[level] != CompressibilityType::FullyCompressible) {
             if (level < finest_level) { cf_anelastic_record(level, nrk); }
             if (level > 0)            { cf_anelastic_stage_registration(level, nrk); }
         }
@@ -351,6 +360,12 @@
             }
 
 #include "ERF_ImplicitPre.H"
+
+            // NOTE: the implicit part of the vertical (rho theta) diffusion is not added to the flux
+            //       registers.  (rho theta) is refluxed only on anelastic levels, and there no stage
+            //       whose fluxes are registered solves implicitly: RK2 turns the solve off, and
+            //       MidPoint solves in stage 0 but registers stage 1 (see SolverChoice and
+            //       StageFluxWeight).
 
             MultiFab::Saxpy(scratch, -one_d, S_old[IntVars::cons], 1, 1, 1, 0); // scratch  := (S_new - S_old)           (for rhotheta only)
             scratch.mult(one_d / stage_dt);                                 // scratch  := (S_new - S_old) / stage_dt
@@ -479,13 +494,12 @@
             const Real bdy_factor = solverChoice.bdy_nudge_factor;
             if (real_width>0) {
                 //
-                // Note that old_stage_time is elapsed time, but (start_time+old_stage_time) is total time
-                //           start_bdy_time and final_bdy_time are total time
+                // Note that old_stage_time is elapsed time; start_bdy_time and final_bdy_time
+                //           are total time
                 //
-                double total_time = start_time + old_stage_time;
                 Real l_rdOcp    = solverChoice.rdOcp;
                 Real l_c_p      = solverChoice.c_p;
-                realbdy_compute_interior_ghost_rhs(total_time, slow_dt,
+                realbdy_compute_interior_ghost_rhs(old_stage_time, start_time, slow_dt,
                                                    start_bdy_time, final_bdy_time, bdy_time_interval,
                                                    bdy_factor, real_width, fine_geom,
                                                    S_rhs, S_data,
