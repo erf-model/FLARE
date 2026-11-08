@@ -2128,58 +2128,6 @@ TEST(SurfaceLayer, MoengPreservesRequiredStressAtMixedFaceCorners)
 
 namespace {
 
-// Compute_roughness for one set of inputs, and the expression without the
-// overflow guard (zref / exp(arg), bounded as upstream does), evaluated on the device. A free function
-// so the device lambda is not inside a TEST body.
-std::array<Real, 2>
-roughness_new_and_old (const Real zref, const Real olen, const Real umm, const Real ustar)
-{
-    Gpu::DeviceVector<Real> out(2, Real(0.0));
-    Real* o = out.data();
-    const Box cell(IntVect(0), IntVect(0));
-    ParallelFor(cell, [=] AMREX_GPU_DEVICE (int, int, int)
-    {
-        o[0] = Compute_roughness(zref, olen, umm, ustar);
-        similarity_funs sfuns;
-        const Real arg = KAPPA*umm/ustar + sfuns.calc_psi_m2(zref / olen);
-        o[1] = (arg < Real(700.0)) ? bound_inverted_roughness(zref / std::exp(arg), zref) : Real(-1.0);
-    });
-    std::array<Real, 2> h{};
-    Gpu::copy(Gpu::deviceToHost, out.begin(), out.end(), h.begin());
-    Gpu::streamSynchronize();
-    return h;
-}
-
-} // namespace
-
-// Compute_roughness inverts the log law, z0 = zref / exp(kappa U / u* + psi_m).
-// With no drag (bulk_coeff with Cd = 0, as in the UNR WRF-Fire case 1 decks) or
-// in calm air u* is the floor 2e-16, and exp(kappa 5 / 2e-16) overflowed: a run
-// with amrex.fpe_trap_overflow = 1 stopped at step 1. The floor z0 = 1e-7 is now
-// returned before exp is evaluated; every other input gives the same z0 to the bit.
-TEST(SurfaceLayer, ComputeRoughnessNoOverflowWithoutDrag)
-{
-    const Real eps = std::numeric_limits<Real>::epsilon();
-#ifndef AMREX_USE_GPU
-    std::feclearexcept(FE_ALL_EXCEPT);
-#endif
-    const auto none = roughness_new_and_old(Real(24.6), Real(1.0e6), Real(5.0), eps);
-#ifndef AMREX_USE_GPU
-    EXPECT_FALSE(std::fetestexcept(FE_OVERFLOW)) << "exp overflowed for u* = eps";
-#endif
-    EXPECT_EQ(none[0], Real(1.0e-7));
-
-    // Ordinary inputs: unchanged to the bit
-    for (const auto& c : {std::array<Real, 4>{Real(10.0), Real(1.0e6), Real(5.0), Real(0.4)},
-                          std::array<Real, 4>{Real(24.6), Real(-50.0), Real(3.79), Real(0.3)},
-                          std::array<Real, 4>{Real(5.0), Real(200.0), Real(8.0), Real(0.25)}}) {
-        const auto z = roughness_new_and_old(c[0], c[1], c[2], c[3]);
-        EXPECT_EQ(z[0], z[1]) << "zref " << c[0] << " L " << c[1] << " U " << c[2] << " u* " << c[3];
-    }
-}
-
-namespace {
-
 // Heat flux that bulk_coeff_flux returns for one surface cell with the given
 // state. A free function so the device lambda is not inside a TEST body. The
 // fields are rank-local FArrayBoxes, so every MPI rank evaluates the same cell

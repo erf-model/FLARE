@@ -86,8 +86,7 @@ ColumnSolves
 column_solves_on_level (int lev, const SolverChoice& sc)
 {
     ColumnSolves cs;
-    cs.implicit_substep = (sc.anelastic[lev] == 0) &&
-                          (sc.substepping_type[lev] == SubsteppingType::Implicit);
+    cs.implicit_substep = sc.level_substeps(lev);   // RK3_ImplicitSubstep (erf-model/ERF#4996)
     cs.implicit_diff    = (sc.vert_implicit_fac[lev][0] > Real(0)) ||
                           (sc.vert_implicit_fac[lev][1] > Real(0)) ||
                           (sc.vert_implicit_fac[lev][2] > Real(0));
