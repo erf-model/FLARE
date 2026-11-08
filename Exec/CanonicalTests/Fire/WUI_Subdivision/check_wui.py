@@ -232,6 +232,9 @@ for v in ["subdivision", "defensible", "coupled"]:
         # when it sits exactly there. The landings are therefore counted over
         # the three structure variants below, not required of this one (it had
         # 86 until 2026-10, when the brands rose on the consumed load only).
+        # Written for the 12.2 I^(1/3) lofting height; with Albini's (1983)
+        # INT-309 height (November 2026) the brands rise 11-26 m and this
+        # case has not been re-measured (README).
     if v == "defensible":
         s = results.get("subdivision", {})
         if s and not (hl_max < s["hl_max"]):

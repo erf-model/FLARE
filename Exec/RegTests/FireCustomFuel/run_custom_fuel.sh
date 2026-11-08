@@ -43,8 +43,9 @@ for v in $BAD_VARIANTS; do
     ${MPIRUN:-} "$EXE" "inputs_$v" max_step=1 "$@" > "run_$v.log" 2>&1
 done
 
-# Every rate-of-spread model reads its fuel through FuelModelParams, so each
-# has to respond to the deck-defined properties. Ten short runs, grass against
+# Every fuel-bed rate-of-spread model reads its fuel through FuelModelParams,
+# so each has to respond to the deck-defined properties; Cheney-Gould, which
+# reads none, has to give the same rate. Ten short runs, grass against
 # the coarse deck fuel, at 10 s.
 MODELS="rothermel balbi behave macarthur cheney_gould"
 for m in $MODELS; do
@@ -77,10 +78,20 @@ done
 echo
 
 status=0
+# Cheney-Gould 1998 reads no fuel bed property: its rate is set by the 10 m
+# wind, the curing and moisture and erf.fire.cheney_gould.pasture. It must give
+# the same rate for both fuels, so a fuel entry leaking into it fails here.
 for m in $MODELS; do
     a=$(ros model_${m}_anderson1); b=$(ros model_${m}_custom_heavy)
     if [ -z "$a" ] || [ -z "$b" ]; then
         echo "  FAIL $m: one of the runs printed no max_ROS"; status=1
+    elif [ "$m" = "cheney_gould" ]; then
+        if python3 -c "import sys; sys.exit(0 if abs($a-$b) <= 1e-9*max(abs($a),1.0) else 1)"; then
+            echo "  PASS $m reads no fuel bed property ($a = $b m/s)"
+        else
+            echo "  FAIL $m changed with the fuel bed ($a -> $b m/s); it reads only its own pasture inputs"
+            status=1
+        fi
     elif python3 -c "import sys; sys.exit(0 if abs($a-$b) > 1e-6*max(abs($a),1.0) else 1)"; then
         echo "  PASS $m responds to the deck-defined fuel ($a -> $b m/s)"
     else

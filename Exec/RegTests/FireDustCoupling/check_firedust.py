@@ -44,10 +44,14 @@ KAPPA, Z0, ZREF = 0.4, 0.1, 6.1
 # bins: 31.591 kg, 2 % under the old sum times the area; then 24.159 kg once
 # the fire wind's u* applied inside the fire perimeter only (every one of the
 # 6284 unburned cells had taken the fire-wind value, 24 % more deposition).
+# Re-measured 2026-11-07: 9.5983 kg (23.969 kg on the base build) once the
+# bin diameters are read as aerodynamic diameters and settle and deposit as
+# unit-density spheres, as the PM classes and the AP-42 road bin read them; the
+# bins had settled as 2650 kg/m3 geometric spheres, 2.7x faster for the 7 um bin.
 # The kernels themselves are checked against known answers in the DustColumn
 # and DustBudget gtests; this value guards the once-per-step accumulation
 # (per-stage would give 1.83x).
-DEP_REF = 2.4159e+01
+DEP_REF = 9.5983e+00
 DEP_TOL = 0.15
 
 results = []

@@ -99,7 +99,10 @@ struct FireDustCoupling {
     // Fire heat flux drives a convective updraft above the fire front that lofts
     // dust particles. Enhancement applied to emission flux as:
     //   flux *= (1 + k_loft * max(Q_fire - Q_threshold, 0) / Q_ref)
-    // capped at (1 + k_loft). No effect when Q_fire <= Q_threshold.
+    // capped at (1 + k_loft). No effect when Q_fire <= Q_threshold. Q in W/m2:
+    // the defaults reach the cap at 0.55 kW/m2, well below the 10-100 kW/m2 of
+    // flaming cells, so in a flaming cell the factor is on or off (no published
+    // source for these values; noted in the November 2026 unit audit).
     bool        fire_lofting_enabled = false;
     amrex::Real lofting_k_loft       = 2.0;
     amrex::Real lofting_Q_threshold  = 50.0;

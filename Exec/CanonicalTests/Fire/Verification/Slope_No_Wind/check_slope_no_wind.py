@@ -131,11 +131,16 @@ def rothermel_fm1(M_f):
 
 
 def anderson_lw(U_mps):
-    """Anderson (1983) length-to-width ratio, clamped to [1, LW_MAX] as in ERF_FarsiteEllipse.H."""
-    mph = U_mps * 2.23694
-    if mph < 1.0:
+    """Anderson (1983) length-to-width ratio, clamped to [1, LW_MAX] as in ERF_FarsiteEllipse.H.
+
+    BehavePlus form (Andrews 2018, RMRS-GTR-371) in mi/h; the code uses Finney's (1998)
+    m/s coefficients 0.2566 and 0.1548, which agree to 1.5e-4. Until 2026-11 both fed
+    mi/h to the m/s coefficients.
+    """
+    if U_mps <= 0.0:
         return 1.0
-    return max(1.0, min(0.936 * math.exp(0.2566 * mph) + 0.461 * math.exp(-0.1548 * mph) - 0.397, LW_MAX))
+    mph = U_mps / 0.44704
+    return max(1.0, min(0.936 * math.exp(0.1147 * mph) + 0.461 * math.exp(-0.0692 * mph) - 0.397, LW_MAX))
 
 
 def speed(kind, th, R0, phis_c, s, effective_wind):

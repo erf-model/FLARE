@@ -55,11 +55,17 @@ Richards (1990) spread shape below. Each fire subcycle of length
 :math:`\Delta t_f`:
 
 1. **Ellipse shape.** The length-to-width ratio of the local spread ellipse
-   follows Anderson (1983) from the midflame wind :math:`U` in mph,
+   follows Anderson (1983) as fitted by Finney (1998, eq. 13) from the
+   effective midflame wind :math:`U` in m/s,
 
    .. math::
 
       L/W = 0.936\, e^{0.2566 U} + 0.461\, e^{-0.1548 U} - 0.397, \qquad 1 \le L/W \le 8,
+
+   (BehavePlus writes the same fit in mi/h with 0.1147 and 0.0692; Andrews
+   2018). Until November 2026 the code passed the wind in mi/h to these m/s
+   coefficients, which gave L/W 2.09 instead of 1.34 at 1.5 m/s and reached
+   the cap of 8 at 3.8 m/s instead of 8.5 m/s.
 
    when :cpp:`erf.fire.farsite.use_anderson_lw` is 1 (setting it to 0 takes
    the ratio :math:`(a + c) / (2b)` of :cpp:`erf.fire.farsite.coeff_a`,
@@ -416,7 +422,7 @@ at 0 and 34 degrees to the wind.
 
 Flanks at :math:`R_0` are the projection's claim, not an observation, and give
 a length-to-width ratio far above the observed one: 5.7 for short grass in a
-1.5 m/s wind, where Anderson (1983) gives 1.5.
+1.5 m/s wind, where Anderson (1983) gives 1.34.
 :cpp:`erf.fire.directional_ellipse_lw = "anderson"` (default ``"model"``)
 keeps the head rate, its direction and the back rate :math:`R_0`, and sets the
 semi-minor rate to :math:`a = b/(L/W)`. Here :math:`L/W` is Anderson's ratio (as

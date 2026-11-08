@@ -85,7 +85,14 @@ Each bin settles at the Stokes velocity with the Cunningham slip correction,
 
 with :math:`\lambda` = 0.066 µm, :math:`\mu_a` = 1.81e-5 Pa s, the local
 air density, and :math:`d` from :cpp:`erf.dust.bin_diameters` (metres; the
-one entry per bin), capped at 1 m/s. The tendency is the
+one entry per bin), capped at 1 m/s. The bin diameters are aerodynamic
+diameters, as the PM2.5 and PM10 classes and the AP-42 PM-10 road bin read
+them, so :math:`\rho_p` here is the unit density 1000 kg/m³ (the equivalent
+sphere of an aerodynamic diameter); :cpp:`erf.dust.particle_density` is the
+density of the saltating grains in the threshold only. Until November 2026
+the bins settled with 2650 kg/m³ as geometric diameters, 2.65 times faster
+(the 7 µm bin at 0.0040 instead of 0.0015 m/s, the 50 µm bin at 0.20
+instead of 0.075 m/s). The tendency is the
 first-order upwind divergence of the downward flux :math:`v_s \rho_\mathrm{dust}`
 through the cell faces, with :math:`\rho_\mathrm{dust}` the dust density of the
 state: cell :math:`k` gains :math:`v_s \rho_\mathrm{dust}(k+1)/h_k` from above
@@ -96,10 +103,10 @@ one scalar the settling velocity is the mean of the bins' velocities weighted
 by their shares of the mass emitted so far (:cpp:`erf.dust.lumped_settling =
 mean`; the shares are checkpointed; ``bin0`` is the form until October 2026,
 which settled the 50 µm third of the default bins at the 7 µm velocity, a
-residence of 5850 s in a 23 m cell instead of 117 s). The shares are those of
+residence of 15200 s in a 23 m cell instead of 305 s). The shares are those of
 the emission, not of the air, and one set serves the whole domain: the coarse
 bins fall out first (the 50 µm third of the default bins leaves a 100 m layer
-in about 8 minutes), after which the remaining fine dust still settles at the
+in about 22 minutes), after which the remaining fine dust still settles at the
 emitted mean, 17x its own velocity, so long-run PM2.5 means and exceedances
 are biased low wherever a coarse bin is emitted. The remedy is one
 transported scalar per bin, which the state does not carry yet. A check at every step aborts when the explicit settling of
@@ -124,7 +131,7 @@ settling with the aerodynamic and surface resistances,
 
 with :math:`E_0` = :cpp:`erf.dust.deposition_E0`, never below :math:`v_s`
 and capped like it at 1 m/s (a 0.1 m/s cap until October 2026 sat below the
-settling velocity of 50 µm dust, 0.2 m/s, so coarse dust arrived in the lowest
+settling velocity of 50 µm dust, then 0.2 m/s with 2650 kg/m³, so coarse dust arrived in the lowest
 cell faster than it could leave and piled up to twice the physical
 concentration). The flux
 :math:`v_d \rho_\mathrm{dust}(k=0)` leaves the atmosphere as a sink of the

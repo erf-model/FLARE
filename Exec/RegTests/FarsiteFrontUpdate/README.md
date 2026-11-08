@@ -38,20 +38,25 @@ of `R`, the back and flanks within 10 % of their shape's rates, and the burned
 area at least 0.93 (ellipse, whose union of discrete sources scallops) or
 0.95 (rectangle) of its convex hull; `legacy` is reported.
 
-Measured on 2026-10-09 (R = 0.971 m/s, L/W = 5.00, so HB = 98: the ellipse's
-back runs at R / HB = 0.010 m/s, under a cell in the run, and its flanks at
-a = 0.098 m/s; 33 s for the three runs on 2 ranks). The deck pins
-`erf.fire.wind_below_first_cell = clamp` (the default), since its 80 m
-atmosphere cells put the first centre at 40 m and the case wants the
+Measured on 2026-11-08 (R = 0.971 m/s, L/W = 1.91, so HB = 12.6: the
+ellipse's back runs at R / HB = 0.077 m/s and its flanks at b R = 0.274 m/s).
+The deck pins `erf.fire.wind_below_first_cell = clamp` (the default), since
+its 80 m atmosphere cells put the first centre at 40 m and the case wants the
 sounding's 3 m/s itself as the midflame wind:
 
 | update | head [m/s] | back [m/s] | flanks [m/s] | area at 600 s [ha] | area / hull |
 |---|---|---|---|---|---|
-| ellipse (Richards/Alexander) | 0.971 | 0.010 | 0.098 | 12.4 (the 50 m disc swept by the ellipse) | 1 |
-| `front_cell` (ellipse, default) | 0.975 (+0.4 %) | 0.000 (-5 m over 540 s, under a cell) | 0.096 (-1.1 m) | 11.6 | 0.938 or more |
-| rectangle (Richards coefficients) | 0.971 | 0.194 | 0.116 | | 1 |
-| `rectangle` | 0.975 (+0.4 %) | 0.191 (-1.8 m) | 0.112 (-2.3 m) | 16.9 | 0.954 or more |
-| `legacy` (ellipse normal speed) | 1.828 (1.88 R) | 0.000 | 0.189 (1.93 a) | 25.2 | 0.658 at 60 s |
+| ellipse (Richards/Alexander) | 0.971 | 0.077 | 0.274 | | 1 |
+| `front_cell` (ellipse, default) | 0.975 (+0.4 %) | 0.081 (+1.9 m over 540 s) | 0.276 (+1.0 m) | 24.3 | 0.945 or more |
+| rectangle (Richards coefficients) | 0.971 | 0.194 | 0.305 | | 1 |
+| `rectangle` | 0.975 (+0.4 %) | 0.191 (-1.8 m) | 0.308 (+1.9 m) | 34.6 | 0.973 or more |
+| `legacy` (ellipse normal speed) | 1.828 (1.88 R) | 0.162 (2.09 c R) | 0.543 (1.98 b R) | 53.7 | 0.693 at 60 s |
+
+The 2026-10-09 numbers had L/W = 5.00, because the Anderson length-to-breadth
+formula was fed the 3 m/s wind as 6.7 (mi/h) in a correlation written for m/s
+(Finney 1998, eq. 13). With the wind in m/s the ellipse is 2.6 times wider for
+the same head rate: the back rose from 0.010 to 0.077 m/s, the flanks from
+0.098 to 0.274 m/s, and the `front_cell` area at 600 s from 11.6 to 24.3 ha.
 
 Before 2026-10 the rectangle was the only shape (`front_cell` 0.975 / 0.191 /
 0.112 m/s, 19.2 ha; `legacy` 1.828 / 0.382 / 0.354 m/s, 50.1 ha).

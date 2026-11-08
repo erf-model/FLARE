@@ -11,7 +11,7 @@
  *   dust_surf_moist: Q1fx3 at z-face klo [kg/m^2/s]. Null-safe: zeroed when
  *                    moisture_type == None (SFS_q1fx3_lev is null in that case,
  *                    confirmed in ERF_MakeNewArrays.cpp). An OUTPUT only (the
- *                    surface latent flux in dust_surf_qflux); the threshold
+ *                    surface vapour mass flux in dust_surf_qflux); the threshold
  *                    reads the static moisture flag of the surface map, the
  *                    dynamic moisture option having been removed.
  *

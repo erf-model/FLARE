@@ -92,6 +92,16 @@ variants were re-measured 2026-10-09 on the validated code, where the
 Rothermel wind limit (0.9 I_R) replaces the 300 ft/min fuel-class cap and a
 burning cell's Byram intensity uses its full fuel load:
 
+> **Not re-measured after November 2026.** The lofting height is now Albini
+> (1983, INT-309) eqs. 2, 7 and 8 instead of `12.2 I^(1/3)`. A grass brand in this
+> case now rises 11-26 m (700-4000 kW/m at a 10 m/s wind) instead of about
+> 150 m, so brands no longer reach
+> FM1's 200 m cap and the spotting columns and the text below (landings,
+> `wildland_spotting` and `defensible` arrival times) describe the older form.
+> `check_wui.py` has not been run against the new form either. `inputs_ignition`
+> now sets `erf.fire.spotting.thermal_fuel_model = 1`, since burning houses
+> need a Table 4 fit.
+
 | variant            | x = 780 m at [s] | burned cells | houses reached | peak intensity [kW/m] | max heat load [MJ/m²] | ember landings on footprints |
 |--------------------|-----------------:|-------------:|---------------:|----------------------:|----------------------:|-----------------------------:|
 | wildland           |             1025 |         3452 |              - |                     - |                     - |                            - |

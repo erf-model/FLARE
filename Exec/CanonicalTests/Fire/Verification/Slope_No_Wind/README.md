@@ -84,11 +84,13 @@ it within 0.65 %.
 The `and_*` decks keep those heads and backs and widen the flanks to Anderson's
 length-to-width ratio at the effective wind speed (Anderson's fit with its
 second term, 0.936 e^{0.2566 U} + 0.461 e^{-0.1548 U} - 0.397, since 2026-09-14).
-At tan 0.3 that speed is 0.958 m/s and the ratio 1.56; at tan 0.6 it is
-1.870 m/s and the ratio 2.58. The decks turn the fine-fuel wind limit off
+At tan 0.3 that speed is 0.958 m/s and the ratio 1.197 (flanks 0.05711 m/s
+against the exact 0.05725); at tan 0.6 it is 1.870 m/s and the ratio 1.461
+(flanks 0.13812 against 0.13832), measured 2026-11-07. Until November 2026 the
+ratio was fed the wind in mi/h, 1.56 and 2.58. The decks turn the fine-fuel wind limit off
 (`erf.fire.use_wind_limit = false`), so the equivalent wind of the steep slope is
 not capped at 1.524 m/s; the check script follows the flag. The flank rates match
-the exact ones to a quarter of a percent.
+the exact ones to a quarter of a percent (0.24 % and 0.14 %).
 
 The ellipse's back is pointed (a radius of curvature a^2/b, one to two cells
 here), and for a few hundred seconds the rows either side of the centre line

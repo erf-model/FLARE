@@ -67,12 +67,12 @@ noib                  3    190    115    1.00      40     195    156    3256.2  
 ib                    1    190     30    0.74     106     223    117    1435.0     2.220     3.089       0       0
 ib                    2    190     80    1.00      40     165    125    1542.8     3.089     3.089       0       0
 ib                    3    190    115    0.98      50     220    170    1461.1     2.997     3.089       0       0
-noib_spotting         1    190     30    0.61     107     220    113    2805.2     1.865     3.089       0       1
-noib_spotting         2    190     80    1.00      28     132    104    3368.5     3.089     3.089       1       1
-noib_spotting         3    190    115    1.00      40     195    156    3256.2     3.089     3.089       0       1
-noib_spotting_front   1    190     30    0.61     107     220    113    2805.2     1.865     3.089       0       3
-noib_spotting_front   2    190     80    1.00      28     132    104    3368.5     3.089     3.089       1       3
-noib_spotting_front   3    190    115    1.00      40     195    156    3256.2     3.089     3.089       1       3
+noib_spotting         1    190     30    0.70      75     222    147    2984.0     2.111     3.089       1      34
+noib_spotting         2    190     80    1.00      13      91     78    3543.3     3.089     3.089       3      34
+noib_spotting         3    190    115    1.00      23     186    163    3425.9     3.089     3.089       1      34
+noib_spotting_front   1    190     30    0.70      76     222    147    2983.3     2.111     3.089       2      10
+noib_spotting_front   2    190     80    1.00      13     126    113    3543.3     3.089     3.089       1      10
+noib_spotting_front   3    190    115    1.00      40     198    158    3256.2     3.088     3.089       0      10
 ```
 
 Four ranks, 240 s, last row per box (written at 224.9 s), regenerated on
@@ -104,16 +104,15 @@ The mean is lower where part of the band never burned.
 against 2.8-3.4 MW/m) because the wind the Balbi model reads is slowed at
 the walls, and every arrival is 10 s or so later.
 
-**Spotting barely registers in this domain.** The brands are lofted at the
-Byram intensity of the cell's load and drift on the neutral log profile of
-their height (2026-10): from the 320 m domain's middle a brand lofted at
-150 m drifts past the downwind edge, and a brand that leaves the domain is
-not counted. One brand lands in 240 s from the burned area (`noib_spotting`,
-188 m from its source) and three from the front (`noib_spotting_front`,
-175-191 m), none on a footprint, and the exposure rows are those of `noib`
-(the spot cells have their fuel capped at 5 % of the initial load). Until
-2026-10 the brands rose on the consumed load only, drifted on the reference
-wind and landed inside the domain: 31 and 12 landings, 10 and 1 on the
-footprints, and the middle box reached at 2 s by a brand from the ignition
-disc. A domain a kilometre long is needed for the spotting rows to measure
-anything here.
+**Spotting now lands brands inside the domain.** The lofting height is
+Albini (1983, INT-309) eq. 2 with the Table 4 fit for FM1 and the reference
+wind brought to 10 m (2026-11). At 3-3.5 MW/m this gives brands that land
+22-31 m downwind of their source, where the earlier 12.2 I^(1/3) height
+(about 150 m) sent them 175-191 m and mostly out of the domain.
+`noib_spotting` lands 34 brands in 240 s, 5 of them on footprints;
+`noib_spotting_front` lands 10, 3 on footprints. The spot fires bring the
+arrivals forward: box 2 is reached at 13 s against 28 s without spotting,
+and box 1 at 75 s against 107 s. The spot cells have their fuel capped at
+5 % of the initial load. The table above was re-measured on 2026-11-08
+with 2 ranks; the `noib` and `ib` rows, which have no spotting, were
+not re-run.

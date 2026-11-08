@@ -73,7 +73,7 @@ namespace FuelMoistureConst {
     constexpr amrex::Real RH_MAX = 0.99;
 
     // Precipitation wetting
-    constexpr amrex::Real RAIN_WETTING_COEF = 0.01; // [hr/mm]
+    constexpr amrex::Real RAIN_WETTING_COEF = 0.01; // [1/mm]: wetting rate [1/hr] per rain rate [mm/hr]
     constexpr amrex::Real MIN_RAIN_RATE     = 0.1;  // [mm/hr]
 
     // Temperature correction

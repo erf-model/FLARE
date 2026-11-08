@@ -20,8 +20,9 @@
  *   road_name, x_lo_m, y_lo_m, x_hi_m, y_hi_m,
  *   road_width_m, vehicle_weight_t, silt_pct, vkt_per_h,
  *   start_time_s, end_time_s
- *   (vehicle_weight_t in metric tonnes; AP-42's W is in US short tons, a
- *   4 % difference in (W/3)^0.45 at 10 % lighter)
+ *   (vehicle_weight_t in metric tonnes, converted to the US short tons of
+ *   AP-42's W; until November 2026 the tonnes went in as short tons, 4.3 %
+ *   low in (W/3)^0.45)
  *   Lines beginning with # or ! are comments.
  *   end_time_s = -1 means active for full simulation.
  *
@@ -61,13 +62,14 @@ namespace DustRoadConst {
     constexpr amrex::Real B_AP42   = 0.45;  ///< AP-42 weight exponent b
     constexpr amrex::Real G_PER_KG = 1.0e-3;///< g -> kg
     constexpr amrex::Real S_PER_H  = 3600.0;///< s/h
+    constexpr amrex::Real SHORT_TON_PER_TONNE = 1.10231; ///< metric tonne -> US short ton (AP-42 W)
 }
 
 struct RoadEvent {
     std::string name;
     amrex::Real x_lo, y_lo, x_hi, y_hi; ///< Road bounding box [m]
     amrex::Real road_width_m;            ///< Road width [m]
-    amrex::Real vehicle_weight_t;        ///< Mean vehicle weight [tons]
+    amrex::Real vehicle_weight_t;        ///< Mean vehicle weight [metric tonnes]
     amrex::Real silt_pct;                ///< Silt content [%]
     amrex::Real vkt_per_h;              ///< Vehicle kilometres travelled per hour [VKT/h] (E is per VKT)
     amrex::Real start_time_s;           ///< Activation start time [s]
@@ -205,12 +207,14 @@ inline void count_road_cells(RoadSchedule& schedule, const amrex::BoxArray& ba,
     }
 }
 
-/// AP-42 mass rate of a road [kg/s]: 1e-3 E [g/VKT] VKT/h / 3600.
+/// AP-42 mass rate of a road [kg/s]: 1e-3 E [g/VKT] VKT/h / 3600, with
+/// E = k (s/12)^a (W/3)^b and W the mean vehicle weight in short tons.
 inline amrex::Real road_mass_rate_kg_s(const RoadEvent& ev)
 {
+    const amrex::Real W_short_tons = DustRoadConst::SHORT_TON_PER_TONNE * ev.vehicle_weight_t;
     const amrex::Real E_road = DustRoadConst::K_AP42
         * std::pow(ev.silt_pct / 12.0, DustRoadConst::A_AP42)
-        * std::pow(ev.vehicle_weight_t / 3.0, DustRoadConst::B_AP42);
+        * std::pow(W_short_tons / 3.0, DustRoadConst::B_AP42);
     return E_road * DustRoadConst::G_PER_KG * ev.vkt_per_h / DustRoadConst::S_PER_H;
 }
 

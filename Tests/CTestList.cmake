@@ -3208,6 +3208,10 @@ add_test_fire_abort(FireCustomFuelBadDepth_abort    FireCustomFuel inputs_bad_de
     "erf.fire.custom_fuel.1000.depth_m must be in" "max_step=1")
 add_test_fire_abort(FireCustomFuelBadHeat_abort     FireCustomFuel inputs_bad_heat
     "erf.fire.custom_fuel.1000.heat_content_J_kg must be in" "max_step=1")
+# a 1-h SAV below 100 1/ft aborts; Rothermel's reaction term clamped it up to
+# that, silently, until November 2026
+add_test_fire_abort(FireCustomFuelLowSav_abort      FireCustomFuel inputs_custom_heavy
+    "erf.fire.custom_fuel.1000.sav_1h_1_m must be in .328.084" "erf.fire.custom_fuel.1000.sav_1h_1_m=200.0 max_step=1")
 add_test_fire_abort(FireCustomFuelBurnout_abort     FireCustomFuel inputs_bad_burnout
     "needs erf.fire.custom_fuel.1000.burnout_time_s" "max_step=1")
 add_test_fire_abort(FireCustomFuelUndeclared_abort  FireCustomFuel inputs_bad_undeclared
@@ -3238,6 +3242,37 @@ add_test_fire_abort(FireBadNetLoad_abort      FireRestart           inputs_level
     "erf.fire.behave.net_load = \"average\" is not one of" "erf.fire.ros_model=behave erf.fire.behave.net_load=average")
 add_test_fire_abort(FireCheneyKeyNoModel_abort FireRestart          inputs_levelset_straight
     "erf.fire.cheney_gould.pasture needs erf.fire.ros_model = cheney_gould" "erf.fire.cheney_gould.pasture=grazed")
+# unit guards (November 2026 unit audit): a value in the wrong unit aborts with the
+# input's name instead of running (foliar moisture in percent, temperatures in
+# degrees C), and the two removed options say what replaces them
+add_test_fire_abort(FireFoliarMoisturePercent_abort FireRestart     inputs_levelset_straight
+    "erf.fire.crown.foliar_moisture is a fraction .1.0 = 100 %. and must be in .0.3, 3.0., got 100" "erf.fire.crown.foliar_moisture=100")
+add_test_fire_abort(FireFlameTempCelsius_abort FireRestart          inputs_levelset_straight
+    "erf.fire.flame_temp_T_amb is in K and must be in .150, 400., got 25" "erf.fire.flame_temp_T_amb=25")
+add_test_fire_abort(FireFlameTiltCelsius_abort FireRestart          inputs_levelset_straight
+    "erf.fire.flame_tilt_T_amb is in K and must be in .150, 400., got 25" "erf.fire.flame_tilt_T_amb=25")
+add_test_fire_abort(FireThresholdTempCelsius_abort FireRestart      inputs_levelset_straight
+    "erf.fire.ignition.threshold_temp is in K and must be in .305, 2000., got 300" "erf.fire.ignition.threshold_temp=300")
+add_test_fire_abort(FireWafBehaviorplus_abort  FireRestart          inputs_levelset_straight
+    "erf.fire.waf_formula = .behaviorplus. was removed in November 2026" "erf.fire.waf_formula=behaviorplus")
+add_test_fire_abort(FireFlameTempNelson_abort  FireRestart          inputs_levelset_straight
+    "erf.fire.flame_temp_method = .nelson_emissivity. was removed in November 2026" "erf.fire.flame_temp_method=nelson_emissivity")
+add_test_fire_abort(FireWindZ0Above20ft_abort  FireRestart          inputs_levelset_straight
+    "erf.fire.wind_sample_z0 must be below 6.096 m" "erf.fire.wind_ref_ht=20 erf.fire.wind_sample_z0=7")
+add_test_fire_abort(FireWindZ0Profile_abort FireRestart inputs_levelset_straight
+    "erf.fire.wind_sample_z0 must be at most 2.24" "erf.fire.wind_sample_z0=3")
+add_test_fire_abort(FireSpotThermalModel_abort FireRestart          inputs_spotting_straight
+    "erf.fire.spotting.thermal_fuel_model must be 0 or an Anderson model in Albini .1983. Table 4" "erf.fire.spotting.thermal_fuel_model=8")
+add_test_fire_abort(FireSpotNoThermalFit_abort FireRestart          inputs_spotting_straight
+    "has no Albini .1983. Table 4 thermal fit" "erf.fire.fuel_model_id=8")
+add_test_fire_abort(FireSpotSb40NoThermal_abort FireRestart         inputs_spotting_straight
+    "erf.fire.spotting.fuel_system = .40. needs erf.fire.spotting.thermal_fuel_model" "erf.fire.fuel_map.fuel_set=scott_burgan40 erf.fire.fuel_model_id=102")
+add_test_fire_abort(FireSpotStructureNoThermal_abort FireStructureIgnition inputs_on
+    "erf.fire.structures.ignition.enable with spotting needs erf.fire.spotting.thermal_fuel_model" "erf.fire.spotting.thermal_fuel_model=0")
+add_test_fire_abort(FireSpotMapNoThermalFit_abort FireExposure  inputs_noib_spotting
+    "erf.fire.fuel_map.file has fuel code 0 on cells with fuel" "erf.fire.fuel_map.nonburnable_codes=99")
+add_test_fire_abort(FireFbpAndersonLw_abort    FireRestart          inputs_levelset_straight
+    "erf.fire.directional_ellipse_lw = .anderson. takes the midflame wind" "erf.fire.ros_model=fbp erf.fire.directional_ros=true erf.fire.directional_shape=ellipse erf.fire.directional_ellipse_lw=anderson")
 add_test_fire_abort(FireMacArthurCap_abort    FireRestart           inputs_levelset_straight
     "erf.fire.macarthur.ros_max must be >= 0" "erf.fire.macarthur.ros_max=-1")
 # the model checks of the keys read only by one model
@@ -3487,6 +3522,10 @@ add_test_fire_abort(FireStructureIgnition_curve_abort FireStructureIgnition inpu
 # run that ignored either option must fail
 if(ERF_ENABLE_MPI AND NOT WIN32)
 add_test_fire_script(FireReactionVelocityFormula FireReactionVelocityFormula run_regtest.sh NRANKS 1)
+# the wind brought to each model's height (FBP: 10 m, the WAF: 20 ft) from the
+# sampled height with the neutral log profile; FBP and the WAF read the sampled
+# wind as their own height's until November 2026
+add_test_fire_script(FireWindHeights          FireFbp               run_wind_heights.sh NRANKS 1)
 endif()
 add_test(FireReactionVelocityFormula_SelfTest ${ERF_RANS_PYTHON}
     ${PROJECT_SOURCE_DIR}/Exec/RegTests/FireReactionVelocityFormula/check_regtest.py --self-test)

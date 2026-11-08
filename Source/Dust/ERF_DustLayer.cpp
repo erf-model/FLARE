@@ -954,7 +954,8 @@ DustLayer::advance(
   if (m_params.enable_particles && m_dust_pc && xvel_mf && yvel_mf && zvel_mf
       && geom_atm && (m_step % m_params.particle_release_interval == 0)) {
     amrex::Real d_m   = m_params.bin_diameters.empty() ? 7.0e-6 : m_params.bin_diameters[0];
-    amrex::Real rho_p = m_params.particle_density;
+    // bin 0's diameter is aerodynamic: the particle is its unit-density sphere
+    amrex::Real rho_p = DustSettlingConst::RHO_AERODYNAMIC;
     // a particle released every N steps carries N steps of emission
     m_dust_pc->ReleaseParticles(*dust_emission_flux, *geom_atm, m_dg.geom,
                                  dt * m_params.particle_release_interval, d_m, rho_p);
@@ -1043,7 +1044,7 @@ DustLayer::check_settling_stability (amrex::Real dt) const
     if (!(m_h0_min > 0.0) || !(dt > 0.0)) return;
     amrex::Real vs_max = 0.0;
     for (auto d : m_params.bin_diameters)
-        vs_max = amrex::max(vs_max, compute_stokes_settling(d, m_params.particle_density, amrex::Real(1.225),
+        vs_max = amrex::max(vs_max, compute_stokes_settling(d, DustSettlingConst::RHO_AERODYNAMIC, amrex::Real(1.225),
                                                             DustSettlingConst::MU_AIR_STD));
     const amrex::Real cfl = vs_max * dt / m_h0_min;
     if (cfl > 1.0) {
@@ -1101,7 +1102,7 @@ DustLayer::apply_settling_to_cc_source(
     if (m_params.bin_diameters.empty()) return;
 
     int n_active = m_params.transport_bins_separately ? m_params.n_size_bins : 1;
-    const amrex::Real rhop = m_params.particle_density;
+    const amrex::Real rhop = DustSettlingConst::RHO_AERODYNAMIC;   // aerodynamic bin diameters
 
     // The thinnest first cell for the stability check in advance() (the step
     // dt lives there; this hook sees the stage dt, dt/3 at the first stage,
@@ -1167,7 +1168,7 @@ DustLayer::apply_deposition_bc(
        int nb = 1;
        DustBinWeights w{};
        const DustBinDiameters bins = scalar_bin_diameters(b, nb, w);
-       amrex::Real rhop = m_params.particle_density;
+       amrex::Real rhop = DustSettlingConst::RHO_AERODYNAMIC;   // aerodynamic bin diameters
        amrex::Real E_0  = m_params.deposition_E0;
        int comp = m_dust_scalar_comp + b;
 

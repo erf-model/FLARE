@@ -10,14 +10,13 @@
 //   recorded the burnout; that form is kept as the heat-release diagnostic
 //   fire_heat_release (compute_heat_release_kW_per_m).
 //
-// Thomas (1963) flame length:
-//   L [m] = 0.0775 * I_B^0.46    (I_B in kW/m)
+// Byram (1959) flame length:
+//   L [m] = 0.0775 * I_B^0.46    (I_B in kW/m), the SI form of
+//   L [ft] = 0.45 * I_B^0.46 with I_B in BTU/ft/s
 //
 // References:
 //   Byram, G.M. (1959). Combustion of forest fuels. In: Forest Fire:
 //     Control and Use, pp. 61-89.
-//   Thomas, P.H. (1963). The size of flames from natural fires.
-//     Ninth Int. Symposium on Combustion, pp. 844-859.
 
 #ifndef ERF_FIRE_DIAGNOSTICS_H
 #define ERF_FIRE_DIAGNOSTICS_H
@@ -89,7 +88,7 @@ amrex::Real compute_heat_release_kW_per_m(
 }
 
 /**
- * @brief Compute Thomas (1963) flame length [m].
+ * @brief Compute Byram (1959) flame length [m].
  *
  * L = 0.0775 * I_B^0.46  (I_B in kW/m)
  *
@@ -103,7 +102,7 @@ amrex::Real compute_flame_length_m(amrex::Real I_B_kW_per_m) noexcept
 {
     if (I_B_kW_per_m <= 0.0) return 0.0;
 
-    // Thomas (1963): L = 0.0775 * I_B^0.46
+    // Byram (1959): L = 0.0775 * I_B^0.46 (0.45 I_B^0.46 in ft and BTU/ft/s)
     amrex::Real L = 0.0775 * std::pow(I_B_kW_per_m, 0.46);
     return amrex::max(static_cast<amrex::Real>(0.0), static_cast<amrex::Real>(L));
 }
@@ -113,7 +112,7 @@ amrex::Real compute_flame_length_m(amrex::Real I_B_kW_per_m) noexcept
  *        heat-release diagnostic [kW/m].
  *
  * Reads phi, ros, fuel_load_remain from fire layer fields.
- * Computes Byram fireline intensity and Thomas flame length for each cell.
+ * Computes Byram fireline intensity and Byram flame length for each cell.
  *
  * fuel_load_initial is the initial total fuel load for the fuel model [kg/m²].
  * h_fuel_kJ_per_kg = fp.heat_content [BTU/lb] * 2.326  (1 BTU/lb = 2.326 kJ/kg)
@@ -129,7 +128,7 @@ amrex::Real compute_flame_length_m(amrex::Real I_B_kW_per_m) noexcept
  * This is a local operation: no MPI communication required.
  *
  * @param[out] fireline_intensity  Byram fireline intensity [kW/m]
- * @param[out] flame_length        Thomas flame length [m]
+ * @param[out] flame_length        Byram (1959) flame length [m]
  * @param[in] fire_phi             Level-set field
  * @param[in] fire_ros             Rate of spread [m/s]
  * @param[in] fire_fuel_load       Remaining fuel load [kg/m²]
@@ -238,7 +237,7 @@ inline void fill_fire_diagnostics(
                                                                     w_remain, h_fuel_kJ_per_kg);
                 }
 
-                // Compute Thomas flame length from Byram intensity
+                // Byram (1959) flame length from the Byram intensity
                 Real L = compute_flame_length_m(I_B);
                 L_arr(i, j, k) = L;
             });
@@ -248,7 +247,7 @@ inline void fill_fire_diagnostics(
 
 // Flame temperature estimation methods.
 //
-// Three methods are available, selected via fire_params.flame_temp_method:
+// Two methods are available, selected via fire_params.flame_temp_method:
 //
 // Method "byram_radiant":
 //   Uses Byram's (1959) empirical relation between fireline intensity and
@@ -270,15 +269,9 @@ inline void fill_fire_diagnostics(
 //     temperature for laboratory fires burning under simulated slope and wind
 //     conditions. *Int. J. Wildland Fire*, Proceedings.
 //
-// Method "nelson_emissivity":
-//   Nelson (1980) method using flame emissivity and Stefan-Boltzmann law.
-//   Relates observed radiation flux to an effective blackbody temperature:
-//     Q_rad = sigma * epsilon * T_flame^4  =>  T_flame = (I_B * 1000 / (sigma * epsilon))^0.25
-//   where sigma = 5.67e-8 W/(m²·K⁴) (Stefan-Boltzmann), epsilon = 0.9 (flame emissivity),
-//   and I_B is fireline intensity [kW/m] converted to W/m.
-//   Clipped to range [300, 1800] K.
-//   Reference: Nelson, R.M. Jr. (1980). Flame characteristics for fires in
-//     southern fuels. USDA Forest Service Research Paper SE-205.
+// A third method, "nelson_emissivity", was removed in November 2026: it put the
+// fireline intensity [W/m] into the Stefan-Boltzmann law as if it were a flux
+// [W/m2], so every cell above 536 kW/m sat on its 1800 K clip.
 //
 // All methods return 0.0 at unburned cells (phi >= 0) and cells with I_B <= 0.
 
@@ -328,37 +321,15 @@ amrex::Real compute_flame_temp_mcalpine(amrex::Real I_B_kWm, amrex::Real h_fuel_
 }
 
 /**
- * @brief Nelson (1980) emissivity-based flame temperature
- *
- * T_flame [K] = (I_B * 1000 / (sigma * epsilon))^0.25
- * where sigma = 5.67e-8 W/(m²·K⁴), epsilon = 0.9.
- *
- * @param[in] I_B_kWm    Byram fireline intensity [kW/m]
- * @return Flame temperature [K], clipped to [300, 1800]
- */
-AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-amrex::Real compute_flame_temp_nelson(amrex::Real I_B_kWm) noexcept
-{
-    if (I_B_kWm <= 0.0) return 0.0;
-    constexpr amrex::Real sigma = 5.67e-8;  // Stefan-Boltzmann [W/(m²·K⁴)]
-    constexpr amrex::Real epsilon = 0.9;    // flame emissivity
-    amrex::Real Q_rad_Wm = I_B_kWm * 1000.0;  // convert kW/m to W/m
-    amrex::Real T_flame = std::pow(Q_rad_Wm / (sigma * epsilon), 0.25);
-    // Clip to reasonable range
-    T_flame = amrex::max(static_cast<amrex::Real>(300.0), static_cast<amrex::Real>(amrex::min(static_cast<amrex::Real>(T_flame), static_cast<amrex::Real>(1800.0))));
-    return T_flame;
-}
-
-/**
  * @brief Fill flame_temperature [K] MultiFab using the selected method
  *
- * Selects one of three flame temperature methods and fills the output field.
+ * Selects one of the two flame temperature methods and fills the output field.
  * Returns 0 at unburned cells.
  *
  * @param[out] fire_flame_temp     Flame temperature field [K]
  * @param[in]  fireline_intensity  Byram intensity [kW/m]
  * @param[in]  fire_phi            Level-set field
- * @param[in]  method              Method selection: "byram_radiant", "mcalpine_heat", "nelson_emissivity"
+ * @param[in]  method              Method selection: "byram_radiant" or "mcalpine_heat"
  * @param[in]  h_fuel_Jkg          Heat content [J/kg] (for mcalpine_heat)
  * @param[in]  M_f                 Fuel moisture fraction (for mcalpine_heat)
  * @param[in]  T_amb               Ambient temperature [K]
@@ -374,12 +345,7 @@ inline void fill_flame_temperature(amrex::MultiFab& fire_flame_temp,
 {
     using namespace amrex;
 
-    int method_id = 0;
-    if (method == "mcalpine_heat") {
-        method_id = 1;
-    } else if (method == "nelson_emissivity") {
-        method_id = 2;
-    }
+    const int method_id = (method == "mcalpine_heat") ? 1 : 0;
 
     for (MFIter mfi(fire_phi); mfi.isValid(); ++mfi) {
         const Box& bx = mfi.validbox();
@@ -399,8 +365,6 @@ inline void fill_flame_temperature(amrex::MultiFab& fire_flame_temp,
 
             if (method_id == 1) {
                 T_flame = compute_flame_temp_mcalpine(I_B, h_fuel_Jkg, M_f, T_amb);
-            } else if (method_id == 2) {
-                T_flame = compute_flame_temp_nelson(I_B);
             } else {
                 T_flame = compute_flame_temp_byram(I_B, T_amb);
             }
@@ -421,9 +385,9 @@ inline void fill_flame_temperature(amrex::MultiFab& fire_flame_temp,
 /**
  * @brief Compute a Balbi-style flame tilt angle diagnostic [degrees from vertical].
  *
- * Uses the local effective 2-D wind speed and a buoyancy velocity estimated
- * from Byram fireline intensity, Thomas flame length, and Stefan-Boltzmann
- * radiative flux. Returns 0 for unburned or zero-intensity cells.
+ * Uses the local effective 2-D wind speed and the buoyancy velocity
+ * v_b = (g I_B / (rho c_p T_amb))^(1/3) from the Byram fireline intensity.
+ * Returns 0 for unburned or zero-intensity cells.
  */
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real compute_flame_tilt_angle_deg(

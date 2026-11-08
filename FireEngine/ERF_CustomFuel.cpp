@@ -74,15 +74,17 @@ CustomFuelTable::init_from_inputs ()
         // so a deck that runs that model on a custom fuel has to say.
         pp.query((pre + "burnout_time_s").c_str(), burn_s);
 
-        // Bands wide enough for anything from cured grass to a structural fuel,
-        // and tight enough to catch a unit mistake (a load given in lb/ft2, a
-        // heat content in BTU/lb, a SAV in 1/ft).
+        // Bands wide enough for anything from cured grass to a structural fuel.
+        // They catch a heat content given in BTU/lb; a load in lb/ft2 or a SAV in
+        // 1/ft falls inside the kg/m2 and 1/m bands and cannot be caught here.
+        // The 1-h SAV is held to >= 100 1/ft (328.084 1/m): Rothermel's reaction
+        // term used to clamp a smaller value up to that, silently.
         band("w_1h_kg_m2",            w_1h,   0.0,     500.0);
         band("w_10h_kg_m2",           w_10h,  0.0,     500.0);
         band("w_100h_kg_m2",          w_100h, 0.0,     500.0);
         band("w_live_herb_kg_m2",     w_lh,   0.0,     500.0);
         band("w_live_woody_kg_m2",    w_lw,   0.0,     500.0);
-        band("sav_1h_1_m",            sav_1h, 10.0,    12000.0);
+        band("sav_1h_1_m",            sav_1h, 328.084, 12000.0);
         band("sav_live_herb_1_m",     sav_lh, 10.0,    12000.0);
         band("sav_live_woody_1_m",    sav_lw, 10.0,    12000.0);
         band("moisture_ext",          Mx,     0.01,    2.0);

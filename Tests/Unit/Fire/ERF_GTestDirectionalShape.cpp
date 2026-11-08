@@ -168,7 +168,7 @@ TEST(DirectionalShape, AndersonFlankKeepsHeadAndBack)
                                                            DIRECTIONAL_ELLIPSE_LW_ANDERSON, 8.0);
     const double head = directional_ros_cell(st, U, 0.0);
     const double R0 = directional_ros_cell(st, 0.0, 0.0);
-    const double LB = anderson_LW_ratio(static_cast<amrex::Real>(U * 2.23694));
+    const double LB = anderson_LW_ratio(static_cast<amrex::Real>(U));
     EXPECT_NEAR(da.e.LB, LB, REL_INV * LB);
     // head and back as with the model's flanks; only the flank rate changes
     EXPECT_NEAR(directional_ellipse_speed(da, 1.0, 0.0), head, REL * head);

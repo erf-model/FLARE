@@ -95,3 +95,6 @@ erf.fire.spotting.spotting_interval = 1
 erf.fire.spotting.I_B_min = 100.0
 erf.fire.spotting.terminal_velocity = 8.0
 erf.fire.spotting.launch_from = "front"
+# A burning house launches with the short-grass fit of Albini (1983) Table 4,
+# which has no structure fit (the grass cells use their own code 1 anyway).
+erf.fire.spotting.thermal_fuel_model = 1

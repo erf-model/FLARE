@@ -76,7 +76,7 @@ struct BehaveState
     // Wind/slope coefficients (identical to single-class path)
     amrex::Real C;               ///< Wind factor coefficient
     amrex::Real B;               ///< Wind factor exponent
-    amrex::Real beta_ratio_E;    ///< (β/β_opt)^E
+    amrex::Real beta_ratio_E;    ///< (β/β_opt)^(-E)
     amrex::Real phi_s_const;     ///< Slope factor constant
     amrex::Real U_max_ftmin;     ///< MEWS cap [ft/min]
     amrex::Real wind_conv;       ///< m/s → ft/min conversion factor
@@ -479,7 +479,7 @@ amrex::Real behave_ros_cell(
     // Effective wind speed [m/s]
     Real U_eff = std::sqrt(ux_eff*ux_eff + uy_eff*uy_eff);
 
-    // Wind factor: φ_w = C * U_eff^B * (β/β_opt)^E
+    // Wind factor: φ_w = C * U_eff^B * (β/β_opt)^(-E) (Rothermel 1972, eq. 47)
     // Convert to ft/min for Rothermel calculation
     Real U_eff_ftmin = U_eff * bs.wind_conv;
 

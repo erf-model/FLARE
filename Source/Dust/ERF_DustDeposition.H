@@ -50,7 +50,7 @@ namespace DustDepositionConst {
     constexpr amrex::Real R_MAX   = 1.0e6;    ///< Maximum resistance [s/m]
     constexpr amrex::Real VD_MAX  = DustSettlingConst::V_S_MAX; ///< Maximum deposition velocity [m/s]: at least the
                                                ///<   settling cap. Until October 2026 it was 0.1 m/s, below the
-                                               ///<   settling cap of 1 m/s, so coarse dust (v_s 0.2 m/s at 50 um)
+                                               ///<   settling cap of 1 m/s, so coarse dust (v_s 0.2 m/s at 50 um, as it then settled)
                                                ///<   arrived in the lowest cell faster than it could leave it and
                                                ///<   piled up to twice the physical concentration.
     constexpr amrex::Real VD_MIN  = 0.0;      ///< Minimum deposition velocity [m/s]

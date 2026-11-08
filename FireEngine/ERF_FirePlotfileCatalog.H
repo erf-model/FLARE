@@ -29,7 +29,7 @@
  *  14. fire_heat_flux     (heat flux [W/m²])
  *  15. fire_fuel_load     (fuel load [kg/m²])
  *  16. fire_fireline_intensity (Byram fireline intensity h w0 R [kW/m])
- *  17. fire_flame_length  (Thomas flame length [m])
+ *  17. fire_flame_length  (Byram 1959 flame length [m])
  *  18. fire_arrival_time  (fire arrival time [s])
  *  19. fire_heat_release  (h (w0 - w) R [kW/m], the intensity's pre-2026-10 form)
  *

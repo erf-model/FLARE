@@ -30,11 +30,11 @@ namespace {
 
 constexpr int  NX = 100, NY = 20;
 constexpr Real DX = 10.0;
-constexpr Real Z_REF = 6.1, Z0 = 0.1, V_T = 0.5, I_B = 100.0, U = 2.0;
+constexpr Real Z_REF = 6.1, Z0 = 0.1, V_T = 0.5, I_B = 2.0e4, U = 2.0;
 constexpr int  N_TRAJ = 20;
 constexpr double TOLP = (sizeof(Real) == 8) ? 1.0e-12 : 1.0e-5;
 
-/// Launch block: cells 2-4 by 8-11, intensity I_B (exactly the launch threshold)
+/// Launch block: cells 2-4 by 8-11, intensity I_B (above the 100 kW/m threshold, so every cell launches)
 bool launches (int i, int j) { return i >= 2 && i <= 4 && j >= 8 && j <= 11; }
 
 struct SpotCase
@@ -119,12 +119,63 @@ TEST(EmberDrift, ProfileFactor)
     EXPECT_NEAR(albini_wind_profile_factor(200.0, Z_REF, Z0), 1.85, 0.01) << "about twice the 6.1 m wind at 200 m";
 }
 
+/// INT-309's lofting height for an Anderson model at the case's wind: the
+/// 2 m/s reference wind at 6.1 m is 2.24 m/s at 10 m, below the 5 m/s floor of
+/// the Table 4 fits, so U10 = 5 m/s.
+Real case_height (int anderson)
+{
+    Real A = 0.0, B = 0.0;
+    EXPECT_TRUE(albini_thermal_fit(anderson, A, B));
+    return 0.173 * std::sqrt(I_B * A * std::pow(5.0, B));
+}
+
+TEST(EmberDrift, LoftingHeightIsAlbinisEquationTwo)
+{
+    // INT-309 example 1: short grass, 2000 kW/m, U10 = 5 m/s. The worked
+    // example uses B = -1.465 and prints E = 30 660 kJ/m, H = 30 m.
+    EXPECT_NEAR(albini_thermal_strength(2000.0, 5.0, 162.0, -1.465), 30660.0, 15.0);
+    EXPECT_NEAR(albini_lofting_height(2000.0, 5.0, 162.0, -1.465), 30.29, 0.01);
+    // Example 2: mature chaparral (Table 4: 83.9, -1.04), 50 000 kW/m, 20 m/s:
+    // f(U) = 3.72 s, E = 186 000 kJ/m, H = 75 m.
+    Real A = 0.0, B = 0.0;
+    ASSERT_TRUE(albini_thermal_fit(4, A, B));
+    EXPECT_NEAR(A, 83.9, 1e-12); EXPECT_NEAR(B, -1.040, 1e-12);
+    EXPECT_NEAR(albini_thermal_strength(50000.0, 20.0, A, B) / 50000.0, 3.72, 0.005);
+    EXPECT_NEAR(albini_lofting_height(50000.0, 20.0, A, B), 74.6, 0.1);
+    // Table 4's short grass (B = -1.456) at example 1
+    ASSERT_TRUE(albini_thermal_fit(1, A, B));
+    EXPECT_NEAR(albini_lofting_height(2000.0, 5.0, A, B), 30.5, 0.05);
+    // below the threshold, nothing is lofted
+    EXPECT_EQ(albini_lofting_height(99.0, 5.0, A, B, 100.0), 0.0);
+}
+
+TEST(EmberDrift, ThermalFitRangeAndFallback)
+{
+    Real A = 0.0, B = 0.0;
+    // the wind is held to the 5-30 m/s range of the fits
+    ASSERT_TRUE(albini_thermal_fit(1, A, B));
+    EXPECT_EQ(albini_thermal_strength(1000.0, 0.0, A, B), albini_thermal_strength(1000.0, 5.0, A, B));
+    EXPECT_EQ(albini_thermal_strength(1000.0, 45.0, A, B), albini_thermal_strength(1000.0, 30.0, A, B));
+    EXPECT_GT(albini_thermal_strength(1000.0, 6.0, A, B), albini_thermal_strength(1000.0, 12.0, A, B));
+    // model 8 and codes outside 1-13 have no fit
+    EXPECT_FALSE(albini_thermal_fit(8, A, B));
+    EXPECT_FALSE(albini_thermal_fit(0, A, B));
+    EXPECT_FALSE(albini_thermal_fit(102, A, B));
+    // a cell's own Anderson code when Table 4 has it, else the stand-in
+    EXPECT_EQ(albini_thermal_model(4, "13", 0), 4);
+    EXPECT_EQ(albini_thermal_model(8, "13", 9), 9);
+    EXPECT_EQ(albini_thermal_model(8, "13", 0), 0);
+    EXPECT_EQ(albini_thermal_model(1000, "13", 1), 1);
+    EXPECT_EQ(albini_thermal_model(4, "40", 1), 1) << "under the Scott-Burgan table a code is not Anderson's";
+}
+
 TEST(EmberDrift, LandingDistanceIsTheLogProfileIntegral)
 {
-    // 100 kW/m lofts a brand to 12.2 100^{1/3} = 56.6 m; at 0.5 m/s it falls
-    // 113 s, drifting 227 m on the uniform 2 m/s wind and about 290 m on the
-    // log profile. FM13's cap (1000 m) does not bind.
-    const Real H_z = 12.2 * std::cbrt(I_B);
+    // 20 000 kW/m in FM13 lofts a brand to 0.173 (2e4 71.8 5^-0.835)^(1/2)
+    // = 106 m; at 0.5 m/s it falls 212 s, drifting 424 m on the uniform 2 m/s
+    // wind and further on the log profile. FM13's cap (1000 m) does not bind.
+    const Real H_z = case_height(13);
+    EXPECT_NEAR(H_z, 105.9, 0.1);
     const Real D = euler_drift(H_z);
     EXPECT_GT(D, 1.2 * U * H_z / V_T) << "the profile carries the brand further than the reference wind";
     SpotCase r(NX, NY);
@@ -144,7 +195,9 @@ TEST(EmberDrift, LandingDistanceIsTheLogProfileIntegral)
 TEST(EmberDrift, TheCapIsTheSourceCellsFuel)
 {
     // on a fuel map the launch cells are FM1 (cap 200 m) while the uniform
-    // fuel is FM13: the 290 m drift is cut to 200 m
+    // fuel is FM13: FM1's own fit lofts to 96 m, and the drift of more than
+    // 500 m is cut to 200 m
+    EXPECT_GT(euler_drift(case_height(1)), 500.0);
     SpotCase r(NX, NY);
     r.fuel.setVal(1.0_rt);
     const FireParams::SpottingParams sp = r.params();
@@ -180,4 +233,52 @@ TEST(EmberDrift, LandingsDoNotDependOnTheDecomposition)
     }
     EXPECT_GE(n, 4);
     EXPECT_EQ(diff, 0.0_rt) << "one box and eight boxes stamp the same landings";
+}
+
+namespace {
+/// Largest lofting height the spotting call wrote (data component 0)
+Real max_height (const MultiFab& data) { return data.max(0); }
+}
+
+TEST(EmberDrift, LoftingHeightUsesTheTenMetreWind)
+{
+    // 8 m/s at 6.1 m is 8 ln(10/0.1)/ln(6.1/0.1) = 8.962 m/s at 10 m, inside
+    // the 5-30 m/s range of the fits, so the 10 m conversion sets the height:
+    // FM13 at 20 000 kW/m gives 0.173 (2e4 71.8 8.962^-0.835)^(1/2) = 83.0 m
+    // (87.0 m if the 6.1 m wind were used unconverted).
+    const Real U8 = 8.0;
+    const Real U10 = U8 * std::log(10.0 / Z0) / std::log(Z_REF / Z0);
+    EXPECT_NEAR(U10, 8.962, 0.001);
+    const Real H_expect = 0.173 * std::sqrt(I_B * 71.8 * std::pow(U10, -0.835));
+    EXPECT_NEAR(H_expect, 83.0, 0.05);
+    SpotCase r(NX, NY);
+    r.wind.setVal(U8, 0, 1);
+    FireParams::SpottingParams sp = r.params();
+    sp.terminal_velocity = 8.0;   // the brands land inside the 1 km domain
+    compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                            nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0);
+    EXPECT_NEAR(max_height(r.data), H_expect, 1.0e-6 * H_expect);
+}
+
+TEST(EmberDrift, BurningStructureUsesTheStandInFit)
+{
+    // A burning structure on an FM13 cell launches with thermal_fuel_model's
+    // fit (FM1 here), not the cell's: Table 4 has no structure fit.
+    SpotCase r(NX, NY);
+    r.phi.setVal(1.0_rt);
+    r.intensity.setVal(0.0_rt);
+    MultiFab extra(r.ba, r.dm, 1, 0);
+    extra.setVal(0.0_rt);
+    for (MFIter mfi(extra); mfi.isValid(); ++mfi) {
+        auto e = extra.array(mfi);
+        const Box& bx = mfi.validbox();
+        if (bx.contains(IntVect(3, 10, 0))) { e(3, 10, 0) = I_B; }
+    }
+    FireParams::SpottingParams sp = r.params();
+    sp.thermal_fuel_model = 1;
+    compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                            nullptr, nullptr, 0.5_rt, &r.fuel, "13", 13, Z_REF, Z0,
+                            false, nullptr, nullptr, nullptr, true, &extra);
+    EXPECT_NEAR(max_height(r.data), case_height(1), 1.0e-6 * case_height(1));
+    EXPECT_GT(case_height(13), 1.05 * case_height(1)) << "the two fits differ, so the test can tell them apart";
 }

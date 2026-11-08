@@ -104,3 +104,33 @@ TEST(ByramIntensity, HeatReleaseIsTheConsumedLoad)
     EXPECT_NEAR(compute_heat_release_kW_per_m(-1.0_rt, R, w0, 0.0_rt, h), h * w0 * R, REL * h * w0 * R) << "burned out";
     EXPECT_EQ(compute_heat_release_kW_per_m( 1.0_rt, R, w0, 0.0_rt, h), 0.0_rt);
 }
+
+// Motivation: the residence-time floor is Anderson's (1969) flame residence time
+// as Rothermel (1983, GTR INT-143, appendix C) writes it, t_r = 384 / sigma min
+// (sigma in 1/ft). Until November 2026 it was 301 rho_p / sigma s, with no source:
+// 2.75 s for fuel model 1 (sigma 3500 1/ft, rho_p 32 lb/ft3) instead of 6.58 s.
+// Pins: FM1 sigma 3500 -> 6.583 s; FM10 dead-weighted sigma 636.8 -> 36.18 s;
+// the 1 s floor below sigma > 23040.
+TEST(FireHeatBudget, ResidenceTimeIsAndersonsFlameResidence)
+{
+    EXPECT_NEAR(compute_residence_time_s(Real(3500.0)), Real(23040.0 / 3500.0), Real(1.0e-4));
+    EXPECT_NEAR(compute_residence_time_s(Real(3500.0)), Real(6.583), Real(1.0e-3));
+    EXPECT_NEAR(compute_residence_time_s(Real(636.8)), Real(36.18), Real(1.0e-2));
+    EXPECT_NEAR(compute_residence_time_s(Real(30000.0)), Real(1.0), Real(1.0e-6));
+    EXPECT_NEAR(compute_residence_time_s(Real(0.0)), Real(1.0), Real(1.0e-6));
+}
+
+// Motivation: the residence time takes the characteristic (surface-area-weighted)
+// SAV of the bed, as Rothermel (1983, appendix C) does; his Table C-1 gives the
+// times for the 13 NFFL models. The load-weighted dead mean used until November
+// 2026 gave FM4 24.1 s and FM10 36.1 s, 1.8x and 2.8x the table.
+// Pins (Table C-1, min): FM1 0.110, FM2 0.138, FM4 0.221, FM10 0.218.
+TEST(FireHeatBudget, ResidenceTimeMatchesRothermelTableC1)
+{
+    const struct { int fm; double t_min; } table[] = {{1, 0.110}, {2, 0.138}, {4, 0.221}, {10, 0.218}};
+    for (const auto& r : table) {
+        const FuelModelParams fp = get_fuel_params(r.fm, FUEL_SET_ANDERSON13);
+        const Real tau = compute_residence_time_s(characteristic_sav(fp));
+        EXPECT_NEAR(tau / Real(60.0), Real(r.t_min), Real(0.0015)) << "fuel model " << r.fm;
+    }
+}

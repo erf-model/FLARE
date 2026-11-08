@@ -178,6 +178,9 @@ erf.fire.directional_ellipse_lw = "anderson"
 
 # Spotting: a launch attempt every 200 steps (a few minutes) at a low probability, fixed seed
 erf.fire.spotting.enable = true
+# The lofting height uses Albini's (1983) Table 4, which has Anderson models
+# only: the Scott-Burgan cells of this map take the short-grass (1) fit.
+erf.fire.spotting.thermal_fuel_model = 1
 erf.fire.spotting.spotting_interval = 200
 erf.fire.spotting.P_base = 0.002
 erf.fire.spotting.random_seed = 20211230

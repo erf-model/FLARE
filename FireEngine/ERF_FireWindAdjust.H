@@ -24,12 +24,31 @@
  */
 
 /**
+ * @brief Ratio of the neutral log-profile winds at two heights, U(z_to) / U(z_from).
+ *
+ * ln(z_to / z0) / ln(z_from / z0) with roughness length z0 [m]; both heights are
+ * floored just above z0. The empirical spread models are fitted to the wind at a
+ * fixed height (the WAF to the 20 ft wind, Cruz et al. 2005, FBP and Cheney et al.
+ * 1998 to the 10 m open wind), and this brings the wind sampled at
+ * erf.fire.wind_ref_ht to that height.
+ */
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real neutral_wind_height_factor(amrex::Real z_to, amrex::Real z_from, amrex::Real z0) noexcept
+{
+    const amrex::Real z0s = amrex::max(z0, amrex::Real(1.0e-6));
+    const amrex::Real zt  = amrex::max(z_to,   z0s * amrex::Real(1.000001));
+    const amrex::Real zf  = amrex::max(z_from, z0s * amrex::Real(1.000001));
+    return std::log(zt / z0s) / std::log(zf / z0s);
+}
+
+/**
  * @brief Compute unsheltered Wind Adjustment Factor (Andrews/Albini & Baughman 1979)
  *
  * @param[in] delta_ft Fuel bed depth [ft]
- * @return WAF (≈ 0.3–0.4 for typical forest)
+ * @return WAF, the midflame wind over the 20 ft (6.1 m) open wind, for fuels in
+ *         the open (0.36 for a 1 ft grass bed, 0.46 for a 3 ft slash bed)
  *
- * Formula: WAF = 1.83 / ln((20 + 0.36*h) / (0.13*h))
+ * Formula: WAF = 1.83 / ln((20 + 0.36*h) / (0.13*h)) (Andrews 2012, RMRS-GTR-266, eq. 1)
  */
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real compute_waf_unsheltered(amrex::Real delta_ft) noexcept
@@ -63,20 +82,6 @@ amrex::Real compute_waf_sheltered(amrex::Real f_c, amrex::Real h_c_ft,
     denom = amrex::max(static_cast<amrex::Real>(denom), static_cast<amrex::Real>(1.0e-6));
 
     return 0.555 / denom;
-}
-
-/**
- * @brief Compute BehavePlus Wind Adjustment Factor (linear formula)
- *
- * @param[in] delta_ft Fuel bed depth [ft]
- * @return WAF
- *
- * Formula: WAF = 0.36 + 0.004*h where h is in feet
- */
-AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-amrex::Real compute_waf_behaviorplus(amrex::Real delta_ft) noexcept
-{
-    return 0.36 + 0.004 * delta_ft;
 }
 
 /**

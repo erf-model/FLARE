@@ -270,7 +270,7 @@ TEST(FireDiagnosticsPerFuel, NoFuelMapKeepsTheUniformScalars)
     }
 }
 
-// The wind adjustment factor of the two formulas separates these beds, which is
+// The wind adjustment factor separates these beds, which is
 // what apply_waf_to_wind() evaluates per cell on a map. A factor built from one
 // model would apply the left column's number to the right column's fuel.
 TEST(FireDiagnosticsPerFuel, TheWafSeparatesTheBedDepths)
@@ -281,10 +281,6 @@ TEST(FireDiagnosticsPerFuel, TheWafSeparatesTheBedDepths)
     const Real a_light = compute_waf_unsheltered(d_light);
     const Real a_heavy = compute_waf_unsheltered(d_heavy);
     EXPECT_GT(std::abs(a_heavy - a_light), 0.02 * a_light);
-
-    const Real b_light = compute_waf_behaviorplus(d_light);
-    const Real b_heavy = compute_waf_behaviorplus(d_heavy);
-    EXPECT_GT(std::abs(b_heavy - b_light), 0.0);
 
     // Anderson 1 against Anderson 13, the pair the FireCustomFuel identity deck
     // uses: 27 % of the midflame wind.

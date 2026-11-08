@@ -29,7 +29,8 @@
  * far (equal until anything is emitted):
  * erf.dust.lumped_settling = mean; bin0 is the form until October 2026, which
  * settled the 50 um third of the default bins at the 7 um velocity (residence
- * 5850 s in a 23 m cell instead of 117 s).
+ * 15200 s in a 23 m cell instead of 305 s, as the unit-density aerodynamic bins
+ * settle).
  *
  * Pattern reference: ERF_FireAtmCoupling.H in Source/FireCoupling/:
  *   https://github.com/hgopalan/ERF/blob/7856affedd8bb3c878b62c308f39c36bf2228791/
@@ -62,6 +63,12 @@
 namespace DustSettlingConst {
     constexpr amrex::Real G_ACCEL    = 9.81;     ///< Gravitational acceleration [m/s^2]
     constexpr amrex::Real MU_AIR_STD = 1.81e-5;  ///< Dynamic viscosity of air at 293 K [Pa s]
+    /// erf.dust.bin_diameters are aerodynamic diameters (the PM2.5 / PM10 classes and
+    /// the AP-42 PM-10 road mass read them so), so a bin settles and deposits as the
+    /// unit-density sphere of that diameter. Until November 2026 the bins settled
+    /// with erf.dust.particle_density (2650 kg/m3) as geometric diameters, 2.7x
+    /// faster for the 7 um bin, while the PM classes read them as aerodynamic.
+    constexpr amrex::Real RHO_AERODYNAMIC = 1000.0; ///< Unit density of the aerodynamic diameter [kg/m^3]
     constexpr amrex::Real LAMBDA_MFP = 6.6e-8;   ///< Mean free path at STP [m] (0.066 um)
     constexpr amrex::Real CC_A1      = 1.257;    ///< Cunningham coefficient A1
     constexpr amrex::Real CC_A2      = 0.400;    ///< Cunningham coefficient A2

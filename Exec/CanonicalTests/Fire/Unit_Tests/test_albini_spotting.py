@@ -2,13 +2,16 @@
 """
 Unit tests for the Albini (1983) firebrand spotting model.
 
-Verifies lofting height formula, trajectory distance scaling, and
-intensity threshold behaviour against Albini (1983) INT-309 reference values.
+Checks the lofting height against the two worked examples of INT-309, the
+trajectory distance scaling and the intensity threshold.
 
-Reference values from:
+Reference:
   Albini, F.A. (1983). Potential spotting distance from wind-driven
     surface fires. USDA Forest Service Research Paper INT-309.
-    Table 1: H_z values for I_B = 100, 500, 1000, 5000 kW/m.
+    doi:10.2737/INT-RP-309. Eq. 2: H = 0.173 E^(1/2); eqs. 7-8:
+    E = I A U^B with A, B from Table 4 and U the 10 m wind.
+    Example 1: short grass, 2000 kW/m, 5 m/s -> E = 30 660 kJ/m, H = 30 m.
+    Example 2: mature chaparral, 50 000 kW/m, 20 m/s -> E = 186 000 kJ/m, H = 75 m.
 
 Run: python3 test_albini_spotting.py
 """
@@ -16,12 +19,19 @@ Run: python3 test_albini_spotting.py
 import math
 import sys
 
+# INT-309 Table 4 (A [s], B), Anderson models; 8 is not in the table
+TABLE4 = {1: (162.0, -1.456), 2: (166.0, -1.282), 3: (129.0, -1.238), 9: (154.0, -1.151),
+          4: (83.9, -1.040), 5: (94.4, -0.881), 6: (74.1, -0.906), 7: (75.1, -0.884),
+          10: (66.1, -0.810), 11: (63.6, -0.776), 12: (69.6, -0.818), 13: (71.8, -0.835)}
 
-def albini_lofting_height(I_B_kW, I_B_min=100.0):
-    """H_z = 12.2 * I_B^(1/3)  [Albini 1983 INT-309, eq. 1]"""
+
+def albini_lofting_height(I_B_kW, U10=5.0, model=4, I_B_min=100.0, AB=None):
+    """H = 0.173 (I A U^B)^(1/2), U held to the 5-30 m/s fit range (INT-309 eqs. 2, 7, 8)"""
     if I_B_kW < I_B_min:
         return 0.0
-    return 12.2 * (I_B_kW ** (1.0 / 3.0))
+    A, B = AB if AB is not None else TABLE4[model]
+    U = min(max(U10, 5.0), 30.0)
+    return 0.173 * math.sqrt(I_B_kW * A * U ** B)
 
 
 def albini_flight_time(H_z_m, v_t_ms=0.5):
@@ -53,21 +63,15 @@ def test_lofting_height_threshold():
 
 def test_lofting_height_formula():
     """
-    Verify H_z = 12.2 * I_B^(1/3) against Albini (1983) INT-309 Table 1.
-    Reference values (approximate):
-      I_B=100 kW/m  -> H_z ~ 56 m
-      I_B=500 kW/m  -> H_z ~ 96 m
-      I_B=1000 kW/m -> H_z ~ 121 m
+    INT-309's worked examples. Example 1 uses B = -1.465 for short grass
+    (Table 4 prints -1.456) and gives 30 m; example 2 gives 75 m.
     """
-    tol = 2.0  # 2 m tolerance on reference values
-    cases = [(100.0, 56.0), (500.0, 96.0), (1000.0, 121.0)]
     failures = []
-    for I_B, H_ref in cases:
-        H_z = albini_lofting_height(I_B)
-        if abs(H_z - H_ref) >= tol:
-            failures.append(
-                f"I_B={I_B} kW/m: H_z={H_z:.1f} m, expected ~{H_ref} m (tol={tol} m)"
-            )
+    cases = [("example 1", albini_lofting_height(2000.0, 5.0, AB=(162.0, -1.465)), 30.0),
+             ("example 2", albini_lofting_height(50000.0, 20.0, model=4), 75.0)]
+    for name, H_z, H_ref in cases:
+        if abs(H_z - H_ref) >= 0.5:
+            failures.append(f"{name}: H_z={H_z:.2f} m, INT-309 gives {H_ref} m")
     return failures
 
 
@@ -88,13 +92,13 @@ def test_lofting_height_monotone():
 def test_spot_distance_uniform_wind():
     """
     Spotting distance in uniform wind: d = u * H_z / v_t.
-    For I_B=500 kW/m, u=5 m/s, v_t=0.5 m/s:
-      H_z ~ 96 m, t_f = 96/0.5 = 192 s, d = 5 * 192 = 960 m
+    For I_B=500 kW/m in FM4 at 5 m/s, v_t=0.5 m/s:
+      H_z = 0.173 (500 83.9 5^-1.04)^(1/2) = 15.3 m, t_f = 30.7 s, d = 153 m
     """
     failures = []
     d = albini_spot_distance_uniform_wind(500.0, u_ms=5.0, v_t_ms=0.5)
-    if not (800.0 < d < 1200.0):
-        failures.append(f"Spot distance {d:.1f} m outside expected 800-1200 m range")
+    if abs(d - 153.4) >= 1.0:
+        failures.append(f"Spot distance {d:.1f} m, expected 153.4 m")
     return failures
 
 

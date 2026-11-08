@@ -11,8 +11,8 @@
 #   - use_waf = true with waf_formula = "andrews".
 #
 # Notes:
-#   - Compare with inputs_fire_waf_behaviorplus, which differs only in the
-#     formula used.
+#   - The "behaviorplus" deck that compared a second formula was removed with
+#     that formula in November 2026 (no published source).
 geometry.prob_lo = 0.0 0.0 0.0
 geometry.prob_hi = 2000.0 2000.0 500.0
 amr.n_cell = 40 40 50

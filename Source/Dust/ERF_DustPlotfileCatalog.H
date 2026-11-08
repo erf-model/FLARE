@@ -19,7 +19,7 @@ inline amrex::Vector<std::string> dust_plotfile_var_names()
         "dust_ustar_t",        ///< Threshold friction velocity [m/s]. Shao & Lu (2000).
         "dust_deposition_rate",///< Accumulated dry deposition [kg/m^2]. Zhang et al. (2001).
         "dust_conc_sfc",       ///< Near-surface dust concentration [kg/m^3].
-        "dust_surf_qflux_kg_m2_s", ///< Surface latent flux Q1fx3 [kg/m^2/s]; zero without a moisture scheme.
+        "dust_surf_qflux_kg_m2_s", ///< Surface vapour mass flux Q1fx3 [kg/m^2/s] (not a latent heat flux); zero without a moisture scheme.
         "dust_suppression",    ///< Suppression agent coverage [0-1].
         "dust_retreat_flag",   ///< Re-treatment flag [0/1].
         // Phase 17: EPA NAAQS fields

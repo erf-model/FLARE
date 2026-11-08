@@ -143,7 +143,14 @@ corrections:
 - The wind adjustment factor reduces the reference wind to the midflame
   height of the fuel bed. :cpp:`erf.fire.waf_formula = "andrews"` (default)
   uses the unsheltered logarithmic form of Andrews (2012) driven by the fuel
-  bed depth, and ``"behaviorplus"`` the linear BehavePlus form;
+  bed depth (the only form since November 2026: the linear ``"behaviorplus"``
+  form had no published source). The factor takes the 20 ft (6.1 m) open wind;
+  a reference wind sampled at another :cpp:`erf.fire.wind_ref_ht` is first
+  brought to 20 ft with the neutral log profile of :cpp:`erf.fire.wind_sample_z0`.
+  Andrews (2012) defines the factor on the wind 20 ft above the top of the
+  vegetation; the reference wind here is 20 ft above the ground, so for a deep
+  bed the midflame wind is a few percent low (1 % for a 1 ft bed, 9 % for a
+  6 ft bed with the Albini and Baughman profile);
   :cpp:`erf.fire.use_waf = false` passes the reference wind through. The
   depth is the domain fuel model's on a uniform fuel and each cell's own
   wherever a spatial fuel map is read, so on a map the factor is a field:
@@ -207,9 +214,11 @@ Once a cell has burned (:math:`\phi < 0`) its remaining fuel load
    \tau_{res} = \max\!\left(\frac{\Delta x_f}{R},\ \tau_{SAV}\right),
 
 where :math:`\Delta x_f / R` is the time the front takes to cross one fire
-cell and :math:`\tau_{SAV} = 301\,\rho_p/\sigma` (Rothermel 1983, seconds
-with :math:`\rho_p` in lb/ft³ and :math:`\sigma` in ft⁻¹) is the particle
-burnout time used as a floor. :cpp:`erf.fire.tau_residence_s` overrides the
+cell and :math:`\tau_{SAV} = 384/\sigma` minutes, i.e. :math:`23040/\sigma`
+seconds with :math:`\sigma` in ft⁻¹ (Anderson 1969, as written by Rothermel 1983,
+appendix C), is the flame residence time used as a floor. Until November 2026 the
+floor was :math:`301\,\rho_p/\sigma` s, which has no published source and gave
+0.42 of this value. :cpp:`erf.fire.tau_residence_s` overrides the
 residence time with a fixed value when positive.
 
 That residence time ties the burnout to the front's speed, so a cell of

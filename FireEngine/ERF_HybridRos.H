@@ -50,7 +50,7 @@ struct HybridDirectionalSpec
     const RothermelCellInputs* cell_mc    = nullptr;
 
     const amrex::MultiFab*         wind_eff   = nullptr;  ///< Effective (midflame) wind [m/s]
-    const amrex::MultiFab*         wind_ref   = nullptr;  ///< Reference-height wind [m/s]
+    const amrex::MultiFab*         wind_ref   = nullptr;  ///< Reference wind brought to 10 m (fire_wind_ref_10m) [m/s], for FBP and Cheney-Gould
     bool cheney_uses_ref = true;   ///< erf.fire.cheney_gould.wind_source = reference (the 1998 model only)
     bool fbp_uses_ref    = true;   ///< erf.fire.fbp.wind_source = reference
     const amrex::MultiFab*         balbi_wind = nullptr;  ///< Wind the Balbi kernels consume

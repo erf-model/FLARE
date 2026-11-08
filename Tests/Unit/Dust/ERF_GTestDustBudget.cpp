@@ -221,8 +221,10 @@ TEST(DustBudget, HaulRoadEmitsTheAP42MassRateOverTheCellsItCovers)
     flux.setVal(0.0);
     apply_road_schedule(flux, geom, sched, Real(10.0), Real(1.0), false, "", 1);
     const Real M = road_mass_rate_kg_s(ev);
-    // E = 423 (8/12)^0.9 (40/3)^0.45 g/VKT; M = 1e-3 E 12 / 3600
-    const Real E = 423.0 * std::pow(8.0 / 12.0, 0.9) * std::pow(40.0 / 3.0, 0.45);
+    // E = 423 (8/12)^0.9 (W/3)^0.45 g/VKT with W = 40 t = 44.09 short tons (AP-42's
+    // unit; the tonnes went in as short tons until November 2026, 4.3 % low);
+    // M = 1e-3 E 12 / 3600
+    const Real E = 423.0 * std::pow(8.0 / 12.0, 0.9) * std::pow(40.0 * 1.10231 / 3.0, 0.45);
     EXPECT_NEAR(M, 1.0e-3 * E * 12.0 / 3600.0, REAL_RTOL * M);
     const Real total = flux.sum(0) * 100.0 * 100.0;   // sum of flux x cell area
     EXPECT_NEAR(total, M, REAL_RTOL * M)
@@ -253,4 +255,23 @@ TEST(DustBudget, BlastDeliversItsMassWhateverTheTimeStep)
         EXPECT_NEAR(sum, mass * r, REAL_RTOL * mass * r)
             << "dt = " << dt << ": the 1e-2 kg/m2/s per-bin cap delivered 15 % at dt = 0.5";
     }
+}
+
+// The bins' diameters are aerodynamic, so a bin settles as the unit-density
+// sphere of that diameter (DustSettlingConst::RHO_AERODYNAMIC). Hinds (1999),
+// Aerosol Technology, Table A.11 (unit density, 293 K, 1 atm): 10 um settles
+// at 0.306 cm/s and 1 um at 0.0035 cm/s, both with the slip correction.
+TEST(DustBudget, AerodynamicBinsSettleAtHindsUnitDensityValues)
+{
+    EXPECT_EQ(DustSettlingConst::RHO_AERODYNAMIC, Real(1000.0));
+    const Real v10 = compute_stokes_settling(Real(10.0e-6), DustSettlingConst::RHO_AERODYNAMIC,
+                                             Real(1.205), DustSettlingConst::MU_AIR_STD);
+    const Real v1  = compute_stokes_settling(Real(1.0e-6), DustSettlingConst::RHO_AERODYNAMIC,
+                                             Real(1.205), DustSettlingConst::MU_AIR_STD);
+    EXPECT_NEAR(v10, Real(3.06e-3), Real(0.01 * 3.06e-3));
+    EXPECT_NEAR(v1,  Real(3.5e-5),  Real(0.03 * 3.5e-5));
+    // the 7 um default bin: 1.51e-3 m/s (2.65x this at 2650 kg/m3, the form used before November 2026)
+    const Real v7  = compute_stokes_settling(Real(7.0e-6), DustSettlingConst::RHO_AERODYNAMIC,
+                                             Real(1.225), DustSettlingConst::MU_AIR_STD);
+    EXPECT_NEAR(v7, Real(1.51e-3), Real(0.01e-3));
 }
