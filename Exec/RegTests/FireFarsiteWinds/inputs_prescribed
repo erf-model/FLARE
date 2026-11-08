@@ -1,0 +1,17 @@
+# FireFarsiteWinds, prescribed wind: u = 3, v = 4 m/s everywhere, so every cell
+# of every grid has a closed-form value: 5 m/s = 11.18 mph, from 216.87 deg
+# (216.87 = 180 + atan2(3, 4)), written as 217. ENGLISH (mph at 20 ft), with
+# the reference height at 6.096 m, a map corner and a projection file.
+FILE = inputs_base
+erf.fire.farsite_winds.interval = 60.0          # steps starting at t = 0, 60 and 120
+start_datetime = "2021-12-30 11:00:00"   # the .atm dates: 12 30 1100, 1101, 1102
+erf.fire.wind_ref_ht = 6.096
+erf.fire.prescribed_wind   = true
+erf.fire.prescribed_wind_x = 3.0
+erf.fire.prescribed_wind_y = 4.0
+erf.fire.farsite_winds.units     = "english"
+erf.fire.farsite_winds.dir       = "winds_prescribed"
+erf.fire.farsite_winds.prefix    = "prescribed"
+erf.fire.farsite_winds.xllcorner = 482000.0
+erf.fire.farsite_winds.yllcorner = 4423000.0
+erf.fire.farsite_winds.prj_file  = "utm13n.prj"

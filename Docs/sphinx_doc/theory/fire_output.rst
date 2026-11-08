@@ -256,6 +256,107 @@ cheney_gould``, the level-set gradient with ``propagation_method = levelset``),
 the heat-injection options only when heat reaches the atmosphere, the wind
 interpolation only when the wind is not prescribed.
 
+.. _sec:FireFarsiteWinds:
+
+FARSITE and FlamMap gridded winds
+---------------------------------
+
+With :cpp:`erf.fire.farsite_winds.interval` > 0 the fire layer writes its
+reference wind as gridded winds for FARSITE and FlamMap. The layout is the
+one WindNinja writes (``farsiteAtm.cpp`` and ``ascii_grid.cpp`` in
+`firelab/windninja <https://github.com/firelab/windninja>`_), so the files
+load in the same way as WindNinja output. In :cpp:`erf.fire.farsite_winds.dir`:
+
+* ``<prefix>_<step>_vel.asc``: the wind speed, 2 decimals.
+* ``<prefix>_<step>_ang.asc``: the direction the wind blows **from**, in
+  degrees clockwise from north, 0 decimals. A wind toward the north is 180.
+* ``<prefix>_<step>_vel.prj`` and ``_ang.prj``: copies of
+  :cpp:`erf.fire.farsite_winds.prj_file`, when it is given.
+* ``<prefix>.atm``: the atmosphere file that lists the grids by date and time:
+
+.. code-block:: text
+
+   WINDS
+   ENGLISH
+   12 30 1100 flare_000001_vel.asc flare_000001_ang.asc
+   12 30 1101 flare_000061_vel.asc flare_000061_ang.asc
+
+The grids are ESRI ASCII with a tab-separated header (``ncols``, ``nrows``,
+``xllcorner``, ``yllcorner``, ``cellsize``, ``NODATA_value`` = -9999) and the
+northern row first. Cells that no fire box covers hold ``NODATA_value``.
+
+**Which wind.** The grids hold ``fire_wind_ref``: :math:`u` and :math:`v`
+at the reference height above ground, before the wind adjustment factor and
+FLARE's parametric terrain correction (:cpp:`erf.fire.use_terrain_wind`). The
+ERF wind itself already includes the resolved terrain, as a WindNinja field
+does. This is the open wind that FARSITE expects as input. With lagged or
+passive coupling the wind is the one at the step's start time; with
+synchronous coupling it is extracted after the dynamics, and is stamped at
+the step's end.
+The speed and direction are
+
+.. math::
+
+   S = c\,\sqrt{u^2 + v^2}, \qquad
+   \theta_\mathrm{from} = \operatorname{atan2}(-u, -v)\ \text{in degrees, wrapped to } [0, 360),
+
+where :math:`u` is the east component [m/s], :math:`v` the north component
+[m/s], and :math:`c` = 3600/1609.344 (mph) or 3.6 (km/h). The fire grid's x
+is taken as east and y as north. With :cpp:`erf.fire.farsite_winds.coarsen`
+= :math:`n`, each output cell is the mean of :math:`u` and :math:`v` over
+:math:`n \times n` fire cells, and the speed and direction come from that
+mean vector. The speed of a mean vector is at most the mean speed. For a block
+whose directions spread by 30 deg the written speed is about 2 % lower,
+and for 90 deg about 16 % lower.
+
+**Units fix the height.** In a ``.atm`` file, ``ENGLISH`` means mph at 20 ft
+above the vegetation, and ``METRIC`` means km/h at 10 m. The run therefore
+aborts unless the reference height matches the units: 6.096 m for
+``english`` (:cpp:`erf.fire.wind_ref_ht` = 6.096, or
+:cpp:`erf.fire.use_per_fuel_wind_ht`), or 10 m for ``metric``. The default
+:cpp:`wind_ref_ht` of 6.1 m is within the 1 cm tolerance of 20 ft.
+
+**Dates.** The ``.atm`` lines carry month, day and HHMM in UTC. They are
+taken from the top-level :cpp:`start_datetime` plus the simulated time,
+rounded to the nearest minute. The run aborts without :cpp:`start_datetime`,
+also with ``init_type`` WRFInput or Metgrid, which otherwise take the date
+from the file,
+and an interval below 60 s also aborts.
+
+**When.** A step whose start time is at or past the next multiple of the
+interval writes the wind it extracted at that start time. A run that starts
+at :math:`t` = 0 therefore writes at 0, :math:`\Delta`, :math:`2\Delta`, and
+so on, each stamped with its step's start time, which lags the multiple by
+less than one time step. A time step longer than the interval skips grids
+(a warning is printed once). Two lines in the same minute would break
+FARSITE's time order, so the run aborts when that happens: keep the time step
+below the interval minus 30 s. The write times follow from the simulated time alone, so a restart
+needs nothing from the checkpoint. A restart appends to the ``.atm`` file it
+finds, after dropping the lines of steps at or after its own (a restart from
+an older checkpoint); a file with the other unit line aborts the run. A run
+that starts at :math:`t` = 0 begins a new file.
+Every write gathers the output grid onto one rank (with ``coarsen`` > 1 the
+block means are taken first, on the ranks that own the fire grid). For a
+large fire grid, use ``coarsen`` to keep that grid small. A non-finite wind
+is written as ``NODATA_value``.
+
+**Map position.** :cpp:`erf.fire.farsite_winds.xllcorner` and
+:cpp:`yllcorner` place the grids on the FARSITE landscape (the landscape's
+lower-left corner, in its projected coordinates). Without them, the fire
+grid's own ``prob_lo`` is written. The fire cells must be square.
+
+**Other formats.** ``Exec/Tools/farsite_winds_convert.py`` reads the
+``.atm`` file (or one ``_vel.asc``) and writes VTK (standard library only),
+shapefile wind arrows (pyshp), Google Earth KMZ (pyproj and a projection),
+a PDF map (matplotlib), or a geospatial PDF of the speed (GDAL):
+
+.. code-block:: bash
+
+   python3 Exec/Tools/farsite_winds_convert.py farsite_winds/flare.atm --to vtk shp kmz --stride 4
+
+The regression case ``Exec/RegTests/FireFarsiteWinds`` checks the files
+against a prescribed wind in closed form and against the fire plotfile.
+
 Debug output
 ------------
 

@@ -357,6 +357,7 @@ target_sources(${erf_exe_name}
 if(ERF_ENABLE_FIRE)
   target_sources(${erf_exe_name} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Fire/ERF_GTestLcpReader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Fire/ERF_GTestFarsiteWindOutput.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Fire/ERF_GTestFarsiteSpreadAccumulation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Fire/ERF_GTestFireAcceleration.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Fire/ERF_GTestFireBoundaryGuard.cpp

@@ -486,6 +486,20 @@ erf.fire.exposure.file = "fire_exposure.csv"
 erf.fire.exposure.interval = 100
 erf.fire.exposure.ring = 1
 
+# FARSITE/FlamMap gridded winds of the reference wind, in the layout WindNinja
+# writes: <dir>/<prefix>_<step>_vel.asc (mph or km/h), _ang.asc (degrees the
+# wind blows from) and <dir>/<prefix>.atm. interval = 0 is off; >= 60 s writes.
+# english = mph at 20 ft (wind_ref_ht 6.096), metric = km/h at 10 m
+# (wind_ref_ht 10); the .atm dates need the top-level start_datetime.
+erf.fire.farsite_winds.interval = 0.0
+erf.fire.farsite_winds.units = "english"
+erf.fire.farsite_winds.dir = "farsite_winds"
+erf.fire.farsite_winds.prefix = "flare"
+erf.fire.farsite_winds.coarsen = 1
+erf.fire.farsite_winds.xllcorner = 0.0
+erf.fire.farsite_winds.yllcorner = 0.0
+erf.fire.farsite_winds.prj_file = "landscape.prj"
+
 # ============================================================================
 # NON-BURNABLE MASK: STRUCTURES, FUEL CODES, FIREBREAKS
 # Cells in the mask get zero rate of spread, the level set is held outside

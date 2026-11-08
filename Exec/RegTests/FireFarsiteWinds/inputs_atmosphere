@@ -1,0 +1,13 @@
+# FireFarsiteWinds, atmospheric wind: the 10 m wind interpolated from the ERF
+# columns (sounding u = 5, v = 2 m/s over a z0 = 0.1 m surface layer), METRIC
+# (km/h at 10 m), averaged over 2 x 2 fire cells. The check compares the grids
+# written at step 61 with fire_wind_ref in the fire plotfile of that step.
+FILE = inputs_base
+erf.fire.farsite_winds.interval = 60.0          # steps starting at t = 0, 60 and 120
+start_datetime = "2021-12-30 11:00:00"   # the .atm dates: 12 30 1100, 1101, 1102
+erf.fire.wind_ref_ht = 10.0
+erf.fire.plot_int = 61
+erf.fire.farsite_winds.units   = "metric"
+erf.fire.farsite_winds.dir     = "winds_atmosphere"
+erf.fire.farsite_winds.prefix  = "atm"
+erf.fire.farsite_winds.coarsen = 2

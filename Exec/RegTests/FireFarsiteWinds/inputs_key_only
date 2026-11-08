@@ -1,0 +1,5 @@
+# FireFarsiteWinds abort deck: a farsite_winds key without
+# erf.fire.farsite_winds.interval, which leaves the output off. The run stops
+# naming both keys instead of ignoring the one that was set.
+FILE = inputs_base
+erf.fire.farsite_winds.units = "metric"

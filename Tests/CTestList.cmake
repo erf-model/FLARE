@@ -3353,6 +3353,30 @@ endif()
 add_test_fire_check(FireMergingFronts_coalescing FireMergingFronts inputs_coalescing 40 check_merging_fronts.py)
 add_test_fire_check(FireMergingFronts_junction   FireMergingFronts inputs_junction   40 check_merging_fronts.py)
 add_test_fire_check(FireMergingFronts_parallel   FireMergingFronts inputs_parallel   40 check_merging_fronts.py)
+# erf.fire.farsite_winds: FARSITE/FlamMap gridded winds (_vel/_ang ESRI ASCII
+# grids and a .atm file, the layout WindNinja writes), on two ranks over three
+# boxes so the gather sees an uneven split. Prescribed u = 3, v = 4 m/s gives
+# every cell in closed form (11.18 mph from 217 deg); the atmospheric deck's
+# 2 x 2 block means are checked against fire_wind_ref in the step-61 plotfile.
+add_test_fire_check(FireFarsiteWinds_prescribed FireFarsiteWinds inputs_prescribed 125 check_farsite_winds.py NRANKS 2)
+add_test_fire_check(FireFarsiteWinds_atmosphere FireFarsiteWinds inputs_atmosphere 125 check_farsite_winds.py NRANKS 2)
+# a restart from the step-61 checkpoint drops the straight run's later .atm
+# line before appending, so the file and the grids match the straight run
+if(NOT WIN32)
+add_test_fire_script(FireFarsiteWinds_restart FireFarsiteWinds run_restart.sh NRANKS 2)
+endif()
+# the .atm units fix the wind height (ENGLISH 20 ft, METRIC 10 m), the dates
+# need start_datetime, the interval is in whole minutes, and the keys need it on
+add_test_fire_abort(FireFarsiteWinds_height_abort FireFarsiteWinds inputs_prescribed
+    "erf.fire.farsite_winds.units = metric means a wind at 10.000000 m" "erf.fire.farsite_winds.units=metric")
+add_test_fire_abort(FireFarsiteWinds_no_start_abort FireFarsiteWinds inputs_no_start
+    "erf.fire.farsite_winds.interval > 0 needs start_datetime" "")
+add_test_fire_abort(FireFarsiteWinds_interval_abort FireFarsiteWinds inputs_prescribed
+    "erf.fire.farsite_winds.interval must be 0 .off. or >= 60 s" "erf.fire.farsite_winds.interval=30")
+add_test_fire_abort(FireFarsiteWinds_key_without_interval_abort FireFarsiteWinds inputs_key_only
+    "erf.fire.farsite_winds.units needs erf.fire.farsite_winds.interval > 0" "")
+add_test_fire_abort(FireFarsiteWinds_coarsen_abort FireFarsiteWinds inputs_atmosphere
+    "erf.fire.farsite_winds.coarsen = 7 must divide the fire grid, 60 x 20 cells" "erf.fire.farsite_winds.coarsen=7")
 # every file of the list is read: a second file that does not exist stops the run
 add_test_fire_abort(FireMergingFronts_missing_file_abort FireMergingFronts inputs_missing_file
     "Cannot open polygon vertex file: parallel_missing.csv" "")
@@ -3535,6 +3559,12 @@ set_tests_properties(FireDustInputsDocs_SelfTest
     TIMEOUT 300
     PROCESSORS 1
     LABELS "docs;fire;unit")
+# Exec/Tools/farsite_winds_convert.py (erf.fire.farsite_winds grids to VTK,
+# shapefile, KMZ, PDF, GeoPDF): a synthetic grid with known winds round-trips
+# through VTK always and through each other format whose library is installed.
+add_test(FarsiteWindsConvert_SelfTest ${ERF_RANS_PYTHON}
+    ${PROJECT_SOURCE_DIR}/Exec/Tools/farsite_winds_convert.py --self-test)
+set_tests_properties(FarsiteWindsConvert_SelfTest PROPERTIES TIMEOUT 120 PROCESSORS 1 LABELS "fire;unit")
 # the mass-budget checker of FireDustMassConservation on a synthetic closed
 # budget (passes) and a 10 % leak (must fail the budget check). Pure Python.
 add_test(FireDustMassConservation_SelfTest ${ERF_RANS_PYTHON}
