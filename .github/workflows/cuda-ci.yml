@@ -123,6 +123,7 @@ jobs:
             -DERF_ENABLE_CUDA:BOOL=ON \
             -DERF_ENABLE_PARTICLES:BOOL=${{matrix.particles}} \
             -DERF_ENABLE_FIRE:BOOL=ON \
+            -DERF_ENABLE_MOVING_BODIES:BOOL=ON \
             -DERF_PRECISION:STRING=${{matrix.mesh_precision}} \
             -DERF_PARTICLES_PRECISION:STRING=${{matrix.particles_precision}} \
             -DERF_ENABLE_DUST:BOOL=ON \
@@ -156,6 +157,10 @@ jobs:
         shell: bash
         run: |
           build_log="${{runner.workspace}}/build-${{matrix.cuda_pkg}}-output.txt"
+          if [ ! -f "$build_log" ] || [ ! -r "$build_log" ]; then
+            echo "::error::Missing or unreadable build log: $build_log"
+            exit 1
+          fi
           diagnostics="${{runner.workspace}}/build-${{matrix.cuda_pkg}}-diagnostics.txt"
           grep -Ei "warning:|warning #|error:|error #" "$build_log" \
             | grep -Ev "Submodules/(amrex|AMReX|googletest)" \

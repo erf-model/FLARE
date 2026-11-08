@@ -479,6 +479,40 @@ function(build_erf_lib erf_lib_name)
     message(FATAL_ERROR "ERF_FIRE_ENGINE_DIRS is set but ERF_ENABLE_FIRE is OFF")
   endif()
 
+  if(ERF_ENABLE_MOVING_BODIES)
+    # The actuator core: velocity sampling at points, Gaussian force spreading onto the
+    # momentum sources, wake sampling lines and running statistics, for bodies in the flow.
+    target_sources(${erf_lib_name} PRIVATE
+      ${SRC_DIR}/MovingBodies/Core/ERF_ActuatorSampling.cpp
+      ${SRC_DIR}/MovingBodies/Core/ERF_ActuatorSpreading.cpp
+      ${SRC_DIR}/MovingBodies/Core/ERF_WakeLines.cpp
+      ${SRC_DIR}/MovingBodies/Coupling/ERF_StructureModelRegistry.cpp
+      ${SRC_DIR}/MovingBodies/Coupling/ERF_StructureCoupling.cpp
+    )
+    target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${SRC_DIR}/MovingBodies/Core>)
+    target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${SRC_DIR}/MovingBodies/Coupling>)
+    target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_MOVING_BODIES)
+
+    # Structure models live outside ERF, each in a directory that provides
+    # ERFStructureModel.cmake defining erf_structure_model_add(target), as the
+    # fire engines do; ERF_STRUCTURE_MODEL_DIR holds the directory during the call.
+    foreach(_structure_dir IN LISTS ERF_STRUCTURE_MODEL_DIRS)
+      get_filename_component(_structure_dir "${_structure_dir}" ABSOLUTE)
+      if(NOT EXISTS "${_structure_dir}/ERFStructureModel.cmake")
+        message(FATAL_ERROR "ERF_STRUCTURE_MODEL_DIRS: ${_structure_dir} has no ERFStructureModel.cmake")
+      endif()
+      set(ERF_STRUCTURE_MODEL_DIR "${_structure_dir}")
+      include("${_structure_dir}/ERFStructureModel.cmake")
+      if(NOT COMMAND erf_structure_model_add)
+        message(FATAL_ERROR "${_structure_dir}/ERFStructureModel.cmake does not define erf_structure_model_add(target)")
+      endif()
+      erf_structure_model_add(${erf_lib_name})
+      message(STATUS "ERF structure model directory: ${_structure_dir}")
+    endforeach()
+  elseif(ERF_STRUCTURE_MODEL_DIRS)
+    message(FATAL_ERROR "ERF_STRUCTURE_MODEL_DIRS is set but ERF_ENABLE_MOVING_BODIES is OFF")
+  endif()
+
   if(ERF_BUILD_LIBRARY_ONLY)
     # In library-only superbuild mode, archive extraction + weak amrex_probinit
     # requires a forced reference path (see ERF.cpp/ERF_Prob.cpp link anchor).
@@ -586,6 +620,7 @@ function(build_erf_lib erf_lib_name)
        ${SRC_DIR}/IO/ERF_Plotfile2D.cpp
        ${SRC_DIR}/IO/ERF_Plotfile2DFill.cpp
        ${SRC_DIR}/IO/ERF_Plotfile2DMetadata.cpp
+       ${SRC_DIR}/IO/ERF_Plotfile2DCloudOptics.cpp
        ${SRC_DIR}/IO/ERF_Plotfile2DWaterPath.cpp
        ${SRC_DIR}/IO/ERF_Plotfile2DPrecip.cpp
        ${SRC_DIR}/IO/ERF_Plotfile2DSampledField.cpp
@@ -608,6 +643,8 @@ function(build_erf_lib erf_lib_name)
        ${SRC_DIR}/LinearSolvers/ERF_ComputeDivergence.cpp
        ${SRC_DIR}/LinearSolvers/ERF_FillZeroAreaFaceFluxes.cpp
        ${SRC_DIR}/LinearSolvers/ERF_ImposeBCsOnPhi.cpp
+       ${SRC_DIR}/LinearSolvers/ERF_ImmersedPoisson.cpp
+       ${SRC_DIR}/LinearSolvers/ERF_ImmersedProjection.cpp
        ${SRC_DIR}/LinearSolvers/ERF_SolveWithEBMLMG.cpp
        ${SRC_DIR}/LinearSolvers/ERF_SolveWithGMRES.cpp
        ${SRC_DIR}/LinearSolvers/ERF_SolveWithTerrainMLMG.cpp
@@ -661,6 +698,7 @@ function(build_erf_lib erf_lib_name)
        ${SRC_DIR}/PBL/ERF_ComputeDiffusivityYSU.cpp
        ${SRC_DIR}/PBL/ERF_ComputeDiffusivityMRF.cpp
        ${SRC_DIR}/PBL/ERF_ComputeDiffusivityYSUNew.cpp
+       ${SRC_DIR}/Radiation/ERF_TopographicShading.cpp
        ${SRC_DIR}/Radiation/TwoStream/ERF_RadiationDiagnostics.cpp
        ${SRC_DIR}/Radiation/TwoStream/ERF_TwoStreamRadiation.cpp
        ${SRC_DIR}/Radiation/TwoStream/ERF_SEBTurbulentFlux.cpp
