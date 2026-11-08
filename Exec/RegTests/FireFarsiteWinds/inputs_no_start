@@ -1,0 +1,5 @@
+# FireFarsiteWinds abort deck: gridded winds without start_datetime, which the
+# .atm dates need. The run stops at start-up naming the key.
+FILE = inputs_base
+erf.fire.farsite_winds.interval = 60.0          # steps starting at t = 0, 60 and 120
+erf.fire.wind_ref_ht = 6.096

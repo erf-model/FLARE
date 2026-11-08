@@ -16,6 +16,7 @@ function(erf_fire_engine_add target)
     ${ERF_FIRE_ENGINE_DIR}/ERF_FirePlotfile.cpp
     ${ERF_FIRE_ENGINE_DIR}/ERF_StructureIgnition.cpp
     ${ERF_FIRE_ENGINE_DIR}/ERF_CustomFuel.cpp
+    ${ERF_FIRE_ENGINE_DIR}/ERF_FarsiteWindOutput.cpp
   )
   target_include_directories(${target} PUBLIC $<BUILD_INTERFACE:${ERF_FIRE_ENGINE_DIR}>)
 endfunction()

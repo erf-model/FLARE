@@ -13,6 +13,7 @@ CEXE_sources += ERF_Fire.cpp
 CEXE_sources += ERF_FirePlotfile.cpp
 CEXE_sources += ERF_StructureIgnition.cpp
 CEXE_sources += ERF_CustomFuel.cpp
+CEXE_sources += ERF_FarsiteWindOutput.cpp
 
 CEXE_headers += ERF_Fire.H
 CEXE_headers += ERF_FireParams.H
@@ -33,6 +34,7 @@ CEXE_headers += ERF_PolygonIgnition.H
 CEXE_headers += ERF_FuelMoisture.H
 CEXE_headers += ERF_MoistureExtinction.H
 CEXE_headers += ERF_FirePlotfile.H
+CEXE_headers += ERF_FarsiteWindOutput.H
 CEXE_headers += ERF_FirePlotfileCatalog.H
 CEXE_headers += ERF_FireHeatFlux.H
 CEXE_headers += ERF_FireDiagnostics.H

@@ -6655,6 +6655,31 @@ Diagnostics and output
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.exposure.ring**                     | Width of the wall band around a footprint [fire cells]     | Integer 1-4                    | 1                      |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.farsite_winds.interval**            | Seconds of simulated time between FARSITE/FlamMap          | Real, 0 or >= 60               | 0                      |
+|                                                | gridded-wind writes (_vel/_ang ESRI ASCII grids and a      |                                |                        |
+|                                                | ``.atm`` file); 0 turns the output off. Needs              |                                |                        |
+|                                                | ``start_datetime``; see :ref:`sec:FireOutput`              |                                |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.farsite_winds.units**               | ``english``: mph, wind at 20 ft (wind_ref_ht = 6.096,      | english, metric                | english                |
+|                                                | or use_per_fuel_wind_ht); ``metric``: km/h, wind at        |                                |                        |
+|                                                | 10 m (wind_ref_ht = 10). Another height aborts             |                                |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.farsite_winds.dir**                 | Output directory, created at start-up                      | String, non-empty              | "farsite_winds"        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.farsite_winds.prefix**              | File-name prefix: <prefix>_<step>_vel.asc, _ang.asc        | String, no '/' or whitespace   | "flare"                |
+|                                                | and <prefix>.atm                                           |                                |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.farsite_winds.coarsen**             | Fire cells per output cell in x and y (vector mean of      | Integer >= 1                   | 1                      |
+|                                                | u, v); must divide the fire grid. The fire cells must      |                                |                        |
+|                                                | be square (dx = dy)                                        |                                |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.farsite_winds.xllcorner**           | Map x of the fire grid's lower-left corner [m], to         | Real                           | fire prob_lo x         |
+|                                                | place the grids on the FARSITE landscape                   |                                |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.farsite_winds.yllcorner**           | Map y of the fire grid's lower-left corner [m]             | Real                           | fire prob_lo y         |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.farsite_winds.prj_file**            | Projection file copied beside every grid as its .prj       | String                         | none                   |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.suppression.enable**                | Read and apply the suppression action file (fire lines,    | Boolean                        | false                  |
 |                                                | drops, hold test, burnout); see :ref:`sec:FireSuppression` |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+

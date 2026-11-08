@@ -38,6 +38,7 @@
 // Phase 13A: Per-fuel wind height
 #include <ERF_FuelWindHeight.H>
 #include <ERF_StructureIgnition.H>
+#include <ERF_FarsiteWindOutput.H>
 // Phase 13B: ROS models
 #include <ERF_BalbiModel.H>
 #include <ERF_DirectionalRos.H>
@@ -1001,6 +1002,8 @@ private:
     // per-structure state, the burning structures' heat and ember sources and
     // the incident radiant flux on the fire grid (ERF_StructureIgnition.H).
     std::unique_ptr<StructureIgnition>       m_struct_ign;
+    /// FARSITE/FlamMap gridded winds (erf.fire.farsite_winds.*); null when off
+    std::unique_ptr<FarsiteWindWriter>       m_farsite_winds;
 
     /// Label the footprints of the structure heightmap and allocate the accumulators.
     void build_structure_ids();

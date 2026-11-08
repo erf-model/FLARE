@@ -846,6 +846,24 @@ struct FireParams
         std::string log           = "suppression_log.csv"; ///< Event log (applied, expired, hold_failed, ...)
     } suppression;
 
+    // Gridded winds for FARSITE and FlamMap in the layout WindNinja writes
+    // (ERF_FarsiteWindOutput.H): <prefix>_<step>_vel.asc and _ang.asc ESRI
+    // ASCII grids of the reference wind (fire_wind_ref) and a <prefix>.atm
+    // file listing them by date and time. Off while interval is 0.
+    struct FarsiteWindsParams {
+        amrex::Real interval  = 0.0;              ///< Seconds between writes; 0 = off, else >= 60
+        std::string units     = "english";        ///< english (mph, 20 ft) | metric (km/h, 10 m)
+        std::string dir       = "farsite_winds";  ///< Output directory
+        std::string prefix    = "flare";          ///< File-name prefix; the .atm is <prefix>.atm
+        int         coarsen   = 1;                ///< Fire cells per output cell in x and y
+        amrex::Real xllcorner = 0.0;              ///< Map x of the fire grid's lower-left corner [m]
+        amrex::Real yllcorner = 0.0;              ///< Map y of the fire grid's lower-left corner [m]
+        bool        has_xllcorner = false;        ///< xllcorner given (else the fire grid's prob_lo x)
+        bool        has_yllcorner = false;        ///< yllcorner given (else the fire grid's prob_lo y)
+        std::string prj_file;                     ///< Projection (.prj) text copied beside every grid
+        bool enabled() const { return interval > 0.0; }
+    } farsite_winds;
+
     // Phase 4: smoke tracer
     bool  smoke_enable           = false;
     amrex::Real  smoke_emission_factor  = 0.02;       // kg smoke / kg fuel [-]
@@ -1606,6 +1624,48 @@ struct FireParams
        pp.query("exposure.interval", exposure.interval);
        pp.query("exposure.ring",     exposure.ring);
        // Checked against structures.enable below, once that block is read.
+
+       // FARSITE/FlamMap gridded winds (ERF_FarsiteWindOutput.H)
+       {
+           auto& fw = farsite_winds;
+           pp.query("farsite_winds.interval", fw.interval);
+           if (!(fw.interval == 0.0 || fw.interval >= 60.0)) {
+               fail("erf.fire.farsite_winds.interval must be 0 (off) or >= 60 s: the .atm file stamps"
+                    " each grid to the minute, got " + std::to_string(fw.interval));
+           }
+           pp.query("farsite_winds.units",  fw.units);
+           one_of("farsite_winds.units", fw.units, {"english", "metric"});
+           pp.query("farsite_winds.dir",    fw.dir);
+           pp.query("farsite_winds.prefix", fw.prefix);
+           if (fw.dir.empty())    { fail("erf.fire.farsite_winds.dir must not be empty"); }
+           // the .atm fields are whitespace separated: no blank in a file name
+           if (fw.prefix.empty() || fw.prefix.find('/') != std::string::npos
+               || fw.prefix.find_first_of(" \t\n\r\v\f") != std::string::npos) {
+               fail("erf.fire.farsite_winds.prefix must be a file name without '/' or whitespace, got \""
+                    + fw.prefix + "\"");
+           }
+           pp.query("farsite_winds.coarsen", fw.coarsen);
+           if (fw.coarsen < 1) {
+               fail("erf.fire.farsite_winds.coarsen must be >= 1, got " + std::to_string(fw.coarsen));
+           }
+           fw.has_xllcorner = pp.query("farsite_winds.xllcorner", fw.xllcorner) != 0;
+           fw.has_yllcorner = pp.query("farsite_winds.yllcorner", fw.yllcorner) != 0;
+           pp.query("farsite_winds.prj_file", fw.prj_file);
+           // the same rule as keys_need, with interval > 0 as the switch
+           if (!fw.enabled()) {
+               for (const char* k : {"farsite_winds.units", "farsite_winds.dir", "farsite_winds.prefix",
+                                     "farsite_winds.coarsen", "farsite_winds.xllcorner",
+                                     "farsite_winds.yllcorner", "farsite_winds.prj_file"}) {
+                   if (!pp.contains(k)) { continue; }
+                   if (pp.contains("farsite_winds.interval")) {
+                       amrex::Print() << "[FIRE] WARNING: erf.fire." << k
+                                      << " is ignored with erf.fire.farsite_winds.interval = 0\n";
+                   } else {
+                       fail(std::string("erf.fire.") + k + " needs erf.fire.farsite_winds.interval > 0");
+                   }
+               }
+           }
+       }
 
        // Non-burnable mask: structures, fuel codes, firebreaks
        pp.query("structures.enable",     structures.enable);

@@ -757,6 +757,12 @@ void FireLayer::initialize(const ERF& erf,
 
     m_probe_reported.assign(m_params.probes.size() / 2, false);
 
+    // FARSITE/FlamMap gridded winds of the reference wind (ERF_FarsiteWindOutput.H)
+    if (m_params.farsite_winds.enabled()) {
+        m_farsite_winds = std::make_unique<FarsiteWindWriter>(m_params.farsite_winds, m_fg.geom,
+                                                              m_params.sampled_wind_ht());
+    }
+
     amrex::Print() << "[FIRE] FireLayer initialized: C=" << m_fg.C
                    << ", fuel_model=" << fire_params.fuel_model_id
                    << ", grid=" << m_fg.ba.size() << " boxes" << std::endl;
@@ -821,6 +827,12 @@ void FireLayer::advance(const FireForcing& forcing)
                                           wind_open ? m_roof_h_atm.get() : nullptr,
                                           m_params.wind_sample_ht, m_params.wind_sample_z0,
                                           m_params.wind_below_first_log);
+    }
+    // the reference wind as extracted this step, before any correction
+    if (m_farsite_winds) {
+        // synchronous coupling extracts the wind after the dycore, at t + dt
+        const Real t_wind = m_params.is_synchronous() ? m_current_time + dt : m_current_time;
+        m_farsite_winds->maybe_write(*fire_wind_ref, t_wind, m_step);
     }
     if (m_params.fire_debug) {
         if (m_params.wind_sample_ht > 0.0) {
