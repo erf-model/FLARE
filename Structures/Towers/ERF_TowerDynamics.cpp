@@ -20,7 +20,7 @@ OneModeTower::OneModeTower (const Tower& tower, Real gravity)
     : m_name(tower.name()), m_type(tower.type().name)
 {
     const TowerType& type = tower.type();
-    const std::string key = "erf.conductors." + m_type + ".";
+    const std::string key = "conductors." + m_type + ".";
     const std::string who = "OneModeTower " + m_name + ": ";
     if (!type.moves()) { amrex::Abort(who + key + "frequency must be positive (Hz) for a tower that moves"); }
     if (!(type.weight > 0.0)) { amrex::Abort(who + key + "frequency > 0 needs " + key + "weight > 0 (N), which sets the mass"); }
@@ -87,7 +87,7 @@ std::array<double,2> OneModeTower::generalized_force (const std::vector<Real>& n
     }
     if (!std::isfinite(Q[0]) || !std::isfinite(Q[1])) {
         amrex::Abort("tower " + m_name + ": the generalized load on its mode is not finite (the lines' pull or the members' drag); "
-                     "MoorDyn's line integration may have diverged: reduce erf.conductors.moordyn_cfl or erf.conductors.moordyn_dt");
+                     "MoorDyn's line integration may have diverged: reduce conductors.moordyn_cfl or conductors.moordyn_dt");
     }
     return Q;
 }

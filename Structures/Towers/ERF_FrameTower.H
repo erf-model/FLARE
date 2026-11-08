@@ -3,7 +3,7 @@
 
 /**
  * A lattice tower that bends as its frame model (ERF_Frame.H, read from a SubDyn input file): the
- * TowerModel the conductor coupling drives when a tower type gives erf.conductors.<type>.frame_file.
+ * TowerModel the conductor coupling drives when a tower type gives conductors.<type>.frame_file.
  * The wind's drag on the tower's drag nodes and the lines' pull at its attachments are carried onto
  * the frame's nodes by rigid links, the frame advances by Newmark's method (ERF_FrameDynamics.H), and
  * the nodes' motion comes back to the drag nodes and attachments through the same links. The frame

@@ -418,7 +418,7 @@ TEST(OneModeTower, ABadStepOrANonFiniteLoadIsRefusedNamingTheTower)
     const P3 bad{{std::numeric_limits<Real>::quiet_NaN(), Real(0.0), Real(0.0)}};
     msg = erf_gtest::abort_message([&] { m.step(Real(0.05), no_load(tw), bad); });
     EXPECT_NE(msg.find("tower t:"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("erf.conductors.moordyn_cfl"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("conductors.moordyn_cfl"), std::string::npos) << msg;
     EXPECT_EQ(m.q()[0], 0.0);
     EXPECT_EQ(m.state()[4], 0.0) << "the generalized force of the refused step is not kept";
     // a NaN drag on one drag node is refused the same way
@@ -434,12 +434,12 @@ TEST(OneModeTower, ATowerThatCannotMoveIsRefusedNamingItsKeys)
     const Tower still = standing(swaying(Real(0.0)));
     std::string msg = erf_gtest::abort_message([&] { OneModeTower m(still, Real(g)); });
     EXPECT_NE(msg.find("OneModeTower t:"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("erf.conductors.lattice.frequency"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("conductors.lattice.frequency"), std::string::npos) << msg;
     // a frequency without a weight has no mass: the tower's own type check refuses it first
     TowerType light = swaying();
     light.weight = 0.0;
     msg = erf_gtest::abort_message([&] { OneModeTower m(standing(light), Real(g)); });
-    EXPECT_NE(msg.find("erf.conductors.lattice.frequency"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("conductors.lattice.frequency"), std::string::npos) << msg;
     EXPECT_NE(msg.find("weight"), std::string::npos) << msg;
     msg = erf_gtest::abort_message([&] { OneModeTower m(standing(swaying()), Real(0.0)); });
     EXPECT_NE(msg.find("gravitational acceleration"), std::string::npos) << msg;

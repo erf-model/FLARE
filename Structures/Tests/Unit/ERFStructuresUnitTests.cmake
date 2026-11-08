@@ -44,6 +44,40 @@ function(erf_structures_unit_tests target)
   target_sources(${target} PRIVATE
     ${_erf_structures_tests_dir}/ERF_GTestMoorDynSystem.cpp
   )
+  # Motivation: the conductor inputs must be read with their defaults and refuse every value
+  # outside its documented range with a message naming the key; the MoorDyn input written from
+  # them must carry the span lowered by the surface offset, the air density, external kinematics
+  # and fixed attachments, and MoorDyn must accept it; a span must hang at the catenary sag in
+  # still air, report positions in ERF's frame, and blow out towards atan(q/w) in a prescribed
+  # crosswind, stepping in lockstep with ERF's clock; the manager must place the attachments
+  # at their height above the terrain under each end, step on the anchor level only, and hand
+  # MoorDyn ERF's velocity sampled where the line is now. A section over towers must be read,
+  # written with its insulator strings and free points, and hang from the strings; the closest
+  # approach of two lines must be the exact minimum distance between their conductors, flagged
+  # against the flashover distance. The line ends on a transformer's footprint must be dead-ended
+  # on it, and its load must be the sum of the lines' pulls and their moment about its base,
+  # flagged against its allowable values; the closest approach of a conductor to its box must be
+  # the exact distance. The drag's support must hold every spread point with its own reach.
+  target_sources(${target} PRIVATE
+    ${_erf_structures_tests_dir}/ERF_GTestConductorInputsReset.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestConductorGeometry.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestConductorInputs.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestASCE74.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestGusts.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestMoorDynInputWriter.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestConductorLine.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestConductors.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestTransformer.cpp
+  )
+  # Motivation: against the real MoorDyn-C (the tests skip on the stub, which has no line
+  # dynamics), a span's mean swing in a steady crosswind must be the quasi-static blowout angle
+  # atan(q/w), its free swing after a gust must have the cable's first out-of-plane period
+  # 2 c / sqrt(H/m), and the suspension strings of a section must swing to the angle of the wind
+  # span over the weight span, each within 1 %; the pulls on a level span's dead ends must carry
+  # its weight and the elastic catenary's horizontal tension.
+  target_sources(${target} PRIVATE
+    ${_erf_structures_tests_dir}/ERF_GTestConductorVerification.cpp
+  )
   target_compile_definitions(${target} PRIVATE ERF_FRAME_TEST_FILES="${_erf_structures_frame_files}")
 endfunction()
 

@@ -38,7 +38,7 @@ RENAMED_VALUES = {
 # Prefixes whose keys are defined per problem or per sub-model, not in the
 # main inputs table; they are not spell-checked.
 FREE_PREFIXES = ("prob.", "amrex.", "fabarray.", "DistributionMapping.",
-                 "ensemble.", "erf.fire.", "erf.dust.", "erf.conductors.",
+                 "ensemble.", "erf.fire.", "erf.dust.", "erf.conductors.", "conductors.",
                  "erf.bodies", "erf.turbine", "erf.ibseb", "erf.subvol.",
                  "erf.shoc.", "erf.sbm", "erf.rad", "erf.noahmp", "erf.lsm",
                  "erf.urban", "erf.canopy", "tiny_profiler.", "vismf.",

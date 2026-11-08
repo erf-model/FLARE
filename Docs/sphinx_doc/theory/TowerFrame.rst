@@ -13,11 +13,11 @@ precision (``ERF_Frame.H``, ``ERF_FrameDynamics.H``). Its element stiffness and
 mass, local axes, section properties, concentrated masses and gravity loads
 follow OpenFAST's SubDyn module, and it reads SubDyn input files, so that a tower
 described for SubDyn has the same stiffness and natural frequencies in ERF.
-A tower type that gives ``erf.conductors.<type>.frame_file``, or generates its
-frame with ``erf.conductors.<type>.frame_panels`` (section "Generated lattice
+A tower type that gives ``conductors.<type>.frame_file``, or generates its
+frame with ``conductors.<type>.frame_panels`` (section "Generated lattice
 towers"), stands on this frame in a run (section "Coupling to the conductor
 lines"); without either, towers use the one-mode tower (``ERF_TowerDynamics.H``,
-``erf.conductors.<type>.frequency``). With the members' design data, every
+``conductors.<type>.frequency``). With the members' design data, every
 member is checked against its strength in tension and compression (section
 "Member checks", ASCE 10-15), and the steel can be set at a temperature that
 lowers its stiffness and strength (section "Steel at temperature", EN 1993-1-2).
@@ -293,7 +293,7 @@ Generated lattice towers
 ------------------------
 
 This section describes the frame ERF builds from a tower type's dimensions when
-the type gives ``erf.conductors.<type>.frame_panels`` (``ERF_LatticeFrame.H``), in
+the type gives ``conductors.<type>.frame_panels`` (``ERF_LatticeFrame.H``), in
 the tower-local axes of the previous section. Every member is an equal-leg
 angle, one Euler-Bernoulli element per member, steel with
 :math:`E = 200` GPa, :math:`G = 77` GPa, :math:`\rho = 7850` kg/m\ :sup:`3` and the
@@ -435,7 +435,7 @@ between its rows:
 mass is unchanged, and thermal expansion is not modelled. Temperatures must stay
 below 1200 C, where no stiffness is left.
 
-``erf.conductors.<type>.steel_temperature`` sets every member of the type's
+``conductors.<type>.steel_temperature`` sets every member of the type's
 frames at one temperature for the run. A frame tower can also be heated member by
 member while it moves (``FrameTower::set_temperature()``, the entry point for a
 fire model): the frame is rebuilt and re-factored, the tower carries on from the
@@ -449,7 +449,7 @@ Outputs
 
 This section lists the files a frame tower's driver writes to its diagnostics
 directory from the frame's results (the conductor line model, with its keys
-``erf.conductors.diagnostics_dir``, ``node_output_int`` and ``stats_start``;
+``conductors.diagnostics_dir``, ``node_output_int`` and ``stats_start``;
 the frame itself writes nothing).
 
 - ``towers.dat``: for a tower whose members are checked, ``<tower>_utilisation``

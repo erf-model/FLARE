@@ -133,8 +133,8 @@ void MoorDynSystem::check (int rc, const std::string& what) const
 {
     if (rc != MOORDYN_SUCCESS) {
         const std::string hint = (rc == MOORDYN_NAN_ERROR)
-            ? ": the line integration diverged; reduce MoorDyn's internal step (erf.conductors.moordyn_cfl or "
-              "erf.conductors.moordyn_dt for a conductor line; CFL and dtM in the input file)" : "";
+            ? ": the line integration diverged; reduce MoorDyn's internal step (conductors.moordyn_cfl or "
+              "conductors.moordyn_dt for a conductor line; CFL and dtM in the input file)" : "";
         amrex::Abort(what + " failed with " + error_name(rc) + " for the MoorDyn system from '" + m_file + "'" + hint);
     }
 }
@@ -237,7 +237,7 @@ void MoorDynSystem::step (const std::vector<double>& x, const std::vector<double
     if (!all_finite(f, bad)) {
         amrex::Abort("MoorDyn_Step returned a non-finite coupled force (component " + std::to_string(bad) +
                      ", 0-based) for the system from '" + m_file + "': reduce MoorDyn's internal step "
-                     "(erf.conductors.moordyn_cfl or erf.conductors.moordyn_dt for a conductor line)");
+                     "(conductors.moordyn_cfl or conductors.moordyn_dt for a conductor line)");
     }
 }
 

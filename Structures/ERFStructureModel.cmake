@@ -1,8 +1,8 @@
 # The sources of FLARE's structures. ERF includes this file for each directory in
 # ERF_STRUCTURE_MODEL_DIRS (Structures/ERFStructures.cmake adds this one) and calls
 # erf_structure_model_add with ERF's OBJECT library; ERF_STRUCTURE_MODEL_DIR holds this
-# directory during the call. No structure model is registered here yet: the conductor
-# model, which registers on ERF's structure coupling, follows in a later PR.
+# directory during the call. The conductor model (Conductors/ERF_ConductorModel.cpp)
+# registers on ERF's structure coupling as erf.structures.model = conductors.
 function(erf_structure_model_add target)
   if(NOT ERF_ENABLE_STRUCTURES)
     message(FATAL_ERROR "FLARE's Structures/ directory is compiled in with ERF_ENABLE_STRUCTURES=ON, "
@@ -20,14 +20,24 @@ function(erf_structure_model_add target)
     ${ERF_STRUCTURE_MODEL_DIR}/Towers/ERF_FrameTower.cpp
     ${ERF_STRUCTURE_MODEL_DIR}/Towers/ERF_MemberChecks.cpp
     ${ERF_STRUCTURE_MODEL_DIR}/Towers/ERF_LatticeFrame.cpp
+    ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_ConductorInputs.cpp
+    ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_ASCE74.cpp
+    ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_Gusts.cpp
+    ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_MoorDynInputWriter.cpp
+    ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_ConductorLine.cpp
+    ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_Transformer.cpp
+    ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_Conductors.cpp
+    ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_ConductorModel.cpp
   )
   target_include_directories(${target} PUBLIC
     $<BUILD_INTERFACE:${ERF_STRUCTURE_MODEL_DIR}/MoorDyn>
     $<BUILD_INTERFACE:${ERF_STRUCTURE_MODEL_DIR}/Towers>
+    $<BUILD_INTERFACE:${ERF_STRUCTURE_MODEL_DIR}/Conductors>
     $<INSTALL_INTERFACE:include>)
   # the headers go with ERF's own (CMakeLists.txt installs Source/*.H to include)
   if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
-    file(GLOB _erf_structures_headers ${ERF_STRUCTURE_MODEL_DIR}/MoorDyn/*.H ${ERF_STRUCTURE_MODEL_DIR}/Towers/*.H)
+    file(GLOB _erf_structures_headers ${ERF_STRUCTURE_MODEL_DIR}/MoorDyn/*.H ${ERF_STRUCTURE_MODEL_DIR}/Towers/*.H
+                                       ${ERF_STRUCTURE_MODEL_DIR}/Conductors/*.H)
     install(FILES ${_erf_structures_headers} DESTINATION include)
   endif()
   # read by ERF_MoorDynSystem.cpp only

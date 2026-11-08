@@ -729,10 +729,10 @@ TEST(TowerType, RefusesFrameKeysThatDoNotFit)
     };
     EXPECT_TRUE(generated_type().validate().empty()) << generated_type().validate();
     { TowerType t = generated_type(); t.frame_file = "x.dat"; refused(t, "both give the tower's frame"); }
-    { TowerType t = generated_type(); t.weight = 1.0e4; refused(t, "weight is not given with erf.conductors.generated.frame_panels"); }
+    { TowerType t = generated_type(); t.weight = 1.0e4; refused(t, "weight is not given with conductors.generated.frame_panels"); }
     { TowerType t = generated_type(); t.leg_angle = {Real(0.1)}; refused(t, "leg_angle needs two values"); }
     { TowerType t = generated_type(); t.brace_angle = {Real(0.01), Real(0.02)}; refused(t, "brace_angle needs two values"); }
-    { TowerType t = generated_type(); t.frame_panels = 0; refused(t, "leg_angle needs erf.conductors.generated.frame_panels"); }
+    { TowerType t = generated_type(); t.frame_panels = 0; refused(t, "leg_angle needs conductors.generated.frame_panels"); }
     { TowerType t = generated_type(); t.frame_panels = 201; refused(t, "frame_panels must be in [0, 200]"); }
     { TowerType t = generated_type(); t.bracing = "k"; refused(t, "bracing must be crossed or single"); }
     { TowerType t = generated_type(); t.yield_strength = Real(-1.0); refused(t, "yield_strength must be finite"); }
@@ -742,9 +742,9 @@ TEST(TowerType, RefusesFrameKeysThatDoNotFit)
     bare.name = "bare";
     bare.base_width = 6.0; bare.top_width = 1.5; bare.solidity = 0.2; bare.arm_length = 12.0;
     ASSERT_TRUE(bare.validate().empty());
-    { TowerType t = bare; t.member_file = "m.dat"; refused(t, "member_file needs erf.conductors.bare.frame_file"); }
-    { TowerType t = bare; t.bracing = "single"; refused(t, "bracing needs erf.conductors.bare.frame_panels"); }
-    { TowerType t = bare; t.yield_strength = Real(3.0e8); refused(t, "yield_strength needs erf.conductors.bare.frame_panels"); }
+    { TowerType t = bare; t.member_file = "m.dat"; refused(t, "member_file needs conductors.bare.frame_file"); }
+    { TowerType t = bare; t.bracing = "single"; refused(t, "bracing needs conductors.bare.frame_panels"); }
+    { TowerType t = bare; t.yield_strength = Real(3.0e8); refused(t, "yield_strength needs conductors.bare.frame_panels"); }
     { TowerType t = bare; t.steel_temperature = Real(500.0); refused(t, "steel_temperature needs a frame model"); }
     EXPECT_TRUE(generated_type().moves());
     EXPECT_TRUE(generated_type().has_frame());

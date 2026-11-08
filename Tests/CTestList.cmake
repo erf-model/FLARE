@@ -6022,6 +6022,11 @@ add_test_abort(Fire_Abort_BuiltWithoutFire ${_fire_abort_dir} Terrain_Stress_Rid
 endif()
 endif()
 
+# FLARE's structures (Structures/): the conductor model on the structure coupling
+if(ERF_ENABLE_STRUCTURES)
+  include(${PROJECT_SOURCE_DIR}/Structures/Tests/ERFStructuresTests.cmake)
+endif()
+
 # The structure coupling (erf.structures.model, Source/MovingBodies/Coupling) with the
 # example model directory (Tests/StructureModelExample) compiled in: one point pushes
 # on still air in a periodic box with 50 N along x. With no friction or gravity, the
