@@ -120,10 +120,12 @@ sites of the Albini model (:ref:`sec:FireSpottingCrown`) with the equivalent
 fireline intensity :math:`I = q\, \Delta x` (the release per unit length
 across one fire cell of the footprint), so the lofting height follows the
 curve: 250 kW/m² on 5 m cells gives 1250 kW/m, and a lofting height of 24 m
-when the footprint's own cell is short grass and the 10 m wind is at most
-5 m/s (131 m with the :math:`12.2\,I^{1/3}` form used before November 2026).
-The Albini fit is the footprint cell's fuel code, or
-:cpp:`erf.fire.spotting.thermal_fuel_model` where that code has none.
+with the short-grass fit and a 10 m wind of at most 5 m/s (131 m with the
+:math:`12.2\,I^{1/3}` form used before November 2026). Table 4 of Albini
+(1983) has no structure fit, so a burning structure uses the fit of
+:cpp:`erf.fire.spotting.thermal_fuel_model`, never the code of the cell under
+its footprint (often a cleared or non-burnable code); spotting with structure
+ignition therefore needs that input at start-up.
 The launch probability and the trajectory are the fire's. A brand that lands
 on burnable fuel ignites a spot fire; one that lands on a footprint counts in
 that structure's ember accumulator and can ignite it by the ember criterion.

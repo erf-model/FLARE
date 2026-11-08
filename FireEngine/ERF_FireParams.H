@@ -990,6 +990,15 @@ struct FireParams
                fail("erf.fire.wind_sample_z0 must be below 6.096 m, the 20 ft height the wind adjustment"
                     " factor takes the wind at, got " + std::to_string(wind_sample_z0));
            }
+           // ln(z_to/z0)/ln(z_from/z0) grows without bound as z0 nears z_from:
+           // z0 = 6.0 m with a 6.1 m wind gives 30.9x at 10 m. Both heights must
+           // be at least e z0 (the 10 m factor from 6.1 m is then at most 1.5).
+           const amrex::Real z_low = amrex::min(z_target, amrex::Real(6.096));
+           if (!(wind_sample_z0 * std::exp(amrex::Real(1.0)) <= z_low)) {
+               fail("erf.fire.wind_sample_z0 must be at most " + std::to_string(z_low / std::exp(amrex::Real(1.0)))
+                    + " m (the lower of the reference-wind height and 6.096 m, divided by e), got "
+                    + std::to_string(wind_sample_z0));
+           }
        }
        pp.query("use_terrain_wind", use_terrain_wind);
        pp.query("k_ridge", k_ridge);
@@ -1713,6 +1722,22 @@ struct FireParams
                fail("erf.fire.fuel_model_id = " + std::to_string(fuel_model_id)
                     + " is not an Anderson code (1-13) or a custom code (1000-1015); codes 101-204"
                     " need erf.fire.fuel_map.fuel_set = scott_burgan40");
+           }
+       }
+       // Albini's Table 4 has Anderson 1-7 and 9-13 only (albini_has_thermal_fit):
+       // a run that could launch from anything else needs the stand-in model now,
+       // not at its first brand. The fuel map's codes are checked at start-up.
+       if (spotting.enable && spotting.thermal_fuel_model == 0) {
+           const bool fit = (fuel_model_id >= 1 && fuel_model_id <= 13 && fuel_model_id != 8);
+           if (spotting.fuel_system == "13" && !fit) {
+               fail("erf.fire.fuel_model_id = " + std::to_string(fuel_model_id)
+                    + (fuel_map.sb40_crosswalk ? " (after sb40_crosswalk)" : "")
+                    + " has no Albini (1983) Table 4 thermal fit, which covers Anderson models 1-7 and 9-13;"
+                    " spotting needs erf.fire.spotting.thermal_fuel_model");
+           }
+           if (structures.ignition.enable) {
+               fail("erf.fire.structures.ignition.enable with spotting needs erf.fire.spotting.thermal_fuel_model:"
+                    " burning structures launch brands, and Albini (1983) Table 4 has no structure fit");
            }
        }
        pp.query("firebreak.use_mask", firebreak_use_mask);

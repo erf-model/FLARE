@@ -6022,11 +6022,11 @@ Wind
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | Parameter                                      | Definition                                                 | Acceptable Values              | Default                |
 +================================================+============================================================+================================+========================+
-| **erf.fire.wind_ref_ht**                       | Height above local ground at which the atmospheric wind is | Real > 0                       | 6.1                    |
+| **erf.fire.wind_ref_ht**                       | Height above local ground at which the atmospheric wind is | Real >= e x wind_sample_z0     | 6.1                    |
 |                                                | sampled [m]. 6.1 m counts as the 20 ft wind of the wind    |                                |                        |
 |                                                | adjustment factor; at any other height the wind is brought |                                |                        |
-|                                                | to 20 ft for the WAF, and to 10 m for FBP, Cheney-Gould and|                                |                        |
-|                                                | Cruz, with the neutral log profile of wind_sample_z0       |                                |                        |
+|                                                | to 20 ft for the WAF, and to 10 m for FBP, Cheney-Gould    |                                |                        |
+|                                                | and Cruz, with the neutral log profile of wind_sample_z0   |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.prescribed_wind**                   | Bypass atmospheric wind interpolation with a constant      | Boolean                        | false                  |
 |                                                | reference wind, for controlled idealized-wind test cases;  |                                |                        |
@@ -6046,10 +6046,10 @@ Wind
 |                                                | to wind_ref_ht (6.096 m with use_per_fuel_wind_ht) with a  | use_per_fuel_wind_ht), or 0    |                        |
 |                                                | log profile (CFBM); 0 = off                                |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.wind_sample_z0**                    | Roughness length [m] of every log profile the fire reads:  | 0 < Real < 6.096 and below     | 0.1                    |
-|                                                | the two-height resampling, the wind below the first cell   | the reference wind's height    |                        |
-|                                                | centre, the ember drift, and the reference wind brought to | (6.096 m with                  |                        |
-|                                                | 20 ft (WAF) and to 10 m (FBP, Cheney-Gould, Cruz)          | use_per_fuel_wind_ht)          |                        |
+| **erf.fire.wind_sample_z0**                    | Roughness length [m] of every log profile the fire reads:  | 0 < Real <= min(reference wind | 0.1                    |
+|                                                | the two-height resampling, the wind below the first cell   | height, 6.096 m) / e (2.24 m   |                        |
+|                                                | centre, the ember drift, and the reference wind brought to | at most)                       |                        |
+|                                                | 20 ft (WAF) and to 10 m (FBP, Cheney-Gould, Cruz)          |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_below_first_cell**             | Wind at a target below the first cell centre: "clamp"      | "clamp", "log"                 | "clamp"                |
 |                                                | takes the centre's wind unchanged; "log" scales it by the  |                                |                        |
@@ -6588,10 +6588,13 @@ Spotting
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.spotting.fuel_system**              | Fuel system of the maximum-distance table                  | "13", "40"                     | "13"                   |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.spotting.thermal_fuel_model**       | Anderson model whose Albini (1983) Table 4 thermal fit     | 0, or 1-7, 9-13                | 0                      |
-|                                                | the lofting height uses for launch cells whose own code    |                                |                        |
-|                                                | has none (Scott-Burgan, custom, Anderson 8); 0 aborts at   |                                |                        |
-|                                                | such a cell; required with fuel_system = "40"              |                                |                        |
+| **erf.fire.spotting.thermal_fuel_model**       | Anderson model whose Albini (1983) Table 4 thermal fit the | 0, or 1-7, 9-13                | 0                      |
+|                                                | lofting height uses for launch cells whose own code has    |                                |                        |
+|                                                | none (Scott-Burgan, custom, Anderson 8) and for burning    |                                |                        |
+|                                                | structures. 0 = none; the run then stops at start-up if    |                                |                        |
+|                                                | fuel_system = "40", structures.ignition.enable is on,      |                                |                        |
+|                                                | fuel_model_id has no fit, or the fuel map has a code       |                                |                        |
+|                                                | without a fit on a cell with fuel                          |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 
 
@@ -6734,8 +6737,10 @@ checked once at startup and abort with a message naming the input to fix.
 |                                              | classes and the AP-42 PM-10 road bin, not the threshold    |                          |                                    |
 |                                              | (see saltation_diameter)                                   |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
-| **erf.dust.particle_density**                | Particle density of the saltating grains [kg/m³] (the      | Real > 0                 | 2650.0                             |
-|                                              | threshold); the bins settle by their aerodynamic diameter  |                          |                                    |
+| **erf.dust.particle_density**                | Particle density of the saltating grains [kg/m³], read     | Real > 0                 | 2650.0                             |
+|                                              | only by the threshold formula (not with ustar_t_base >=    |                          |                                    |
+|                                              | 0); the bins settle by their aerodynamic diameter as unit- |                          |                                    |
+|                                              | density spheres                                            |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 | **erf.dust.rho_air**                         | Air density used in the threshold and saltation flux       | Real > 0                 | 1.225                              |
 |                                              | [kg/m³]                                                    |                          |                                    |

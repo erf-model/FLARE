@@ -114,7 +114,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real albini_thermal_strength(amrex::Real I_kW, amrex::Real U10,
                                     amrex::Real A, amrex::Real B) noexcept
 {
-    const amrex::Real U = amrex::min(amrex::max(U10, albini::U10_FIT_MIN), albini::U10_FIT_MAX);
+    const amrex::Real U = amrex::min(amrex::max(U10, amrex::Real(albini::U10_FIT_MIN)), amrex::Real(albini::U10_FIT_MAX));
     return I_kW * A * std::pow(U, B);
 }
 
@@ -143,6 +143,16 @@ amrex::Real albini_lofting_height(amrex::Real I_B_kW, amrex::Real U10,
 {
     if (I_B_kW < I_B_min_kW) { return 0.0; }
     return amrex::Real(0.173) * std::sqrt(albini_thermal_strength(I_B_kW, U10, A, B));
+}
+
+/**
+ * @brief True when Albini (1983) Table 4 has a thermal fit for Anderson model
+ *        m (1-7 and 9-13); device-callable twin of albini_thermal_fit.
+ */
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+bool albini_has_thermal_fit(int m) noexcept
+{
+    return m >= 1 && m <= 13 && m != 8;
 }
 
 /**
@@ -418,7 +428,8 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
     const IntVect dlo = domain.smallEnd();
     const IntVect dhi = domain.bigEnd();
 
-    MultiFab launch(phi.boxArray(), phi.DistributionMap(), 2, 0);
+    // comp 0: launch intensity, comp 1: fuel code, comp 2: 1 at a burning structure
+    MultiFab launch(phi.boxArray(), phi.DistributionMap(), 3, 0);
     for (MFIter mfi(launch); mfi.isValid(); ++mfi) {
         const Box& bx = mfi.validbox();
         auto L   = launch.array(mfi);
@@ -429,6 +440,7 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         if (has_codes) { code = fuel_model->const_array(mfi); }
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
             Real I = 0.0;
+            Real is_structure = 0.0;
             if (p(i, j, k) < 0.0 && ib(i, j, k) >= I_min) {
                 bool near_unburned = !front_only;
                 if (front_only) {
@@ -445,8 +457,10 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
                 // A burning structure: not fuel, not behind the front, but a
                 // launch site with the equivalent intensity it was given.
                 I = ex(i, j, k);
+                is_structure = 1.0;
             }
             L(i, j, k, 0) = I;
+            L(i, j, k, 2) = is_structure;
             L(i, j, k, 1) = has_codes ? code(i, j, k) : Real(-1.0);
         });
     }
@@ -462,12 +476,21 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
             const Real I = L(i, j, 0, 0);
             if (I <= 0.0) { return; }
             const int code = (L(i, j, 0, 1) >= 0.0) ? static_cast<int>(L(i, j, 0, 1) + Real(0.5)) : fuel_model_id;
-            const int model = albini_thermal_model(code, fuel_system, sp.thermal_fuel_model);
+            // A burning structure is not the vegetation of its cell: it always
+            // uses thermal_fuel_model, which the input check requires with
+            // structure ignition. The checks at input time and at start-up
+            // (FireLayer) leave this abort as a guard only.
+            const bool structure = (L(i, j, 0, 2) > Real(0.5));
+            const int model = structure ? sp.thermal_fuel_model
+                                        : albini_thermal_model(code, fuel_system, sp.thermal_fuel_model);
             if (model == 0) {
-                Abort("[FIRE] Spotting: fuel code " + std::to_string(code) + " (spotting.fuel_system = \""
-                      + fuel_system + "\") has no Albini (1983) Table 4 thermal fit, which covers "
-                      "Anderson models 1-7 and 9-13 only. Set erf.fire.spotting.thermal_fuel_model "
-                      "to the Anderson model whose fit such cells should use.");
+                Abort(structure
+                      ? std::string("[FIRE] Spotting: a burning structure launches brands, and Albini (1983) "
+                                    "Table 4 has no structure fit. Set erf.fire.spotting.thermal_fuel_model.")
+                      : "[FIRE] Spotting: fuel code " + std::to_string(code) + " (spotting.fuel_system = \""
+                        + fuel_system + "\") has no Albini (1983) Table 4 thermal fit, which covers "
+                        "Anderson models 1-7 and 9-13 only. Set erf.fire.spotting.thermal_fuel_model "
+                        "to the Anderson model whose fit such cells should use.");
             }
             local_rec.push_back(static_cast<Real>(i));
             local_rec.push_back(static_cast<Real>(j));

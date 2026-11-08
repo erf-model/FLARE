@@ -62,9 +62,12 @@ same random draws on every rank whatever the decomposition:
    ========================  =======  =======
 
    Model 8 (closed timber litter) is not in the table. A launch cell whose
-   code has no entry (Anderson 8, Scott-Burgan codes, custom fuels) uses
-   :cpp:`erf.fire.spotting.thermal_fuel_model`; when that is 0 the run stops
-   naming it, and :cpp:`spotting.fuel_system = "40"` needs it at start-up.
+   code has no entry (Anderson 8, Scott-Burgan codes, custom fuels) and every
+   burning structure use :cpp:`erf.fire.spotting.thermal_fuel_model`. When
+   that is 0, the run stops at start-up, naming the input, if
+   :cpp:`spotting.fuel_system = "40"`, if structure ignition is on, if
+   :cpp:`fuel_model_id` has no entry, or if the fuel map has a code without
+   one on a cell with fuel.
    The fits were made over 10 m winds of 5 to 30 m/s (INT-309 Tables 1-3);
    since :math:`B < 0` they grow without bound as the wind falls, so
    :math:`U_{10}` is held to that range. INT-309's example 1 (short grass,

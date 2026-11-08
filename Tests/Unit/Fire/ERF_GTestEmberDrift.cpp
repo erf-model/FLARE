@@ -234,3 +234,51 @@ TEST(EmberDrift, LandingsDoNotDependOnTheDecomposition)
     EXPECT_GE(n, 4);
     EXPECT_EQ(diff, 0.0_rt) << "one box and eight boxes stamp the same landings";
 }
+
+namespace {
+/// Largest lofting height the spotting call wrote (data component 0)
+Real max_height (const MultiFab& data) { return data.max(0); }
+}
+
+TEST(EmberDrift, LoftingHeightUsesTheTenMetreWind)
+{
+    // 8 m/s at 6.1 m is 8 ln(10/0.1)/ln(6.1/0.1) = 8.962 m/s at 10 m, inside
+    // the 5-30 m/s range of the fits, so the 10 m conversion sets the height:
+    // FM13 at 20 000 kW/m gives 0.173 (2e4 71.8 8.962^-0.835)^(1/2) = 83.0 m
+    // (87.0 m if the 6.1 m wind were used unconverted).
+    const Real U8 = 8.0;
+    const Real U10 = U8 * std::log(10.0 / Z0) / std::log(Z_REF / Z0);
+    EXPECT_NEAR(U10, 8.962, 0.001);
+    const Real H_expect = 0.173 * std::sqrt(I_B * 71.8 * std::pow(U10, -0.835));
+    EXPECT_NEAR(H_expect, 83.0, 0.05);
+    SpotCase r(NX, NY);
+    r.wind.setVal(U8, 0, 1);
+    FireParams::SpottingParams sp = r.params();
+    sp.terminal_velocity = 8.0;   // the brands land inside the 1 km domain
+    compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                            nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0);
+    EXPECT_NEAR(max_height(r.data), H_expect, 1.0e-6 * H_expect);
+}
+
+TEST(EmberDrift, BurningStructureUsesTheStandInFit)
+{
+    // A burning structure on an FM13 cell launches with thermal_fuel_model's
+    // fit (FM1 here), not the cell's: Table 4 has no structure fit.
+    SpotCase r(NX, NY);
+    r.phi.setVal(1.0_rt);
+    r.intensity.setVal(0.0_rt);
+    MultiFab extra(r.ba, r.dm, 1, 0);
+    extra.setVal(0.0_rt);
+    for (MFIter mfi(extra); mfi.isValid(); ++mfi) {
+        auto e = extra.array(mfi);
+        const Box& bx = mfi.validbox();
+        if (bx.contains(IntVect(3, 10, 0))) { e(3, 10, 0) = I_B; }
+    }
+    FireParams::SpottingParams sp = r.params();
+    sp.thermal_fuel_model = 1;
+    compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                            nullptr, nullptr, 0.5_rt, &r.fuel, "13", 13, Z_REF, Z0,
+                            false, nullptr, nullptr, nullptr, true, &extra);
+    EXPECT_NEAR(max_height(r.data), case_height(1), 1.0e-6 * case_height(1));
+    EXPECT_GT(case_height(13), 1.05 * case_height(1)) << "the two fits differ, so the test can tell them apart";
+}

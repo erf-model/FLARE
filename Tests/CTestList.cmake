@@ -3259,12 +3259,18 @@ add_test_fire_abort(FireFlameTempNelson_abort  FireRestart          inputs_level
     "erf.fire.flame_temp_method = .nelson_emissivity. was removed in November 2026" "erf.fire.flame_temp_method=nelson_emissivity")
 add_test_fire_abort(FireWindZ0Above20ft_abort  FireRestart          inputs_levelset_straight
     "erf.fire.wind_sample_z0 must be below 6.096 m" "erf.fire.wind_ref_ht=20 erf.fire.wind_sample_z0=7")
+add_test_fire_abort(FireWindZ0Profile_abort FireRestart inputs_levelset_straight
+    "erf.fire.wind_sample_z0 must be at most 2.24" "erf.fire.wind_sample_z0=3")
 add_test_fire_abort(FireSpotThermalModel_abort FireRestart          inputs_spotting_straight
     "erf.fire.spotting.thermal_fuel_model must be 0 or an Anderson model in Albini .1983. Table 4" "erf.fire.spotting.thermal_fuel_model=8")
 add_test_fire_abort(FireSpotNoThermalFit_abort FireRestart          inputs_spotting_straight
-    "has no Albini .1983. Table 4 thermal fit" "erf.fire.fuel_model_id=8 erf.fire.spotting.I_B_min=1 max_step=40")
+    "has no Albini .1983. Table 4 thermal fit" "erf.fire.fuel_model_id=8")
 add_test_fire_abort(FireSpotSb40NoThermal_abort FireRestart         inputs_spotting_straight
     "erf.fire.spotting.fuel_system = .40. needs erf.fire.spotting.thermal_fuel_model" "erf.fire.fuel_map.fuel_set=scott_burgan40 erf.fire.fuel_model_id=102")
+add_test_fire_abort(FireSpotStructureNoThermal_abort FireStructureIgnition inputs_on
+    "erf.fire.structures.ignition.enable with spotting needs erf.fire.spotting.thermal_fuel_model" "erf.fire.spotting.thermal_fuel_model=0")
+add_test_fire_abort(FireSpotMapNoThermalFit_abort FireExposure  inputs_noib_spotting
+    "erf.fire.fuel_map.file has fuel code 0 on cells with fuel" "erf.fire.fuel_map.nonburnable_codes=99")
 add_test_fire_abort(FireFbpAndersonLw_abort    FireRestart          inputs_levelset_straight
     "erf.fire.directional_ellipse_lw = .anderson. takes the midflame wind" "erf.fire.ros_model=fbp erf.fire.directional_ros=true erf.fire.directional_shape=ellipse erf.fire.directional_ellipse_lw=anderson")
 add_test_fire_abort(FireMacArthurCap_abort    FireRestart           inputs_levelset_straight

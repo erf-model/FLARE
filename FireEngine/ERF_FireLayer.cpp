@@ -724,6 +724,33 @@ void FireLayer::initialize(const ERF& erf,
         }
     }
 
+    // Spotting's lofting height needs an Albini (1983) Table 4 fit for every
+    // cell that can launch (one with fuel). A map code without one (Anderson 8,
+    // a custom code, a crosswalked timber litter) would otherwise stop the run
+    // at its first brand from that cell; stop it here instead, naming the code.
+    if (m_params.spotting.enable && m_params.spotting.thermal_fuel_model == 0
+        && m_params.spotting.fuel_system == "13" && m_has_spatial_fuel && fire_fuel_model) {
+        ReduceOps<ReduceOpMax> op;
+        ReduceData<int> data(op);
+        using RT = typename decltype(data)::Type;
+        for (MFIter mfi(*fire_fuel_model); mfi.isValid(); ++mfi) {
+            const Box& bx = mfi.validbox();
+            auto const& code = fire_fuel_model->const_array(mfi);
+            auto const& load = fire_fuel_load->const_array(mfi);
+            op.eval(bx, data, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept -> RT {
+                const int c = static_cast<int>(code(i, j, k) + 0.5_rt);
+                return (load(i, j, k) > 0.0_rt && !albini_has_thermal_fit(c)) ? RT{c} : RT{-1};
+            });
+        }
+        int bad = amrex::get<0>(data.value());
+        ParallelDescriptor::ReduceIntMax(bad);
+        if (bad >= 0) {
+            amrex::Abort("[FIRE] erf.fire.fuel_map.file has fuel code " + std::to_string(bad)
+                         + " on cells with fuel, and Albini (1983) Table 4 has no thermal fit for it (it covers"
+                           " Anderson models 1-7 and 9-13); spotting needs erf.fire.spotting.thermal_fuel_model");
+        }
+    }
+
     // Structure ignition: needs the ids (exposure) and the mask (the wall
     // band), both built above.
     if (m_params.structures.ignition.enable) {

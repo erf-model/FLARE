@@ -459,7 +459,8 @@ struct DustParams {
         if (shao_lu_gamma < 0.0) fail("erf.dust.shao_lu_gamma must be >= 0, got " + std::to_string(shao_lu_gamma));
         // keys read only inside another option's branch: say so when the branch is off
         if (ustar_t_base >= 0.0) {
-            for (const char* k : {"threshold_model", "saltation_diameter", "shao_lu_A_N", "shao_lu_gamma", "threshold_A_coeff"})
+            for (const char* k : {"threshold_model", "saltation_diameter", "shao_lu_A_N", "shao_lu_gamma", "threshold_A_coeff",
+                                  "particle_density"})
                 if (pp.contains(k))
                     amrex::Print() << "[DUST] WARNING: erf.dust." << k << " is not read with erf.dust.ustar_t_base >= 0"
                                    << " (the base threshold is prescribed)\n";
