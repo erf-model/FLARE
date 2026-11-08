@@ -265,6 +265,14 @@ Test configuration options
      - Enables the actuator core, the structure coupling and their tests (``ActuatorSampling``,
        ``ActuatorSpreading``, ``WakeLines``, ``RunningStats``, ``StructureRegistry``; the first
        two also in the parallel executable).
+   * - ``ERF_ENABLE_STRUCTURES``
+     - Enables FLARE's structures (``Structures/``) and their tests, kept in
+       ``Structures/Tests/Unit``: the lattice tower models (``MemberDrag``, ``Tower``, ``TowerType``,
+       ``OneModeTower``, ``DirectionCosines``, ``BeamElement``, ``Frame``, ``BeamMass``,
+       ``FrameModes``, ``FrameDynamics``, ``RigidBodyMass``, ``FrameSubDyn``, ``FrameTower``,
+       ``RigidLink``, ``HeatedFrame``, ``LatticeFrame``, ``MemberChecks``; ``FrameSubDyn`` also in
+       the parallel executable) and the MoorDyn-C wrapper (``MoorDynSystem``), which runs against
+       the bundled stub with ``ERF_MOORDYN_USE_STUB=ON`` or against the installed MoorDyn-C.
    * - ``ERF_PARTICLES_PRECISION``
      - Selects particle precision when particles are enabled.
 

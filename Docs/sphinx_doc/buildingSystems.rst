@@ -592,6 +592,18 @@ CMake can also generate makefiles for the Ninja build system for faster compilat
      - Structure model directories to compile in, a CMake list, each with an ``ERFStructureModel.cmake`` (needs ``ERF_ENABLE_MOVING_BODIES=ON``; see :ref:`sec:StructureCoupling`)
      - (none)
      - paths
+   * - ``ERF_ENABLE_STRUCTURES``
+     - Builds FLARE's structures in ``Structures/``: the MoorDyn-C line-dynamics wrapper (see :ref:`sec:CouplingToMoorDyn`) and the lattice tower models (see :ref:`sec:TowerFrame`); turns ``ERF_ENABLE_MOVING_BODIES`` on and adds ``Structures`` to ``ERF_STRUCTURE_MODEL_DIRS``; needs MoorDyn-C 2.3 or newer at ``MOORDYN_DIR`` unless ``ERF_MOORDYN_USE_STUB=ON``. CMake only.
+     - OFF
+     - ON/OFF
+   * - ``ERF_MOORDYN_USE_STUB``
+     - Builds FLARE's structures against the bundled MoorDyn stub library (the C API without line dynamics) instead of MoorDyn-C, for testing where MoorDyn-C is not installed (needs ``ERF_ENABLE_STRUCTURES=ON``)
+     - OFF
+     - ON/OFF
+   * - ``MOORDYN_DIR``
+     - MoorDyn-C install prefix (``lib/cmake/moordyn``, ``include/moordyn``), as ``Structures/setup_moordyn.sh`` installs it; read with ``ERF_ENABLE_STRUCTURES=ON`` and ``ERF_MOORDYN_USE_STUB=OFF``
+     - (none)
+     - path
    * - ``ERF_PRECISION``
      - Floating-point precision for mesh data
      - DOUBLE

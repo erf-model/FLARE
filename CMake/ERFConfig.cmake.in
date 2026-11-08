@@ -2,6 +2,16 @@
 
 find_package(AMReX QUIET REQUIRED @AMREX_COMPONENTS@)
 
+# erf_srclib links the imported MoorDyn::moordyn target when FLARE's structures are built with MoorDyn-C
+if(@ERF_ENABLE_STRUCTURES@ AND NOT @ERF_MOORDYN_USE_STUB@)
+  include(CMakeFindDependencyMacro)
+  # the MoorDyn-C install ERF was built against (MOORDYN_DIR at configure time)
+  if(NOT MoorDyn_DIR)
+    set(MoorDyn_DIR "@MoorDyn_DIR@" CACHE PATH "MoorDyn-C package configuration directory")
+  endif()
+  find_dependency(MoorDyn 2.3 CONFIG)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@Targets.cmake")
 
 set(@PROJECT_NAME@_INCLUDE_DIRS "${PROJECT_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@")
