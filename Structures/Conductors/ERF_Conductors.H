@@ -16,6 +16,7 @@
 #include <AMReX_REAL.H>
 #include <AMReX_RealBox.H>
 
+#include "ERF_Capacities.H"
 #include "ERF_ConductorGeometry.H"
 #include "ERF_ConductorInputs.H"
 #include "ERF_ConductorLine.H"
@@ -40,7 +41,10 @@
  * frame model (a SubDyn file, or one generated from the type's dimensions) bend as that frame: MoorDyn
  * then takes their cross-arms as coupled points that ERF moves, and hands back the lines' pull on them.
  * A frame tower whose members' design data is known has every member checked against its strength
- * (ASCE 10-15) every step. With an conductors.gust_type the k-equation RANS's k sets the gusts
+ * (ASCE 10-15) every step. After every coupling step each component whose capacity is known (a conductor's rated
+ * breaking strength, an insulator string's or the hardware's rated load, a footing's allowable, a member's design
+ * strength) is checked against its demand (ERF_Capacities.H): the peaks go to capacities.csv, each component's first
+ * exceedance to failures.dat, and with conductors.failure_stop the first one stops the run. With an conductors.gust_type the k-equation RANS's k sets the gusts
  * (ERF_Gusts.H): every span's static gust factor, and with event or random a gust added to the wind
  * the lines and towers take.
  */
@@ -212,6 +216,15 @@ public:
     void require_anchor_level (int finest_level) const;
     const ConductorInputs_t& inputs () const { return m_in; }
     const std::vector<std::unique_ptr<erf_conductors::ConductorLine>>& lines () const { return m_lines; }
+    /**
+     * The components checked against their capacities, with their last and peak demands and first exceedances: per
+     * line, its spans' conductors (rated_breaking_strength), its insulator strings (insulator_rated_load) and its
+     * attachments, end_a, the towers and end_b (hardware_rated_load); then per tower, its footings' uplift and
+     * compression (its type's allowables) and its members (a frame tower with design data). A component is
+     * checked after every coupling step: every step of the anchor level for lines on fixed supports and towers that
+     * stand still, every coupling step of step_moving_group() for lines on moving towers and those towers.
+     */
+    const erf_conductors::CapacityMonitor& capacities () const { return m_cap; }
 
 private:
     Conductors (ConductorInputs_t in, int anchor);
@@ -410,6 +423,28 @@ private:
     void load_towers_with_lines ();
     /** Hand tower t the pull of every line hanging from it, where each hangs (displaced by a moving tower), at the lines' current state. */
     void load_tower_with_lines (std::size_t t);
+    /** The pull of every line hanging from tower t (N) and where each hangs (m, displaced by a moving tower), at the lines' current state. */
+    void tower_line_loads (std::size_t t, std::vector<std::array<amrex::Real,3>>& force,
+                           std::vector<std::array<amrex::Real,3>>& at) const;
+    /** Add every component with a capacity to m_cap, afresh (set_ground() or restore() calls it once the lines and towers exist). */
+    void build_capacities ();
+    /**
+     * Record the demands on line i's components (its spans' largest tension, its strings' top tension and the
+     * magnitude of its pull at each attachment) at time t; the indices of components exceeding for the first time
+     * are appended to fresh.
+     */
+    void check_line_capacities (std::size_t i, double t, std::vector<std::size_t>& fresh);
+    /**
+     * Record the demands on tower tw's components at time t: its footings' largest uplift and compression and its
+     * members' axial forces, against their capacities. A tower that stands still is loaded here by the lines' pull
+     * at their current state (on a copy, the tower's own loads untouched), a moving tower is taken as its model left it.
+     */
+    void check_tower_capacities (std::size_t tw, double t, std::vector<std::size_t>& fresh);
+    /**
+     * Log the first exceedances in fresh (advance() gathers a step's, every group's, and orders them by time): a row each in <diagnostics_dir>/failures.dat and a message (I/O rank),
+     * capacities.csv rewritten; with failure_stop, abort naming the run's first. Nothing when fresh is empty.
+     */
+    void report_failures (const std::vector<std::size_t>& fresh);
     /**
      * Append a row of the towers' drag and base moment to <diagnostics_dir>/towers.dat. first
      * truncates the file; the header is written after truncating, or when appending to a missing or
@@ -485,6 +520,14 @@ private:
     std::vector<amrex::RealBox> m_support;   //!< support(): the spread points with their reach (m)
     /** the air's drag on all lines and on the towers' members (N); total_load.dat drag_x..z */
     std::array<amrex::Real,3> m_drag_total{{0.0, 0.0, 0.0}};
+    erf_conductors::CapacityMonitor m_cap;                          //!< capacities(): the components' demands against their capacities
+    static constexpr std::size_t no_component = static_cast<std::size_t>(-1);
+    std::vector<std::vector<std::size_t>> m_cap_span;               //!< per line, per span: its conductor in m_cap (no_component: none)
+    std::vector<std::vector<std::size_t>> m_cap_string;             //!< per line, per string: the string in m_cap
+    std::vector<std::vector<std::size_t>> m_cap_hardware;           //!< per line, per attachment (end_a, the towers, end_b) in m_cap
+    std::vector<std::array<std::size_t,2>> m_cap_footing;           //!< per tower: its footings' uplift and compression in m_cap
+    std::vector<std::vector<std::size_t>> m_cap_member;             //!< per tower, per member: in m_cap (empty: members not checked)
+    std::vector<std::size_t> m_step_fresh;                          //!< the components first exceeding in this step, every group's
 };
 
 namespace erf_conductors {

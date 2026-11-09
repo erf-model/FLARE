@@ -131,6 +131,44 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
   add_test_restart_parity(${_two_level_restart} Conductors_TwoLevel 5 10
       DATALOG "S1.dat conductors/total_load.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
   set_tests_properties(${_two_level_restart} PROPERTIES LABELS "regression;restart-parity;conductors")
+  # The capacities and the first-failure log on two levels (stub only: the pins are its still-air
+  # and blown-out tensions). The span steps on level 1 (0.125 s, subcycled under level 0's 0.25 s),
+  # so it is checked at every level-1 step and stamped with that step's end, never only at level 0's
+  # (Ann's #5009 point for a model on a refined level). With rated_breaking_strength = 13892 N the
+  # span's largest tension in S1.dat first passes it at t = 1.875 s, between two level-0 steps: the
+  # first row of failures.dat must carry that time (a check at level 0's steps would give 2.0 s), the
+  # case is required to cross off level 0's steps, and capacities.csv's peak demand must be the largest
+  # tension in S1.dat. The pins sit close to the tension (13892 N is crossed at 13892.16 N after
+  # 13891.89 N; 13890.45 N below, at 13890.53 N after 13890.39 N): a change of 1e-5 in the flow
+  # can move a crossing, and then these capacities are set again from the new S1.dat.
+  if(ERF_MOORDYN_USE_STUB)
+    set(_cap_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/Conductors_Capacities_TwoLevel)
+    file(MAKE_DIRECTORY ${_cap_dir})
+    file(GLOB _cap_files ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TwoLevel/*)
+    file(COPY ${_cap_files} DESTINATION ${_cap_dir})
+    resolve_test_exe("" "erf_exec" _cap_exe)
+    set(_cap_mpi "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}")
+    add_test(NAME Conductors_Capacities_TwoLevel
+             COMMAND sh -c "rm -rf plt0* conductors S1.dat && ${_cap_mpi} ${_cap_exe} Conductors_TwoLevel.i conductors.S1.rated_breaking_strength=13892.0 amrex.call_addr2line=0 > run.log 2>&1 && awk -v rbs=13892.0 'FNR == 1 { f++ } f == 1 && FNR > 1 { if (t1 == \"\" && $10 > rbs) t1 = $1; if ($10 > peak) peak = $10 } f == 2 && FNR == 2 { tf = $1; kind = $2; name = $3 } f == 2 && FNR > 1 { rows++ } f == 3 && FNR == 2 { split($0, c, \",\"); pd = c[6] } END { coarse = (t1 / 0.25 == int(t1 / 0.25)); printf \"first crossing in S1.dat %s s, first row of failures.dat %s s (%s %s), %d row(s); peak tension %s N, capacities.csv peak demand %s N\\n\", t1, tf, kind, name, rows, peak, pd; exit !(t1 == 1.875 && tf == t1 && !coarse && rows == 1 && kind == \"conductor\" && name == \"S1\" && pd + 0 == peak + 0) }' S1.dat conductors/failures.dat conductors/capacities.csv"
+             WORKING_DIRECTORY ${_cap_dir})
+    set_tests_properties(Conductors_Capacities_TwoLevel PROPERTIES LABELS "regression;conductors;multilevel" TIMEOUT 600
+                         PROCESSORS 2 ATTACHED_FILES_ON_FAIL "${_cap_dir}/run.log")
+    # the records across a checkpoint at step 5 (t = 1.25 s): the conductor's first exceedance at 0.5 s
+    # (rated_breaking_strength 13890.45 N) before it, the dead ends' at 1.875 s (hardware_rated_load
+    # 13892 N) after it; the restarted run's failures.dat must be the straight run's
+    add_test_restart_parity(Conductors_Capacities_Restart Conductors_TwoLevel 5 10
+        COMMON_OPTIONS "conductors.S1.rated_breaking_strength=13890.45 conductors.S1.hardware_rated_load=13892.0"
+        DATALOG "conductors/failures.dat conductors/capacities.csv S1.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
+    set_tests_properties(Conductors_Capacities_Restart PROPERTIES LABELS "regression;restart-parity;conductors;multilevel")
+  endif()
+  # conductors.failure_stop stops the run at the first exceedance: the still-air span's ~13.5 kN
+  # against a rated_breaking_strength of 10 kN, at the end of the first step (0.5 s)
+  add_test_abort(Conductors_FailureStopAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
+      Conductors_PrescribedWind.i "conductors.failure_stop: the first capacity exceedance, conductor S1 at t = 0.5"
+      "conductors.S1.rated_breaking_strength=1.0e4 conductors.failure_stop=true")
+  add_test_abort(Conductors_FailureStopNeedsCapacityAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
+      Conductors_PrescribedWind.i "conductors.failure_stop = true needs a capacity to check" "conductors.failure_stop=true")
+  set_tests_properties(Conductors_FailureStopAbort Conductors_FailureStopNeedsCapacityAbort PROPERTIES LABELS "regression;conductors")
   # A circuit: three phases 6 m apart hanging from insulator strings over two suspension towers,
   # and a shield wire clamped above them, across the same sheared crosswind. The middle phase's
   # middle span, its strings and their statistics, the shield wire's middle span and the

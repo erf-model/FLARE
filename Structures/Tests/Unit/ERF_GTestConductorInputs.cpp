@@ -34,6 +34,9 @@
 //     each line's nodes and each type's towers take their own or conductors.epsilon, and the shared key given
 //     while every line and line's tower type sets its own is read but warned about.
 // ReadRefusesMalformedInputsNamingTheKey: every abort of read() fires and names its key.
+// CapacitiesOutsideTheirRangeAreRefusedByName: rated_breaking_strength, insulator_rated_load and hardware_rated_load
+//     given as 0, negative or not finite, and a string rating on a line without strings; read() takes them and
+//     failure_stop.
 
 #include <cmath>
 #include <functional>
@@ -1335,4 +1338,65 @@ TEST(ConductorInputs, OnlyASpanAlongPlusXHasItsYDragAcrossIt)
     EXPECT_FALSE(erf_conductors::along_plus_x(A{{100.0, 500.0, 30.0}}, A{{400.0, 500.01, 30.0}}));
     EXPECT_FALSE(erf_conductors::along_plus_x(A{{400.0, 500.0, 30.0}}, A{{100.0, 500.0, 30.0}})) << "along -x the sign flips";
     EXPECT_FALSE(erf_conductors::along_plus_x(A{{100.0, 500.0, 30.0}}, A{{100.0, 800.0, 30.0}})) << "along y";
+}
+
+TEST(ConductorInputs, CapacitiesOutsideTheirRangeAreRefusedByName)
+{
+    const amrex::Real nan = std::numeric_limits<amrex::Real>::quiet_NaN();
+    auto msg = [] (const LineInputs& s) { return ConductorInputs::validate_line(s); };
+    {
+        LineInputs s = good_section();
+        s.rated_breaking_strength = 1.401e5; s.rated_breaking_strength_given = true;
+        s.insulator_rated_load = 1.11e5; s.insulator_rated_load_given = true;
+        s.hardware_rated_load = 1.5e5; s.hardware_rated_load_given = true;
+        EXPECT_TRUE(msg(s).empty()) << msg(s);
+    }
+    struct Case { const char* key; std::function<void(LineInputs&)> set; const char* expected; };
+    const std::vector<Case> cases = {
+        {"rbs 0", [] (LineInputs& s) { s.rated_breaking_strength = 0.0; s.rated_breaking_strength_given = true; },
+         "conductors.S.rated_breaking_strength must be positive"},
+        {"rbs <0", [] (LineInputs& s) { s.rated_breaking_strength = -1.0; s.rated_breaking_strength_given = true; },
+         "conductors.S.rated_breaking_strength must be positive"},
+        {"rbs nan", [nan] (LineInputs& s) { s.rated_breaking_strength = nan; s.rated_breaking_strength_given = true; },
+         "conductors.S.rated_breaking_strength must be finite"},
+        {"sml 0", [] (LineInputs& s) { s.insulator_rated_load = 0.0; s.insulator_rated_load_given = true; },
+         "conductors.S.insulator_rated_load must be positive"},
+        {"sml inf", [] (LineInputs& s) { s.insulator_rated_load = std::numeric_limits<amrex::Real>::infinity(); s.insulator_rated_load_given = true; },
+         "conductors.S.insulator_rated_load must be finite"},
+        {"hw 0", [] (LineInputs& s) { s.hardware_rated_load = 0.0; s.hardware_rated_load_given = true; },
+         "conductors.S.hardware_rated_load must be positive"},
+        {"hw nan", [nan] (LineInputs& s) { s.hardware_rated_load = nan; s.hardware_rated_load_given = true; },
+         "conductors.S.hardware_rated_load must be finite"},
+    };
+    for (const auto& c : cases) {
+        LineInputs s = good_section();
+        c.set(s);
+        EXPECT_NE(msg(s).find(c.expected), std::string::npos) << c.key << ": " << msg(s);
+    }
+    // a string rating without strings: a clamped section, and a single span
+    for (LineInputs s : {good_section(), good_span()}) {
+        s.insulator_length = 0.0; s.insulator_mass = 0.0;
+        s.insulator_rated_load = 1.0e5; s.insulator_rated_load_given = true;
+        EXPECT_NE(msg(s).find("insulator_rated_load is given but the line hangs from no insulator strings"), std::string::npos) << msg(s);
+    }
+    // read() takes the three keys and failure_stop
+    set_span("Scap");
+    amrex::ParmParse ps("conductors.Scap");
+    ps.add("rated_breaking_strength", 1.401e5);
+    ps.add("hardware_rated_load", 1.5e5);
+    amrex::ParmParse pp("conductors");
+    pp.add("failure_stop", true);
+    const ConductorInputs in = ConductorInputs::read();
+    EXPECT_TRUE(in.failure_stop);
+    EXPECT_DOUBLE_EQ(in.lines.front().rated_breaking_strength, 1.401e5);
+    EXPECT_DOUBLE_EQ(in.lines.front().hardware_rated_load, 1.5e5);
+    EXPECT_FALSE(in.lines.front().insulator_rated_load_given);
+    ps.remove("rated_breaking_strength");
+    ps.remove("hardware_rated_load");
+    pp.remove("failure_stop");
+    // the failure log's name is the run's own: a one-span line named failures would write its log there
+    set_span("failures");
+    const std::string taken = erf_gtest::abort_message([] { ConductorInputs::read(); });
+    EXPECT_NE(taken.find("failures.dat, which the run writes itself"), std::string::npos) << taken;
+    pp.remove("lines");
 }

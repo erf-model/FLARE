@@ -57,6 +57,15 @@ namespace erf_conductors {
  *                                                       without it)
  *   conductors.S1.insulator_diameter = 0.254       (m, > 0, the disc diameter the wind acts on; default 0.254;
  *                                                       refused without insulator_length)
+ *   conductors.S1.rated_breaking_strength = 1.401e5 (N, > 0; the conductor's rated breaking strength (RBS): every
+ *                                                       span's largest tension is checked against it after every
+ *                                                       coupling step (ERF_Capacities.H); default none: not checked)
+ *   conductors.S1.insulator_rated_load = 1.11e5    (N, > 0; the rated mechanical load of each insulator string (its
+ *                                                       specified mechanical load, SML), checked against the tension at
+ *                                                       the string's top; needs insulator_length; default none)
+ *   conductors.S1.hardware_rated_load = 1.5e5      (N, > 0; the rated load of the attachment hardware (dead-end
+ *                                                       fittings, suspension clamps or shackles), checked against the
+ *                                                       line's pull at each dead end and at each tower; default none)
  *   conductors.S1.output_root   = conductors/S1    (prefix of the line's diagnostics files, one per line;
  *                                                       default <diagnostics_dir>/<name>; no log of the line may
  *                                                       take the name of a log the run writes there itself, such
@@ -107,6 +116,12 @@ struct LineInputs
     amrex::Real insulator_diameter{0.254};           //!< the disc diameter of the insulator strings (m)
     bool insulator_mass_given{false};                //!< insulator_mass was given in the inputs
     bool insulator_diameter_given{false};            //!< insulator_diameter was given in the inputs
+    amrex::Real rated_breaking_strength{0.0};        //!< the conductor's rated breaking strength (N); 0: not checked
+    amrex::Real insulator_rated_load{0.0};           //!< the rated mechanical load of each insulator string (N); 0: not checked
+    amrex::Real hardware_rated_load{0.0};            //!< the rated load of the dead-end and tower attachment hardware (N); 0: not checked
+    bool rated_breaking_strength_given{false};       //!< rated_breaking_strength was given in the inputs
+    bool insulator_rated_load_given{false};          //!< insulator_rated_load was given in the inputs
+    bool hardware_rated_load_given{false};           //!< hardware_rated_load was given in the inputs
     std::string output_root;                         //!< the prefix of the line's diagnostics files
     std::string tower_type;                          //!< the type of the suspension towers; empty: none
     std::string share_towers;                        //!< the line whose towers this one hangs from; empty: its own
@@ -310,6 +325,14 @@ std::string first_nonfinite (const std::vector<T>& v, std::size_t per_point, con
  *                                                   default true, false: the level span's swing, sag and tension
  *                                                   under the whole weight W, the effective height's still-air
  *                                                   sag the inclined chord's either way; needs asce74_wind)
+ *   conductors.failure_stop     = false        (stop the run, with an abort naming the component, at the first
+ *                                                   coupling step where a component's demand exceeds its capacity:
+ *                                                   a conductor's rated_breaking_strength, an insulator string's or the
+ *                                                   hardware's rated load, a tower type's allowable_uplift or
+ *                                                   allowable_compression, or a frame member's design strength. The
+ *                                                   peaks go to <diagnostics_dir>/capacities.csv and each component's
+ *                                                   first exceedance to <diagnostics_dir>/failures.dat with or without
+ *                                                   it; default false; true needs at least one capacity)
  *   conductors.gust_type        = factor       (none, factor, event or random; default none (ERF_Gusts.H). Every
  *                                                   type but none writes every span's gust factor and peak wind load
  *                                                   from the mean wind and the k-equation RANS's k along it to
@@ -376,6 +399,7 @@ struct ConductorInputs
     bool drag_on_flow{false};
     amrex::Real epsilon{2.0};                           //!< (units of the anchor level's dx)
     amrex::Real flashover_distance{1.0};                //!< (m)
+    bool failure_stop{false};                           //!< stop the run at the first capacity exceedance
     amrex::Real asce74_wind{0.0};                       //!< (m/s); 0: no ASCE 74 table
     std::string asce74_exposure;                        //!< B or C; empty: C
     std::string asce74_wire_height{"effective"};        //!< effective (attachment height less a third of the sag) or attachment

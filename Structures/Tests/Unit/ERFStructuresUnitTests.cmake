@@ -58,6 +58,10 @@ function(erf_structures_unit_tests target)
   # on it, and its load must be the sum of the lines' pulls and their moment about its base,
   # flagged against its allowable values; the closest approach of a conductor to its box must be
   # the exact distance. The drag's support must hold every spread point with its own reach.
+  # Each component with a capacity must be checked once per anchor-level step (never on another
+  # level), its demand pinned to the still-air catenary tension or the footings' share of the
+  # weight, its first exceedance logged once and kept across a restart, and failure_stop must stop
+  # the run after the log is written (ERF_GTestCapacities.cpp holds the monitor's own tests).
   target_sources(${target} PRIVATE
     ${_erf_structures_tests_dir}/ERF_GTestConductorInputsReset.cpp
     ${_erf_structures_tests_dir}/ERF_GTestConductorGeometry.cpp
@@ -67,6 +71,7 @@ function(erf_structures_unit_tests target)
     ${_erf_structures_tests_dir}/ERF_GTestMoorDynInputWriter.cpp
     ${_erf_structures_tests_dir}/ERF_GTestConductorLine.cpp
     ${_erf_structures_tests_dir}/ERF_GTestConductors.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestCapacities.cpp
     ${_erf_structures_tests_dir}/ERF_GTestTransformer.cpp
   )
   # Motivation: against the real MoorDyn-C (the tests skip on the stub, which has no line

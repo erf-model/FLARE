@@ -92,6 +92,10 @@ conductors.epsilon            = 2.0         # Real > 0 (cells). Width of the Gau
 conductors.flashover_distance = 1.0         # Real > 0 (m). Two lines closer than this are flagged as clashing in
                                                 #   separation.dat, a conductor this close to a transformer in
                                                 #   transformers.dat. Default: 1.0
+conductors.failure_stop      = false       # true or false. Stop the run (an abort naming the component) at the
+                                                #   first coupling step where a component's demand exceeds its
+                                                #   capacity, after capacities.csv and failures.dat are written.
+                                                #   true needs at least one capacity. Default: false
 conductors.prescribed_velocity = 10.0 0.0 0.0  # 3 Reals (m/s). A uniform wind at every line node and tower drag
                                                 #   node instead of the flow's, for testing. Not with any gust_type. Default: none (the
                                                 #   flow is sampled at the nodes)
@@ -183,6 +187,15 @@ conductors.L1.insulator_mass     = 50.0    # Real > 0 (kg). One string. Must be 
                                                #   refused when insulator_length is 0
 conductors.L1.insulator_diameter = 0.254   # Real > 0 (m). The discs' diameter, which the wind acts on. Refused
                                                #   when insulator_length is 0. Default: 0.254
+
+# the capacities (checked after every coupling step; capacities.csv, failures.dat)
+conductors.L1.rated_breaking_strength = 1.401e5  # Real > 0 (N). The conductor's rated breaking strength, against
+                                               #   every span's largest tension. Default: none (not checked)
+#conductors.L1.insulator_rated_load   = 1.11e5   # Real > 0 (N). Each string's rated (specified) mechanical load,
+                                               #   against the tension at its top. Needs towers and insulator_length > 0,
+                                               #   which L1 above does not have (commented out). Default: none (not checked)
+conductors.L1.hardware_rated_load     = 1.5e5    # Real > 0 (N). The attachment hardware's rated load, against the
+                                               #   line's pull at each dead end and tower. Default: none (not checked)
 
 # the drag's width (needs drag_on_flow)
 conductors.L1.epsilon = 2.0                # Real > 0 (cells). Width of the Gaussian that spreads the drag of this
@@ -281,9 +294,11 @@ conductors.lattice.arm_outside_shaft = true     # Boolean. The cross-arm's drag 
 conductors.lattice.leg_spacing      = 0.0     # Real >= 0 (m). The four footings' square spacing; 0: base_width.
                                                   #   Not with a frame (8c, 8d), whose supports are the footings.
                                                   #   Default: base_width
-conductors.lattice.allowable_uplift      = 0.0  # Real >= 0 (N). A footing's pull-out capacity, flagged above it;
+conductors.lattice.allowable_uplift      = 0.0  # Real >= 0 (N). A footing's pull-out capacity, flagged above it and
+                                                    #   checked after every coupling step (capacities.csv, failures.dat);
                                                     #   0: not checked. Default: 0
-conductors.lattice.allowable_compression = 0.0  # Real >= 0 (N). A footing's bearing capacity, flagged above it;
+conductors.lattice.allowable_compression = 0.0  # Real >= 0 (N). A footing's bearing capacity, flagged above it and
+                                                    #   checked after every coupling step (capacities.csv, failures.dat);
                                                     #   0: not checked. Default: 0
 conductors.lattice.damping_ratio    = 0.02    # Real in [0, 1). Of the one mode with frequency; of a frame, its
                                                   #   Rayleigh damping at its first frequency and ten times it.
@@ -311,7 +326,8 @@ conductors.lattice.frame_file  = lattice_frame.dat    # File name. A SubDyn inpu
                                                           #   Default: none
 conductors.lattice.member_file = lattice_members.dat  # File name. Every member's design data (role, yield
                                                           #   strength, angle, net area, end conditions); each member is
-                                                          #   checked (ASCE 10-15) every step. Needs frame_file.
+                                                          #   checked (ASCE 10-15) every step, and as a capacity
+                                                          #   (capacities.csv, failures.dat). Needs frame_file.
                                                           #   Default: none (no checks)
 
 # --- 8d: frame tower generated from this type's dimensions (not with frame_file, frequency, weight or the
