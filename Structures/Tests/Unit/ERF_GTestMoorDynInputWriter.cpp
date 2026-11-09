@@ -8,11 +8,18 @@
 // ASectionIsWrittenWithItsInsulatorStringsAndFreePoints: Fixed points at every attachment point, a
 //     Free point under each tower's string, the spans between them and the strings from the towers
 //     down; MoorDyn hangs the conductor from the strings.
+// WithGroundContactTheInputNamesTheSeafloorAndItsContact: the SeafloorFile, kbot and the conductor's critical cbot
+//     rows with ground_contact only; a missing or blank-holding file name is refused; seafloor_file() swaps the ending.
+// TheSeafloorGridIsCoarsenedToItsLimitAndMissingHeightsTakeTheLowest: seafloor_ticks takes the smallest stride that
+//     fits, always ending on the last node; fill_missing_heights fills nodes no grid holds with the lowest height.
+// TheSeafloorTextIsMoorDynsThreeDFormat: "nx ny", the ticks, then x y z rows with x the slower index and z lowered by
+//     the surface offset; too few ticks or heights are refused.
 
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -21,6 +28,7 @@
 #include <gtest/gtest.h>
 
 #include "ERF_GTestTempDir.H"
+#include "ERF_GTestThrowOnAbort.H"
 #include "ERF_ConductorInputs.H"
 #include "ERF_MoorDynInputWriter.H"
 #include "ERF_MoorDynSystem.H"
@@ -71,6 +79,18 @@ ConductorInputs settings ()
 }
 
 bool has_row (const std::string& text, const std::string& row) { return text.find(row) != std::string::npos; }
+
+// the number at the start of the option row whose second token is key (a single-precision build writes 3e+06)
+double row_numbers_before (const std::string& text, const std::string& key)
+{
+    std::istringstream in(text);
+    for (std::string line; std::getline(in, line);) {
+        std::istringstream ls(line);
+        std::string v, k;
+        if ((ls >> v >> k) && k == key) { return std::stod(v); }
+    }
+    return -1.0;
+}
 
 // the numbers of the row whose first token is name (the line types are written with as many digits
 // as a Real holds, so they are compared as numbers)
@@ -198,4 +218,70 @@ TEST(MoorDynInputWriter, ASectionIsWrittenWithItsInsulatorStringsAndFreePoints)
         EXPECT_NEAR(pos[2], 27.5, 0.05) << "free point " << p;
         EXPECT_NEAR(pos[1], 500.0, ptol) << "free point " << p;
     }
+}
+
+TEST(MoorDynInputWriter, WithGroundContactTheInputNamesTheSeafloorAndItsContact)
+{
+    ConductorInputs in = settings();
+    EXPECT_FALSE(has_row(erf_conductors::moordyn_input_text(span(), in, 9.81, "S1.seafloor.txt"), "SeafloorFile"))
+        << "no seafloor without ground_contact";
+    in.ground_contact = true;
+    const std::string text = erf_conductors::moordyn_input_text(span(), in, 9.81, "out/S1.seafloor.txt");
+    EXPECT_TRUE(has_row(text, "out/S1.seafloor.txt   SeafloorFile")) << text;
+    EXPECT_NEAR(row_numbers_before(text, "kbot"), 3.0e6, 1.0) << text;
+    EXPECT_TRUE(has_row(text, "10000   WtrDpth")) << "the flat bottom stays, unused" << text;
+    // cbot critical for the conductor: 2 sqrt(3e6 x 1.628 / 0.0281)
+    const double cbot = row_numbers_before(text, "cbot");
+    EXPECT_NEAR(cbot, 2.0 * std::sqrt(3.0e6 * 1.628 / 0.0281), 1.0e-6 * cbot);
+    EXPECT_NEAR(static_cast<double>(ConductorInputs::ground_frequency(1.628, 0.0281)), std::sqrt(3.0e6 * 0.0281 / 1.628), 1.0e-3);
+    std::string msg = erf_gtest::abort_message([&] { erf_conductors::moordyn_input_text(span(), in, 9.81); });
+    EXPECT_NE(msg.find("conductors.S1: with ground_contact the seafloor file name must be given"), std::string::npos) << msg;
+    msg = erf_gtest::abort_message([&] { erf_conductors::moordyn_input_text(span(), in, 9.81, "my run/S1.seafloor.txt"); });
+    EXPECT_NE(msg.find("hold no blanks"), std::string::npos) << msg;
+    EXPECT_EQ(erf_conductors::seafloor_file("conductors/S1.moordyn.txt"), "conductors/S1.seafloor.txt");
+    EXPECT_EQ(erf_conductors::seafloor_file("S1.txt"), "S1.txt.seafloor.txt");
+}
+
+TEST(MoorDynInputWriter, TheSeafloorTextIsMoorDynsThreeDFormat)
+{
+    const std::vector<double> x{0.0, 100.0, 200.0}, y{50.0, 150.0};
+    // z = 0.05 x + 0.02 y + 3 at (x[i], y[j]), x the slower index
+    std::vector<double> z;
+    for (const double xi : x) { for (const double yj : y) { z.push_back(0.05 * xi + 0.02 * yj + 3.0); } }
+    const std::string text = erf_conductors::seafloor_text(x, y, z, 5000.0);
+    EXPECT_EQ(text, "3 2\n0 100 200\n50 150\n"
+                    "0 50 -4996\n0 150 -4994\n100 50 -4991\n100 150 -4989\n200 50 -4986\n200 150 -4984\n");
+    std::string msg = erf_gtest::abort_message([&] { erf_conductors::seafloor_text({0.0}, y, {1.0, 2.0}, 0.0); });
+    EXPECT_NE(msg.find("at least 2 x 2 ticks"), std::string::npos) << msg;
+    msg = erf_gtest::abort_message([&] { erf_conductors::seafloor_text(x, y, {1.0}, 0.0); });
+    EXPECT_NE(msg.find("one height per grid point"), std::string::npos) << msg;
+}
+
+TEST(MoorDynInputWriter, TheSeafloorGridIsCoarsenedToItsLimitAndMissingHeightsTakeTheLowest)
+{
+    std::vector<int> ii, jj;
+    int stride = 0;
+    // 11 x 9 nodes fit in 99 points
+    erf_conductors::seafloor_ticks({{0, 1}}, {{10, 9}}, 99, ii, jj, stride);
+    EXPECT_EQ(stride, 1);
+    EXPECT_EQ(ii.size(), 11u);
+    EXPECT_EQ(jj.size(), 9u);
+    // at most 30 points: every 3rd node, (4 + 1) x (3 + 1) = 20 (stride 2 gives 6 x 5 = 30, which fits)
+    erf_conductors::seafloor_ticks({{0, 1}}, {{10, 9}}, 30, ii, jj, stride);
+    EXPECT_EQ(stride, 2);
+    EXPECT_EQ(ii, (std::vector<int>{0, 2, 4, 6, 8, 10}));
+    EXPECT_EQ(jj, (std::vector<int>{1, 3, 5, 7, 9}));
+    erf_conductors::seafloor_ticks({{0, 1}}, {{10, 9}}, 29, ii, jj, stride);
+    EXPECT_EQ(stride, 3);
+    EXPECT_EQ(ii, (std::vector<int>{0, 3, 6, 9, 10})) << "the last node always included";
+    EXPECT_EQ(jj, (std::vector<int>{1, 4, 7, 9}));
+    EXPECT_LE(static_cast<long>(ii.size() * jj.size()), 29);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    std::vector<double> h{5.0, nan, 2.0, nan};
+    double lowest = 0.0;
+    EXPECT_EQ(erf_conductors::fill_missing_heights(h, lowest), 2u);
+    EXPECT_EQ(lowest, 2.0);
+    EXPECT_EQ(h, (std::vector<double>{5.0, 2.0, 2.0, 2.0}));
+    std::vector<double> none{nan, nan};
+    EXPECT_EQ(erf_conductors::fill_missing_heights(none, lowest), 2u);
 }

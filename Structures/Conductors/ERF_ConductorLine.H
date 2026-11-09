@@ -241,6 +241,8 @@ public:
     amrex::Real clearance (unsigned node) const;
     /** The smallest clearance along span k (m) and the node (0-based over the line) where it occurs. */
     amrex::Real min_clearance (unsigned& node, int k = 0) const;
+    /** The nodes of span k (both ends included) at most one conductor diameter above the terrain under them: on the ground. */
+    int nodes_on_ground (int k) const;
     /** The air's drag on a node (N), from MoorDyn's last step. */
     std::array<amrex::Real,3> node_drag (unsigned node) const;
     /** The air's drag on the whole line, strings included (N). */

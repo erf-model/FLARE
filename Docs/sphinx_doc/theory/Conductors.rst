@@ -1509,6 +1509,295 @@ References
   1 000 V - Definitions, test methods and acceptance criteria.* International
   Electrotechnical Commission, Geneva.
 
+Ground contact
+--------------
+
+This section describes how the terrain holds up a conductor that sags or
+falls to the ground. Without it a conductor has no ground: MoorDyn's bottom is
+placed far below the domain, and a node that reaches the terrain leaves the
+grids or the domain and stops the run. Ground contact is therefore needed
+before a conductor can be broken and followed to the ground (the next stage of
+the line-failure work), and it lets a run continue when a slack or heated span
+sags onto the terrain. It is switched on with ``conductors.ground_contact``
+and off by default, in which case every result is unchanged. The terrain
+reaches MoorDyn through its 3-D seafloor; the record of which spans lie on the
+ground is ``Structures/Conductors/ERF_GroundContact.{H,cpp}`` (class
+``GroundContactLog``), called from ``Conductors``.
+
+Contact law
+~~~~~~~~~~~
+
+MoorDyn-C pushes a node up when it lies below the seafloor. For node
+:math:`i` of a line of diameter :math:`d` (m), at height :math:`z_i` (m) and
+vertical velocity :math:`\dot z_i` (m/s), with segment length :math:`l_i` (m),
+the contact force is vertical,
+
+.. math::
+   :label: gc-force
+
+   B_i = \bigl[\, k_b \, (z_s - z_i) - c_b \, \dot z_i \,\bigr] \, d \, l_i
+   \quad \text{when } z_i < z_s , \qquad B_i = 0 \ \text{otherwise},
+
+where :math:`z_s(x_i, y_i)` (m) is the seafloor height under the node,
+:math:`k_b` (Pa/m) the contact stiffness and :math:`c_b` (Pa s/m) the contact
+damping. MoorDyn's contact acts on the node, which is the conductor's axis.
+The seafloor is therefore the terrain :math:`h(x, y)` raised by the
+conductor's radius,
+
+.. math::
+   :label: gc-seafloor
+
+   z_s(x, y) = h(x, y) + \tfrac{1}{2} d ,
+
+so that the conductor's surface, not its axis, rests on the terrain.
+
+**Stiffness.** :math:`k_b` is MoorDyn's default, :math:`3 \times 10^6` Pa/m. A
+conductor of mass :math:`\mu` (kg/m) at rest sinks below the seafloor by
+
+.. math::
+   :label: gc-rest
+
+   \delta = \frac{\mu \, g}{k_b \, d} ,
+
+0.19 mm for :math:`\mu` = 1.628 kg/m and :math:`d` = 28.1 mm, against a
+radius of 14 mm. The run refuses a conductor with :math:`\delta > d/4`.
+
+**Damping.** A node of mass :math:`\mu l_i` on the contact spring
+:math:`k_b d l_i` oscillates at
+
+.. math::
+   :label: gc-freq
+
+   \omega_g = \sqrt{\frac{k_b \, d}{\mu}} ,
+
+independent of the segment length (227.6 rad/s for the conductor above). The
+damping that makes this contact critical is
+
+.. math::
+   :label: gc-damping
+
+   c_b = 2 \sqrt{\frac{k_b \, \mu}{d}} ,
+
+26 367 Pa s/m for that conductor. The model writes this value for each line.
+MoorDyn's default, :math:`3 \times 10^5` Pa s/m, is chosen for mooring chain.
+On a conductor it is eleven times critical. With it, a 300 m span released
+at one end 30 m above flat ground diverged as it reached the ground, while
+with Eq. :eq:`gc-damping` it came to rest.
+
+**Time step.** MoorDyn integrates Eq. :eq:`gc-force` explicitly with a
+second-order Runge-Kutta scheme (explicit midpoint) at its internal step
+:math:`\Delta t_M`. Its amplification factor on a linear oscillator is
+:math:`G(z) = 1 + z + z^2/2`, with :math:`z = \lambda \Delta t_M` for each root
+:math:`\lambda` of the damped node. The insulator strings share :math:`c_b`, so
+their damping ratio differs from one. For line type :math:`j` with
+:math:`a_j = c_b d_j / (2 \mu_j)`, the rate
+
+.. math::
+   :label: gc-rate
+
+   R_j = 2 \max \Bigl( \omega_{g,j} , \; a_j + \sqrt{\max(a_j^2 - \omega_{g,j}^2, 0)} \Bigr)
+
+is twice the largest root magnitude: :math:`2 \omega_{g,j}` for a critically
+damped or under-damped type and close to :math:`2 c_b d_j / \mu_j` for a
+strongly over-damped one. A critically damped linear contact is stable while
+:math:`R \Delta t_M < 4`. The one-sided contact chatters earlier. Nine
+conductors of 0.5 to 3 kg/m and 15 to 40 mm, each dropped 30 m onto flat
+ground, landed cleanly in every case at :math:`R \Delta t_M` = 2. They sank 1 to
+11 cm transiently at 2.5 and 3, some failed at 3.5, and all failed at 3.9. At
+start-up each line must satisfy
+
+.. math::
+   :label: gc-step
+
+   \max_j R_j \, \Delta t_M \le 1.5 ,
+
+over its line types :math:`j` (the conductor and, with strings, the
+insulator); otherwise the run stops, naming ``conductors.moordyn_dt`` and
+``conductors.moordyn_cfl``. The conductor above, in 15 m segments at
+``moordyn_cfl = 0.1``, gives 1.0; the default insulator string (60 kg over
+2.5 m, 0.254 m), under-damped with a damping ratio of 0.78, gives less. A type
+with a damping ratio below 0.1 would not be covered by the check; under the
+conductor's :math:`c_b` it would need :math:`\mu_j / d_j > 5800` kg/m\ :sup:`2`.
+
+The seafloor
+~~~~~~~~~~~~
+
+Each line's seafloor file, ``<diagnostics_dir>/<line>.seafloor.txt``, holds
+the anchor level's terrain nodes under the line and one span length around it
+(plus the string length when the line hangs from strings), clipped to the
+domain. That is the farthest a span can swing after letting go of one end. MoorDyn interpolates bilinearly between
+the nodes, as the model measures the terrain under a node, so Eq.
+:eq:`gc-seafloor` holds node for node. The grid is the smallest range of
+nodes that covers the line and that margin. A grid of more than
+:math:`10^6` points is coarsened to every :math:`n`-th node. Nodes that the
+anchor level's grids do not hold (a refined anchor level that does not cover
+the whole area) take the lowest height sampled. The conductor cannot reach
+them in any case, since a node off the anchor level's grids stops the run.
+MoorDyn reads the file in single precision, which rounds heights near
+:math:`10^4` m by up to 0.5 mm. It reads the grid's coordinates the same way:
+at a UTM northing near :math:`4.5 \times 10^6` m their spacing in single
+precision is 0.5 m. The run stops at start-up if two neighbouring grid
+coordinates become equal; a domain placed near the origin avoids this. On a
+periodic domain the grid is clipped at the domain's faces, not wrapped, so a
+span that swings across a periodic face rests on the seafloor's edge values
+there.
+
+On the ground
+~~~~~~~~~~~~~
+
+A node is on the ground when its axis is at most one diameter above the
+terrain, that is, its surface is within one radius of it. The number of span
+:math:`k`'s nodes on the ground at time :math:`t_n` is
+
+.. math::
+   :label: gc-onground
+
+   n_k(t_n) = \# \{\, i \in k : z_i(t_n) - h(x_i, y_i) \le d \,\} .
+
+It is evaluated at the end of every anchor-level step. ``GroundContactLog``
+keeps, for each span, the first time :math:`n_k > 0` and the largest
+:math:`n_k` with the time it was first reached. A resting conductor lies at
+:math:`z - h = d/2 - \delta`, well inside the criterion. A span's end nodes are
+counted with it, so a node on the ground at a clamped tower counts in both
+spans beside it.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 50
+
+   * - Input or constant
+     - Value
+     - Effect
+   * - ``conductors.ground_contact``
+     - ``false``
+     - ``true``: the terrain is each line's seafloor; spans on the ground are
+       logged
+   * - :math:`k_b`
+     - :math:`3 \times 10^6` Pa/m
+     - contact stiffness, MoorDyn's default (``ConductorInputs::ground_stiffness``)
+   * - :math:`c_b`
+     - Eq. :eq:`gc-damping`
+     - contact damping, critical for the conductor
+   * - step limit
+     - 1.5
+     - right-hand side of Eq. :eq:`gc-step` (``ConductorInputs::max_ground_step``)
+   * - grid limit
+     - :math:`10^6` points
+     - seafloor coarsening (``ConductorInputs::max_seafloor_points``)
+
+Assumptions and limitations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* **Vertical contact.** MoorDyn's contact force is vertical, not normal to the
+  terrain. On a slope of angle :math:`\theta` the vertical force has no
+  along-slope component, so a node resting on a slope is in equilibrium and
+  does not slide under gravity; its horizontal motion is not damped by the
+  ground. The vertical offset :math:`d/2` of Eq. :eq:`gc-seafloor` lets the
+  conductor's surface reach :math:`(d/2)(1 - \cos\theta)` into the slope,
+  1.9 mm at 30° for :math:`d` = 28 mm.
+* **No friction.** MoorDyn's seabed friction is a viscous approximation and is
+  not used. A conductor on the ground moves along it only under its own
+  tension and the flow's drag, resisted by nothing else. Wind loads near the ground are
+  small, and the flow sampled there is ERF's.
+* **The ground is the terrain.** Vegetation, buildings and other obstacles do
+  not hold a conductor up. The terrain does not move during a run.
+* **Start-up on the ground.** When a span already reaches the ground at the
+  start, MoorDyn's stationary initial-shape solve stops early. The span then
+  settles dynamically over the first seconds; in the tests it was at rest
+  within 15 s.
+* **Strings.** The insulator strings share the conductor's contact damping
+  (one value per MoorDyn system) and rest on the same raised seafloor.
+* **Capacities.** Ground contact changes the loads the components carry and
+  so their demands (see `Component capacities and first failure`_); it adds
+  no capacity of its own.
+
+Outputs and restart
+~~~~~~~~~~~~~~~~~~~
+
+``<diagnostics_dir>/ground_contact.csv`` holds one row per span:
+``span,nodes,nodes_on_ground,most_on_ground,most_time,first_touch_time``. The
+two times are empty for a span that has not touched the ground. It is
+rewritten every ``diagnostics_int`` steps, at each checkpoint and on a
+restart. The run prints a line at each span's first touch, at most five per
+step. Span names are those of ``capacities.csv``: ``<line>`` or
+``<line>_span<k>``.
+
+A checkpoint stores each span's record (17 significant digits) under
+``<chk>/conductors/ground_contact``. A restart rewrites the seafloor files
+from the terrain and continues the records; first touches are not reported
+again. A span the checkpoint does not hold starts at the restart, as do all
+spans when the checkpoint was written without ground contact. A restart
+with ``ground_contact = false`` keeps no records and removes the table; it
+warns that a span resting on the ground will fall through it and stop the
+run. A fresh run without ground contact removes the table and the seafloor
+files an earlier run left.
+
+Verification of ground contact
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 42 58
+
+   * - Test
+     - What is pinned
+   * - ``Conductors.TheSeafloorHoldsTheTerrainNodesUnderTheLineAndOneSpanAround``
+     - On the ramp :math:`h = 0.05x + 0.02y`: the seafloor file holds the
+       smallest range of the anchor level's nodes covering the line and one
+       span length around it (clipped to the domain), each at :math:`h + d/2`
+       less ``surface_offset``. The
+       MoorDyn input names the file, with :math:`k_b` and the :math:`c_b` of
+       Eq. :eq:`gc-damping`.
+   * - ``Conductors.ASlackSpanRestsOnTheTerrainWithGroundContactAndStopsTheRunWithout``
+     - 330 m of conductor over a 300 m chord, ends 30 m above the ramp, in
+       still air: every node on the ground rests at :math:`d/2` above the
+       terrain where it lies (stub exactly, MoorDyn-C within 1 mm), and the count of Eq.
+       :eq:`gc-onground` and its first time (the first step) are logged.
+       Without contact the same run stops.
+   * - ``Conductors.GroundContactRefusesAMoorDynStepTooLongForIt``
+     - Five 60 m segments and ``moordyn_dt`` = 0.01 s violate Eq.
+       :eq:`gc-step` (4.0 with MoorDyn-C, 4.6 with the stub): refused at
+       start-up; so is a conductor of 200 kg/m at 28.1 mm, which would sink
+       more than a quarter of its diameter.
+   * - ``Conductors.GroundContactRecordsContinueAcrossARestart``
+     - First touch, count and most survive a checkpoint and continue as in
+       the uninterrupted run; a restart without contact keeps none; one with
+       contact from a checkpoint written without it starts them there.
+   * - ``Conductors.OnAMeshWithoutTerrainTheSpanRestsOnTheDomainsFloor``
+     - Without terrain the seafloor is ``prob_lo[2]`` plus :math:`d/2`, and
+       the span rests there, inside the domain.
+   * - ``Conductors.TheContactRateIsTheFastestRootOfEachLineTypeOnTheGround``
+     - Eq. :eq:`gc-rate` for a critically damped, an under-damped and an
+       over-damped type.
+   * - ``Conductors.AnImmersedTerrainPlacesEverythingOnItsSurface``
+     - An immersed terrain's surface and the fitted mesh's nodes give the
+       same seafloors.
+   * - ``Conductors_GroundContact_Restart``, ``Conductors_GroundContact_Terrain_Restart`` (CTests, stub and MoorDyn-C)
+     - Flat ground (``Conductors_PrescribedWind``, 330 m span) and the hills
+       of ``Conductors_Terrain`` (both lines strung at 1.5 kN): the spans rest
+       on the ground from the first step (observed: 13 of 21 nodes flat,
+       four of five spans on the hills; these counts are not pinned), and the
+       restarted run's ``ground_contact.csv`` and span logs equal the
+       uninterrupted run's.
+   * - ``Conductors_GroundContactOffAbort``, ``Conductors_GroundContactStepAbort`` (CTests)
+     - The flat-ground span without contact stops with a node leaving the
+       domain; the step check of Eq. :eq:`gc-step` in a full run.
+   * - ``MoorDynInputWriter.TheSeafloorGridIsCoarsenedToItsLimitAndMissingHeightsTakeTheLowest``
+     - The coarsening and the fill of nodes no grid holds.
+   * - ``GroundContactLog.*``, ``MoorDynInputWriter.*Seafloor*``, ``MoorDynInputWriter.*GroundContact*``
+     - The log alone (first touch once, the most and its time, refused
+       counts and names, table, bit-exact round trip); the seafloor file
+       format and the contact rows of the MoorDyn input.
+
+References
+~~~~~~~~~~
+
+* Hall, M. and Goupee, A. (2015). Validation of a lumped-mass mooring line
+  model with DeepCwind semisubmersible model test data. *Ocean Engineering*,
+  104, 590-603.
+* MoorDyn-C v2 documentation, input file options ``SeafloorFile``, ``kbot``
+  and ``cbot``. https://moordyn.readthedocs.io
+
 Conductor temperature under a fire
 ----------------------------------
 

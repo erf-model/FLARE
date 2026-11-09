@@ -10,6 +10,23 @@
 // LinesRunWithTheFloatingPointTrapsOn: amrex.fpe_trap_invalid, _zero and _overflow on (in the inputs and on
 //     the thread) no longer stop the run at create(); MoorDyn starts and steps under them, and they stay on.
 // ClearanceIsTheHeightAboveTheTerrainUnderEachNode: the clearance against the terrain under each node.
+// TheSeafloorHoldsTheTerrainNodesUnderTheLineAndOneSpanAround: with ground_contact the seafloor file holds the anchor
+//     level's terrain nodes within one span length of the line (clipped to the domain), raised by the conductor's radius
+//     and lowered by surface_offset, and
+//     the MoorDyn input names it with kbot = 3e6 Pa/m and the conductor's critical cbot = 2 sqrt(kbot mu / d).
+// ASlackSpanRestsOnTheTerrainWithGroundContactAndStopsTheRunWithout: a span sagging 58 m from ends 30 m above a ramp
+//     rests on it (its axis one radius above the terrain, MoorDyn-C within 1 mm), its nodes on the ground counted and logged from the
+//     first step; without contact the same span reaches into the terrain and the run stops.
+// GroundContactRefusesAMoorDynStepTooLongForIt: a MoorDyn internal step past half the measured stability limit of the
+//     contact is refused at set_ground, naming moordyn_dt and moordyn_cfl; so is a conductor that would sink more than a
+//     quarter of its diameter into the ground at rest.
+// GroundContactRecordsContinueAcrossARestart: the spans' first touch and most nodes on the ground come back from the
+//     checkpoint, are not reported again, and continue as the uninterrupted run's do; a restart without ground_contact
+//     keeps none, and one with it from a checkpoint written without it starts them at the restart.
+// OnAMeshWithoutTerrainTheSpanRestsOnTheDomainsFloor: without terrain the seafloor is prob_lo[2] plus the radius and the
+//     span rests there, inside the domain.
+// TheContactRateIsTheFastestRootOfEachLineTypeOnTheGround: ground_rate is 2 omega for a critically damped or
+//     under-damped type and 2 (a + sqrt(a^2 - omega^2)) for an over-damped one.
 // AStringReachingBelowTheGroundIsRefused: placed, a tower's string may not end below the ground.
 // TheGridsMustReachAsFarAsTheDragDoes: the coverage reach is a cell, and with drag_on_flow 3 epsilon cells, for the
 //     epsilon of the node's line or tower type.
@@ -47,7 +64,8 @@
 // ACircuitHangsFromOneRowOfTowersEachLineAtItsOwnPoint: shared towers, points on the tower's base.
 // ACircuitOnBendingTowersMovesEveryLinesPoint: bending shared towers move every line's point.
 // AShortTautSpanOnBendingTowersStaysStable: the iterated coupling keeps a stiff span stable.
-// AnImmersedTerrainPlacesEverythingOnItsSurface: an immersed terrain on a flat mesh.
+// AnImmersedTerrainPlacesEverythingOnItsSurface: an immersed terrain on a flat mesh; with ground_contact its seafloors
+//     (the surface's branch) equal the fitted mesh's (the nodes' branch).
 // SetGroundRefusesASurfaceOffsetBelowTheDomainTop: conductors.surface_offset must hold the domain.
 // AnAttachmentOutsideTheDomainIsRefusedNamingItsKey: the abort names end_a, end_b or the tower.
 // ANonFiniteCouplingPullIsRefusedNotConverged: coupling_converged on NaN pulls; coupling_diverged at 20 in a row.
@@ -233,7 +251,8 @@ void set_inputs (const std::string& dir, const std::string& name, bool prescribe
     pp.add("diagnostics_dir", dir);
     pp.add("air_density", 1.2);
     // ParmParse is global to the test binary: drop what another test left before setting this one's
-    for (const char* key : {"prescribed_velocity", "drag_on_flow", "epsilon", "node_output_int", "stats_start", "flashover_distance"}) { pp.remove(key); }
+    for (const char* key : {"prescribed_velocity", "drag_on_flow", "epsilon", "node_output_int", "stats_start", "flashover_distance",
+                            "ground_contact", "moordyn_dt"}) { pp.remove(key); }
     if (prescribed) { pp.addarr("prescribed_velocity", std::vector<Real>{0.0, 10.0, 0.0}); }
     amrex::ParmParse ps("conductors." + name);
     ps.addarr("end_a", std::vector<Real>{a[0], a[1], a[2]});
@@ -718,6 +737,273 @@ TEST(Conductors, ClearanceIsTheHeightAboveTheTerrainUnderEachNode)
     for (const char* q : {"swing_deg", "mid_offset", "tension_a", "tension_b", "max_tension", "min_clearance", "drag_normal"}) {
         EXPECT_NE(all.find(q), std::string::npos) << q;
     }
+}
+
+namespace {
+// the rows of a seafloor file: its ticks and its heights (MoorDyn's frame), x the slower index
+struct SeafloorFile {
+    std::vector<double> x, y, z;
+    explicit SeafloorFile (const std::string& fname)
+    {
+        std::ifstream in(fname);
+        std::size_t nx = 0, ny = 0;
+        in >> nx >> ny;
+        x.resize(nx); y.resize(ny);
+        for (auto& v : x) { in >> v; }
+        for (auto& v : y) { in >> v; }
+        for (std::size_t k = 0; k < nx * ny; ++k) {
+            double px = 0.0, py = 0.0, pz = 0.0;
+            in >> px >> py >> pz;
+            EXPECT_DOUBLE_EQ(px, x[k / ny]) << "row " << k;
+            EXPECT_DOUBLE_EQ(py, y[k % ny]) << "row " << k;
+            z.push_back(pz);
+        }
+        EXPECT_TRUE(static_cast<bool>(in)) << fname;
+    }
+};
+} // namespace
+
+TEST(Conductors, TheSeafloorHoldsTheTerrainNodesUnderTheLineAndOneSpanAround)
+{
+    // the 300 m span along x at y = 500 on the ramp h = 0.05 x + 0.02 y (100 m cells): one span length,
+    // 301.5 m, around the line covers x from -1.5 (the domain's edge, 0) to 901.5 (node 1000) and y
+    // from 198.5 (node 100) to 801.5 (node 900)
+    const std::string dir = scratch("seafloor");
+    set_inputs(dir, "Tsea");
+    amrex::ParmParse("conductors").add("ground_contact", true);
+    Mesh m(true);
+    auto c = Conductors::create(0);
+    ASSERT_TRUE(c);
+    c->set_ground(m.znd.get(), m.geom);
+    amrex::ParmParse("conductors").remove("ground_contact");
+    const SeafloorFile sf(dir + "/Tsea.seafloor.txt");
+    ASSERT_EQ(sf.x.size(), 11u);
+    ASSERT_EQ(sf.y.size(), 9u);
+    for (std::size_t i = 0; i < sf.x.size(); ++i) { EXPECT_DOUBLE_EQ(sf.x[i], 100.0 * i); }
+    for (std::size_t j = 0; j < sf.y.size(); ++j) { EXPECT_DOUBLE_EQ(sf.y[j], 100.0 * (j + 1)); }
+    // the terrain at each node raised by the conductor's radius, lowered by surface_offset into MoorDyn's frame
+    for (std::size_t k = 0; k < sf.z.size(); ++k) {
+        const double expect = static_cast<double>(m.h(static_cast<Real>(sf.x[k / sf.y.size()]), static_cast<Real>(sf.y[k % sf.y.size()]))) +
+                              0.5 * 0.0281 - 10000.0;
+        EXPECT_NEAR(sf.z[k], expect, 1.0e-6) << "point " << k;
+    }
+    // the MoorDyn input names it, with the contact stiffness and the conductor's critical damping
+    std::ifstream md(dir + "/Tsea.moordyn.txt");
+    const std::string text((std::istreambuf_iterator<char>(md)), std::istreambuf_iterator<char>());
+    EXPECT_NE(text.find(dir + "/Tsea.seafloor.txt   SeafloorFile"), std::string::npos) << text;
+    // the numbers before kbot and cbot (a single-precision build writes 3e+06): 3e6 and 2 sqrt(3e6 x 1.628 / 0.0281) = 26367 Pa s/m
+    auto number_before = [&] (const std::string& key) {
+        const std::size_t at = text.find(key);
+        EXPECT_NE(at, std::string::npos) << key;
+        const std::size_t from = text.rfind('\n', at) + 1;
+        return std::stod(text.substr(from, at - from));
+    };
+    EXPECT_NEAR(number_before("   kbot"), 3.0e6, 1.0);
+    EXPECT_NEAR(number_before("   cbot"), 2.0 * std::sqrt(3.0e6 * 1.628 / 0.0281), 0.1);
+}
+
+TEST(Conductors, ASlackSpanRestsOnTheTerrainWithGroundContactAndStopsTheRunWithout)
+{
+    // 330 m of conductor over a 300 m chord sags about 58 m from ends 30 m above the ramp. Without contact its
+    // middle hangs into the terrain, where no grid holds the wind, and the run stops; with contact the middle
+    // two thirds of it must come to rest on the ramp, not below it
+    for (const bool contact : {true, false}) {
+        const std::string tag = contact ? "on" : "off";
+        const std::string dir = scratch("ground_" + tag);
+        const std::string name = "Tgr" + tag;
+        set_inputs(dir, name, false);
+        amrex::ParmParse ps("conductors." + name);
+        ps.remove("length");
+        ps.add("length", 330.0);
+        if (contact) { amrex::ParmParse("conductors").add("ground_contact", true); }
+        Mesh m(true);
+        auto c = Conductors::create(0);
+        ASSERT_TRUE(c);
+        c->set_ground(m.znd.get(), m.geom);
+        // MoorDyn-C settles the line dynamically (its initial-shape solve stops early with the span on the ground)
+        auto run = [&] { for (int s = 0; s < 30; ++s) { c->advance(0, 0.5 * s, 0.5, m.u, m.v, m.w, m.znd.get(), nullptr, m.geom); } };
+        if (!contact) {
+            const std::string msg = erf_gtest::abort_message(run);
+            EXPECT_NE(msg.find("was sampled by 0 boxes"), std::string::npos) << "a node below the terrain: " << msg;
+            EXPECT_FALSE(std::filesystem::exists(dir + "/ground_contact.csv"));
+            continue;
+        }
+        run();
+        amrex::ParmParse("conductors").remove("ground_contact");
+        const auto& span = *c->lines().front();
+        unsigned low = 0;
+        const Real lowest = span.min_clearance(low);
+        // the conductor's axis rests one radius above the terrain: the stub places it there, MoorDyn-C presses it
+        // mu g / (kbot d) = 0.19 mm deeper and reads the seafloor in float (0.5 mm at 1e4 m)
+        const Real tol = erf_moordyn::is_stub() ? postol : Real(1.0e-3);
+        EXPECT_NEAR(lowest, Real(0.5 * 0.0281), tol) << "node " << low << " rests on the terrain";
+        const int on = span.nodes_on_ground(0);
+        EXPECT_GE(on, 5) << "a long stretch of the span lies on the ground";
+        EXPECT_LT(on, static_cast<int>(span.span_num_nodes(0))) << "the ends stay up on their attachments";
+        int counted = 0;
+        for (unsigned n = 0; n < span.span_num_nodes(0); ++n) {
+            if (span.clearance(n) <= Real(0.0281)) {
+                ++counted;
+                // every node on the ground rests on the ramp where it lies, not only the lowest
+                EXPECT_NEAR(span.clearance(n), Real(0.5 * 0.0281), tol) << "node " << n;
+            }
+        }
+        EXPECT_EQ(on, counted);
+        // the log: the span touched the ground at the end of the first step and has as many nodes on it now
+        std::ifstream f(dir + "/ground_contact.csv");
+        std::string header, row;
+        ASSERT_TRUE(std::getline(f, header) && std::getline(f, row));
+        EXPECT_EQ(header, "span,nodes,nodes_on_ground,most_on_ground,most_time,first_touch_time");
+        std::istringstream r(row);
+        std::vector<std::string> fields;
+        for (std::string v; std::getline(r, v, ',');) { fields.push_back(v); }
+        ASSERT_EQ(fields.size(), 6u) << row;
+        EXPECT_EQ(fields[0], name);
+        EXPECT_EQ(std::stoi(fields[1]), static_cast<int>(span.span_num_nodes(0)));
+        EXPECT_EQ(std::stoi(fields[2]), on);
+        EXPECT_GE(std::stoi(fields[3]), on);
+        EXPECT_DOUBLE_EQ(std::stod(fields[5]), 0.5);
+    }
+}
+
+TEST(Conductors, GroundContactRefusesAMoorDynStepTooLongForIt)
+{
+    // five 60 m segments and moordyn_dt = 0.01 s: MoorDyn-C's Courant step (8.8 ms at CFL 0.1) or the stub's 10 ms,
+    // against twice the contact frequency sqrt(3e6 x 0.0281 / 1.628) = 227.6 rad/s: 4.0 and 4.6, above 2
+    const std::string dir = scratch("ground_step");
+    set_inputs(dir, "Tgs");
+    amrex::ParmParse ps("conductors.Tgs");
+    ps.add("segments", 5);
+    amrex::ParmParse pp("conductors");
+    pp.add("ground_contact", true);
+    pp.add("moordyn_dt", 0.01);
+    Mesh m(true);
+    auto c = Conductors::create(0);
+    ASSERT_TRUE(c);
+    std::string msg = erf_gtest::abort_message([&] { c->set_ground(m.znd.get(), m.geom); });
+    pp.remove("ground_contact");
+    pp.remove("moordyn_dt");
+    EXPECT_NE(msg.find("conductors.Tgs: with ground_contact MoorDyn's internal step"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("lower conductors.moordyn_dt or conductors.moordyn_cfl"), std::string::npos) << msg;
+    // a conductor too heavy for its diameter would sink into the ground: 200 kg/m at 28.1 mm sinks
+    // mu g / (kbot d) = 23 mm, more than a quarter of its diameter (7 mm)
+    const std::string dir2 = scratch("ground_sink");
+    set_inputs(dir2, "Tgk");
+    amrex::ParmParse pk("conductors.Tgk");
+    pk.remove("mass_per_length");
+    pk.add("mass_per_length", 200.0);
+    pp.add("ground_contact", true);
+    auto k = Conductors::create(0);
+    ASSERT_TRUE(k);
+    msg = erf_gtest::abort_message([&] { k->set_ground(m.znd.get(), m.geom); });
+    pp.remove("ground_contact");
+    EXPECT_NE(msg.find("conductors.Tgk: with ground_contact the conductor would sink"), std::string::npos) << msg;
+}
+
+TEST(Conductors, GroundContactRecordsContinueAcrossARestart)
+{
+    // the slack span of the test above on the ramp, checkpointed after four steps of 0.5 s; the first run goes on
+    // four more, and the restarted run must carry the same records to the same end
+    const std::string dir = scratch("ground_restart");
+    set_inputs(dir, "Tgrr", false);
+    amrex::ParmParse ps("conductors.Tgrr");
+    ps.remove("length");
+    ps.add("length", 330.0);
+    amrex::ParmParse pp("conductors");
+    pp.add("ground_contact", true);
+    Mesh m(true);
+    const double dt = 0.5;
+    auto a = Conductors::create(0);
+    a->set_ground(m.znd.get(), m.geom);
+    for (int s = 0; s < 4; ++s) { a->advance(0, dt * s, dt, m.u, m.v, m.w, m.znd.get(), nullptr, m.geom); }
+    const std::string chk = dir + "/chk00004";
+    std::filesystem::create_directories(chk);
+    a->write_checkpoint(chk);
+    ASSERT_TRUE(std::filesystem::exists(chk + "/conductors/ground_contact"));
+    const erf_conductors::GroundSpan at_chk = a->ground_contacts().span(0);
+    ASSERT_TRUE(at_chk.touched);
+    for (int s = 4; s < 8; ++s) { a->advance(0, dt * s, dt, m.u, m.v, m.w, m.znd.get(), nullptr, m.geom); }
+    auto b = Conductors::create(0);
+    b->set_ground(m.znd.get(), m.geom, chk);
+    ASSERT_EQ(b->ground_contacts().size(), 1u);
+    const auto& r = b->ground_contacts().span(0);
+    EXPECT_TRUE(r.touched);
+    EXPECT_EQ(r.first_time, at_chk.first_time) << "restored, not the restart's time";
+    EXPECT_EQ(r.now, at_chk.now);
+    EXPECT_EQ(r.most, at_chk.most);
+    EXPECT_EQ(r.most_time, at_chk.most_time);
+    for (int s = 4; s < 8; ++s) { b->advance(0, dt * s, dt, m.u, m.v, m.w, m.znd.get(), nullptr, m.geom); }
+    const auto& ra = a->ground_contacts().span(0);
+    const auto& rb = b->ground_contacts().span(0);
+    EXPECT_EQ(rb.first_time, ra.first_time);
+    EXPECT_EQ(rb.now, ra.now);
+    EXPECT_EQ(rb.most, ra.most);
+    EXPECT_EQ(rb.most_time, ra.most_time);
+    // a restart without ground_contact keeps no records
+    pp.remove("ground_contact");
+    auto o = Conductors::create(0);
+    ASSERT_TRUE(std::filesystem::exists(dir + "/ground_contact.csv"));
+    o->set_ground(m.znd.get(), m.geom, chk);
+    EXPECT_TRUE(o->ground_contacts().empty());
+    EXPECT_FALSE(std::filesystem::exists(dir + "/ground_contact.csv")) << "the earlier run's table is not this run's";
+    // a checkpoint written without ground_contact restarted with it: the records start at the restart
+    const std::string chk2 = dir + "/chk_off";
+    std::filesystem::create_directories(chk2);
+    o->write_checkpoint(chk2);
+    EXPECT_FALSE(std::filesystem::exists(chk2 + "/conductors/ground_contact"));
+    pp.add("ground_contact", true);
+    auto n = Conductors::create(0);
+    n->set_ground(m.znd.get(), m.geom, chk2);
+    ASSERT_EQ(n->ground_contacts().size(), 1u);
+    EXPECT_FALSE(n->ground_contacts().span(0).touched);
+    n->advance(0, dt * 4, dt, m.u, m.v, m.w, m.znd.get(), nullptr, m.geom);
+    EXPECT_EQ(n->ground_contacts().span(0).first_time, dt * 5) << "first touched at the end of the restart's first step";
+    pp.remove("ground_contact");
+}
+
+TEST(Conductors, OnAMeshWithoutTerrainTheSpanRestsOnTheDomainsFloor)
+{
+    // the slack span over a flat mesh without terrain: the ground is z = prob_lo[2] = 0, and the conductor's axis rests
+    // one radius above it (MoorDyn-C presses 0.19 mm deeper); without the radius it would leave the domain
+    const std::string dir = scratch("ground_flat");
+    set_inputs(dir, "Tgf", false);
+    amrex::ParmParse ps("conductors.Tgf");
+    ps.remove("length");
+    ps.add("length", 330.0);
+    amrex::ParmParse("conductors").add("ground_contact", true);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    ASSERT_TRUE(c);
+    c->set_ground(nullptr, m.geom);
+    for (int s = 0; s < 30; ++s) { c->advance(0, 0.5 * s, 0.5, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+    amrex::ParmParse("conductors").remove("ground_contact");
+    const SeafloorFile sf(dir + "/Tgf.seafloor.txt");
+    for (const double z : sf.z) { EXPECT_NEAR(z, 0.5 * 0.0281 - 10000.0, 1.0e-6); }
+    const auto& span = *c->lines().front();
+    unsigned low = 0;
+    const Real tol = erf_moordyn::is_stub() ? postol : Real(1.0e-3);
+    EXPECT_NEAR(span.min_clearance(low), Real(0.5 * 0.0281), tol);
+    EXPECT_GE(span.nodes_on_ground(0), 5);
+}
+
+TEST(Conductors, TheContactRateIsTheFastestRootOfEachLineTypeOnTheGround)
+{
+    using erf_conductors::ConductorInputs;
+    const Real mu = 1.628, d = 0.0281;
+    const Real cb = ConductorInputs::ground_damping(mu, d);
+    const Real w = ConductorInputs::ground_frequency(mu, d);
+    EXPECT_NEAR(w, std::sqrt(3.0e6 * 0.0281 / 1.628), 1.0e-3);
+    // critical: 2 omega
+    EXPECT_NEAR(ConductorInputs::ground_rate(mu, d, cb), 2 * w, 1.0e-3 * w);
+    // the default string (60 kg over 2.5 m, 0.254 m) under the conductor's cb is under-damped (ratio 0.78): 2 omega_j
+    const Real wi = ConductorInputs::ground_frequency(24.0, 0.254);
+    EXPECT_NEAR(ConductorInputs::ground_rate(24.0, 0.254, cb), 2 * wi, 1.0e-3 * wi);
+    // a light string, 20 kg over 2.5 m, is over-damped: 2 (a + sqrt(a^2 - omega^2)), a = cb d / (2 mu)
+    const Real wl = ConductorInputs::ground_frequency(8.0, 0.254);
+    const Real a = cb * Real(0.254) / Real(16.0);
+    ASSERT_GT(a, wl);
+    EXPECT_NEAR(ConductorInputs::ground_rate(8.0, 0.254, cb), 2 * (a + std::sqrt(a * a - wl * wl)), 1.0e-3 * a);
+    EXPECT_GT(ConductorInputs::ground_rate(8.0, 0.254, cb), cb * Real(0.254) / Real(8.0)) << "more than cb d / mu";
 }
 
 TEST(Conductors, TheSpreadDragIntegratesToMinusTheDragOnTheLines)
@@ -1898,7 +2184,8 @@ void set_circuit (const std::string& dir, Real damping = 0.0)
     pp.addarr("lines", std::vector<std::string>{"C1", "C2", "C3", "CS"});
     pp.add("diagnostics_dir", dir);
     pp.add("air_density", 1.2);
-    for (const char* key : {"prescribed_velocity", "drag_on_flow", "epsilon", "node_output_int", "stats_start", "flashover_distance"}) { pp.remove(key); }
+    for (const char* key : {"prescribed_velocity", "drag_on_flow", "epsilon", "node_output_int", "stats_start", "flashover_distance",
+                            "ground_contact", "moordyn_dt"}) { pp.remove(key); }
     pp.addarr("prescribed_velocity", std::vector<Real>{0.0, 10.0, 0.0});
     pp.addarr("tower_types", std::vector<std::string>{"lat"});
     amrex::ParmParse pt("conductors.lat");
@@ -2101,11 +2388,14 @@ TEST(Conductors, AnImmersedTerrainPlacesEverythingOnItsSurface)
 {
     // the same section and towers on the ramp, once on the fitted mesh and once on a flat mesh with
     // the ramp given as the immersed terrain's surface
+    // the ramp given as the immersed terrain's surface; with ground_contact both write the same seafloors
     std::vector<std::array<Real,3>> fitted;
     std::vector<Real> fitted_clearance;
+    std::vector<std::vector<double>> fitted_seafloor;
     for (int pass = 0; pass < 2; ++pass) {
         const std::string dir = scratch(pass == 0 ? "ib_fitted" : "ib_surface");
         set_circuit(dir);
+        amrex::ParmParse("conductors").add("ground_contact", true);
         Mesh m(pass == 0);
         auto c = Conductors::create(0);
         ASSERT_TRUE(c);
@@ -2125,7 +2415,17 @@ TEST(Conductors, AnImmersedTerrainPlacesEverythingOnItsSurface)
             for (unsigned i = 0; i < span->num_nodes(); ++i) { clear.push_back(span->clearance(i)); }
         }
         for (const auto& tw : c->towers()) { placed.push_back(tw.base()); }
-        if (pass == 0) { fitted = placed; fitted_clearance = clear; continue; }
+        amrex::ParmParse("conductors").remove("ground_contact");
+        std::vector<std::vector<double>> seafloor;
+        for (const auto& span : c->lines()) { seafloor.push_back(SeafloorFile(dir + "/" + span->name() + ".seafloor.txt").z); }
+        if (pass == 0) { fitted = placed; fitted_clearance = clear; fitted_seafloor = seafloor; continue; }
+        ASSERT_EQ(seafloor.size(), fitted_seafloor.size());
+        for (std::size_t l = 0; l < seafloor.size(); ++l) {
+            ASSERT_EQ(seafloor[l].size(), fitted_seafloor[l].size()) << "line " << l;
+            for (std::size_t q = 0; q < seafloor[l].size(); ++q) {
+                EXPECT_NEAR(seafloor[l][q], fitted_seafloor[l][q], 1.0e-6) << "line " << l << " point " << q;
+            }
+        }
         ASSERT_EQ(placed.size(), fitted.size());
         for (std::size_t p = 0; p < placed.size(); ++p) {
             for (int d = 0; d < 3; ++d) { EXPECT_NEAR(placed[p][d], fitted[p][d], roundoff * 1000) << "point " << p << " dir " << d; }

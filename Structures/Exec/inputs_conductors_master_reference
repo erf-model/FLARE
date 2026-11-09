@@ -114,6 +114,13 @@ conductors.thermal.solar_flux = 0.0        # Real in [0, 1500] (W/m^2). The sun'
 #conductors.thermal.reference_temperature = 15.0  # Real in [-50, 300] (C). The temperature at which the spans have
                                                 #   their input lengths. Default: none (each span's mean steady
                                                 #   temperature at the first step)
+conductors.ground_contact    = false       # true or false. The terrain holds the lines up: each line's MoorDyn
+                                                #   system takes the anchor level's terrain under it, raised by the
+                                                #   conductor's radius, as its seafloor (<line>.seafloor.txt), so a
+                                                #   conductor that sags or falls to the ground rests on it; each span's
+                                                #   first touch and most nodes on the ground go to ground_contact.csv.
+                                                #   MoorDyn's internal step must pass the contact's stability check
+                                                #   (lower moordyn_dt or moordyn_cfl otherwise). Default: false
 conductors.prescribed_velocity = 10.0 0.0 0.0  # 3 Reals (m/s). A uniform wind at every line node and tower drag
                                                 #   node instead of the flow's, for testing. Not with any gust_type. Default: none (the
                                                 #   flow is sampled at the nodes)

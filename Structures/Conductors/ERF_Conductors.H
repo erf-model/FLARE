@@ -17,6 +17,7 @@
 #include <AMReX_RealBox.H>
 
 #include "ERF_Capacities.H"
+#include "ERF_GroundContact.H"
 #include "ERF_ConductorGeometry.H"
 #include "ERF_ConductorInputs.H"
 #include "ERF_ConductorLine.H"
@@ -229,6 +230,8 @@ public:
      * stand still, every coupling step of step_moving_group() for lines on moving towers and those towers.
      */
     const erf_conductors::CapacityMonitor& capacities () const { return m_cap; }
+    /** With ground_contact, each span on the ground: first touch and the most nodes on it (empty otherwise). */
+    const erf_conductors::GroundContactLog& ground_contacts () const { return m_ground_log; }
     /** The conductors' temperatures (conductors.thermal_model = ieee738), or null. */
     const erf_conductors::LineThermal* thermal () const { return m_thermal.get(); }
 
@@ -435,6 +438,21 @@ private:
     /** Add every component with a capacity to m_cap, afresh (set_ground() or restore() calls it once the lines and towers exist). */
     void build_capacities ();
     /**
+     * With ground_contact, write each placed line's seafloor file (seafloor_file() of its MoorDyn input): the anchor
+     * level's terrain nodes under the line and one span length (and string) around it, within the domain, every
+     * node or, past ConductorInputs::max_seafloor_points, every stride-th, raised by the conductor's radius (MoorDyn's
+     * contact acts on the conductor's axis). Nodes the anchor level's grids do not hold take the lowest height
+     * sampled. set_ground() calls it before any line is made.
+     */
+    void write_seafloors (const amrex::MultiFab* z_phys_nd, const amrex::Geometry& geom);
+    /** With ground_contact, add every span to m_ground_log, afresh (set_ground() or restore() calls it once the lines exist). */
+    void build_ground_log ();
+    /**
+     * Record each span's nodes on the ground at time t (the clearances as last measured); each first touch prints a
+     * message (at most five per step). Nothing without ground_contact.
+     */
+    void check_ground (double t);
+    /**
      * Record the demands on line i's components (its spans' largest tension, its strings' top tension and the
      * magnitude of its pull at each attachment) at time t; the indices of components exceeding for the first time
      * are appended to fresh.
@@ -544,6 +562,8 @@ private:
     std::vector<std::array<std::size_t,2>> m_cap_footing;           //!< per tower: its footings' uplift and compression in m_cap
     std::vector<std::vector<std::size_t>> m_cap_member;             //!< per tower, per member: in m_cap (empty: members not checked)
     std::vector<std::size_t> m_step_fresh;                          //!< the components first exceeding in this step, every group's
+    erf_conductors::GroundContactLog m_ground_log;                  //!< with ground_contact: each span on the ground
+    std::vector<std::vector<std::size_t>> m_ground_span;            //!< per line, per span: its index in m_ground_log
 };
 
 namespace erf_conductors {

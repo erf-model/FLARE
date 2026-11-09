@@ -296,6 +296,13 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           |                                                          |                      | starts at its input      |
 |                                                           |                                                          |                      | length)                  |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.ground_contact**                             | the terrain holds the lines up: each line's MoorDyn      | true or false;       | false                    |
+|                                                           | system takes the anchor level's terrain under it, raised | MoorDyn's internal   |                          |
+|                                                           | by the conductor's radius, as its seafloor               | step must pass the   |                          |
+|                                                           | (<line>.seafloor.txt), with critical contact damping;    | contact's stability  |                          |
+|                                                           | each span's first touch of the ground and the most nodes | check                |                          |
+|                                                           | on it go to ground_contact.csv                           |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.asce74_wind**                                | the 3-second gust at 10 m over open country of an ASCE   | Real >= 0            | 0: no check              |
 |                                                           | 74 design check (m/s): every span's quasi-static wind    |                      |                          |
 |                                                           | load, swing, blowout and tension under it are written to |                      |                          |

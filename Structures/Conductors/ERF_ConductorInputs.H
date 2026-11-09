@@ -333,6 +333,12 @@ std::string first_nonfinite (const std::vector<T>& v, std::size_t per_point, con
  *                                                   peaks go to <diagnostics_dir>/capacities.csv and each component's
  *                                                   first exceedance to <diagnostics_dir>/failures.dat with or without
  *                                                   it; default false; true needs at least one capacity)
+ *   conductors.ground_contact   = false        (the terrain holds the lines up: each line's MoorDyn system takes the
+ *                                                   anchor level's terrain under it as its seafloor
+ *                                                   (<diagnostics_dir>/<line>.seafloor.txt), so a conductor that sags
+ *                                                   or falls to the ground rests on it instead of passing through it;
+ *                                                   each span's first touch of the ground and the most nodes on it go to
+ *                                                   <diagnostics_dir>/ground_contact.csv; default false)
  *   conductors.gust_type        = factor       (none, factor, event or random; default none (ERF_Gusts.H). Every
  *                                                   type but none writes every span's gust factor and peak wind load
  *                                                   from the mean wind and the k-equation RANS's k along it to
@@ -400,6 +406,46 @@ struct ConductorInputs
     amrex::Real epsilon{2.0};                           //!< (units of the anchor level's dx)
     amrex::Real flashover_distance{1.0};                //!< (m)
     bool failure_stop{false};                           //!< stop the run at the first capacity exceedance
+    bool ground_contact{false};                         //!< the terrain holds the lines up (MoorDyn's 3-D seafloor)
+    /**
+     * The ground's contact stiffness per unit area of conductor on it (Pa/m), MoorDyn's own default:
+     * a node of diameter d and length l pressed delta into the ground is pushed up with
+     * ground_stiffness d l delta. A conductor of 1.6 kg/m and 28 mm rests 0.2 mm deep.
+     */
+    static constexpr amrex::Real ground_stiffness = 3.0e6;
+    /**
+     * The contact damping (Pa s/m) that makes a node of the line type of mass mu per metre (kg/m) and
+     * diameter d (m) critically damped on the ground: 2 sqrt(ground_stiffness mu / d). MoorDyn's
+     * default, 3e5 Pa s/m, is set for mooring chain; on a conductor it is eleven times critical, and the
+     * explicit time integration diverges as the line lands.
+     */
+    static amrex::Real ground_damping (amrex::Real mu, amrex::Real d);
+    /** The contact frequency sqrt(ground_stiffness d / mu) (rad/s) of a node of that line type on the ground. */
+    static amrex::Real ground_frequency (amrex::Real mu, amrex::Real d);
+    /**
+     * The fastest rate (1/s) of a node of that line type on the ground under the contact damping cb
+     * (Pa s/m): with omega its ground_frequency and a = cb d / (2 mu), the largest magnitude of the
+     * roots of the damped oscillator, twice max(omega, a + sqrt(max(a^2 - omega^2, 0))). It is
+     * 2 omega for a critically damped type (the conductor), 2 omega for an under-damped one, and
+     * tends to 2 cb d / mu for an over-damped one (a light insulator string under the conductor's cb).
+     */
+    static amrex::Real ground_rate (amrex::Real mu, amrex::Real d, amrex::Real cb);
+    /**
+     * The rate times MoorDyn's internal step allowed. MoorDyn's second-order Runge-Kutta scheme
+     * (explicit midpoint) is stable for a linear, critically damped oscillator while the rate times
+     * the step is below 4, but the one-sided contact chatters earlier: 300 m spans of 0.5 to 3 kg/m
+     * and 15 to 40 mm dropped onto flat ground landed cleanly in every case at 2, sank 1 to 11 cm
+     * transiently at 2.5 and 3, and failed at 3.5 for some and at 3.9 for all. The check keeps 1.5.
+     * An almost undamped type (damping ratio below 0.1) would not be covered, but needs
+     * mu / d > 5800 kg/m^2 under the conductor's cb.
+     */
+    static constexpr amrex::Real max_ground_step = 1.5;
+    /**
+     * The most points of a line's seafloor file: past it the terrain is taken at every stride-th node
+     * of the anchor level. MoorDyn holds the grid on every rank (8 MB at this size) and reads it at
+     * start-up.
+     */
+    static constexpr long max_seafloor_points = 1000000;
     amrex::Real asce74_wind{0.0};                       //!< (m/s); 0: no ASCE 74 table
     std::string asce74_exposure;                        //!< B or C; empty: C
     std::string asce74_wire_height{"effective"};        //!< effective (attachment height less a third of the sag) or attachment

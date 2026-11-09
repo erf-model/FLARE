@@ -24,6 +24,16 @@ ConductorLine::ConductorLine (const LineInputs& s, const ConductorInputs& in, Re
     : m_in(s), m_offset(in.surface_offset), m_rho(in.air_density), m_g(gravity), m_substeps(in.substeps), m_file(input_file),
       m_coupled(in.towers_move(s))
 {
+    if (in.ground_contact) {
+        // resting on the ground the conductor's axis sinks mu g / (kbot d) below the raised seafloor: it must stay
+        // above the terrain, a quarter of the diameter at most (0.19 mm for 1.628 kg/m and 28.1 mm)
+        const Real sink = s.mass_per_length * gravity / (ConductorInputs::ground_stiffness * s.diameter);
+        if (!(sink <= Real(0.25) * s.diameter)) {
+            Abort("conductors." + s.name + ": with ground_contact the conductor would sink " + std::to_string(sink) + " m into the ground at "
+                  "rest, more than a quarter of its diameter: conductors." + s.name + ".mass_per_length is too large for conductors." +
+                  s.name + ".diameter");
+        }
+    }
     if (ParallelDescriptor::IOProcessor()) { write_moordyn_input(m_file, s, in, gravity); }
     ParallelDescriptor::Barrier();   // every rank reads the file the I/O rank wrote
     std::string err;
@@ -53,6 +63,22 @@ ConductorLine::ConductorLine (const LineInputs& s, const ConductorInputs& in, Re
     const bool restoring = !saved_state.empty();
     err = m_sys->init(m_x, std::vector<double>(m_x.size(), 0.0), !restoring);
     if (!err.empty()) { Abort("conductors." + s.name + ": " + err); }
+    // the ground's contact stiffness and damping against MoorDyn's internal step (explicit time integration)
+    if (in.ground_contact) {
+        const double dtm = m_sys->dt();
+        // one damping for the whole system (MoorDyn's cbot), critical for the conductor
+        const Real cb = ConductorInputs::ground_damping(s.mass_per_length, s.diameter);
+        auto check_type = [&] (Real mu, Real d, const std::string& what) {
+            const double rate = static_cast<double>(ConductorInputs::ground_rate(mu, d, cb));
+            if (!(rate * dtm <= static_cast<double>(ConductorInputs::max_ground_step))) {
+                Abort("conductors." + s.name + ": with ground_contact MoorDyn's internal step, " + std::to_string(dtm) + " s, is too long "
+                      "for the " + what + " on the ground (the contact's rate is " + std::to_string(rate) + " 1/s; the rate times the step must "
+                      "be at most " + std::to_string(ConductorInputs::max_ground_step) + "): lower conductors.moordyn_dt or conductors.moordyn_cfl");
+            }
+        };
+        check_type(s.mass_per_length, s.diameter, "conductor");
+        if (s.has_insulators()) { check_type(s.insulator_mass / s.insulator_length, s.insulator_diameter, "insulator strings"); }
+    }
     const unsigned nlines = static_cast<unsigned>(s.num_spans() + num_insulators());
     if (m_sys->num_lines() != nlines) {
         Abort("conductors." + s.name + ": the MoorDyn system holds " + std::to_string(m_sys->num_lines()) + " lines, " +
@@ -180,6 +206,17 @@ Real ConductorLine::min_clearance (unsigned& node, int k) const
         if (c < best) { best = c; node = i; }
     }
     return best;
+}
+
+int ConductorLine::nodes_on_ground (int k) const
+{
+    check_span(k);
+    const unsigned first = span_first_node(k), n = span_num_nodes(k);
+    int on = 0;
+    for (unsigned i = first; i < first + n; ++i) {
+        if (clearance(i) <= m_in.diameter) { ++on; }
+    }
+    return on;
 }
 
 std::array<Real,3> ConductorLine::node_drag (unsigned node) const
