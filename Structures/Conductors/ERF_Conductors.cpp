@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -374,6 +375,7 @@ Conductors::set_ground (const MultiFab* z_phys_nd, const Geometry& geom, const s
         }
         write_member_tables();
     }
+    build_capacities();
 }
 
 void
@@ -937,6 +939,10 @@ Conductors::step_moving_group (const std::vector<std::size_t>& lines, double tim
             }
         }
         for (const std::size_t t : towers) { load_tower_with_lines(t); }
+        // the lines and their towers against their capacities at the end of the coupling step; advance() logs
+        // the step's first exceedances, every group's, in time order once all groups have stepped
+        for (const std::size_t line : lines) { check_line_capacities(line, time + (k + 1) * h, m_step_fresh); }
+        for (const std::size_t t : towers) { check_tower_capacities(t, time + (k + 1) * h, m_step_fresh); }
     }
     for (const std::size_t line : lines) { m_lines[line]->check_clock(time + dt); }
 }
@@ -950,9 +956,18 @@ Conductors::load_towers_with_lines ()
 void
 Conductors::load_tower_with_lines (std::size_t t)
 {
+    std::vector<std::array<Real,3>> force, at;
+    tower_line_loads(t, force, at);
+    m_towers[t].set_line_loads(force, at);
+}
+
+void
+Conductors::tower_line_loads (std::size_t t, std::vector<std::array<Real,3>>& force, std::vector<std::array<Real,3>>& at) const
+{
     // each line where it hangs from the tower, which a moving tower has displaced
     const auto& lines = m_tower_lines[t];
-    std::vector<std::array<Real,3>> force(lines.size()), at(lines.size());
+    force.assign(lines.size(), {{0.0, 0.0, 0.0}});
+    at.assign(lines.size(), {{0.0, 0.0, 0.0}});
     for (std::size_t a = 0; a < lines.size(); ++a) {
         const auto [line, j] = lines[a];
         force[a] = m_lines[line]->tower_force(j);
@@ -962,7 +977,188 @@ Conductors::load_tower_with_lines (std::size_t t)
             for (int d = 0; d < 3; ++d) { at[a][d] += x[d]; }
         }
     }
-    m_towers[t].set_line_loads(force, at);
+}
+
+void
+Conductors::build_capacities ()
+{
+    m_cap = erf_conductors::CapacityMonitor();
+    m_cap_span.assign(m_lines.size(), {});
+    m_cap_string.assign(m_lines.size(), {});
+    m_cap_hardware.assign(m_lines.size(), {});
+    for (std::size_t i = 0; i < m_lines.size(); ++i) {
+        const LineInputs& s = m_placed[i];
+        const ConductorLine& c = *m_lines[i];
+        m_cap_span[i].assign(static_cast<std::size_t>(c.num_spans()), no_component);
+        m_cap_string[i].assign(static_cast<std::size_t>(c.num_insulators()), no_component);
+        m_cap_hardware[i].assign(static_cast<std::size_t>(c.num_spans() + 1), no_component);
+        if (s.rated_breaking_strength > 0.0) {
+            for (int k = 0; k < c.num_spans(); ++k) {
+                const std::string name = (c.num_spans() == 1) ? s.name : s.name + "_span" + std::to_string(k + 1);
+                m_cap_span[i][static_cast<std::size_t>(k)] = m_cap.add(erf_conductors::ComponentKind::Conductor, name);
+            }
+        }
+        if (s.insulator_rated_load > 0.0) {
+            for (int j = 0; j < c.num_insulators(); ++j) {
+                m_cap_string[i][static_cast<std::size_t>(j)] =
+                    m_cap.add(erf_conductors::ComponentKind::Insulator, s.name + "_string" + std::to_string(j + 1));
+            }
+        }
+        if (s.hardware_rated_load > 0.0) {
+            for (int a = 0; a <= c.num_spans(); ++a) {
+                const std::string where = (a == 0) ? "end_a" : (a == c.num_spans() ? "end_b" : "tower" + std::to_string(a));
+                m_cap_hardware[i][static_cast<std::size_t>(a)] =
+                    m_cap.add(erf_conductors::ComponentKind::Hardware, s.name + "_" + where);
+            }
+        }
+    }
+    m_cap_footing.assign(m_towers.size(), {{no_component, no_component}});
+    m_cap_member.assign(m_towers.size(), {});
+    for (std::size_t t = 0; t < m_towers.size(); ++t) {
+        const auto& type = m_towers[t].type();
+        const std::string& n = m_towers[t].name();
+        if (type.allowable_uplift > 0.0) {
+            m_cap_footing[t][0] = m_cap.add(erf_conductors::ComponentKind::FootingUplift, n + "_footing_uplift");
+        }
+        if (type.allowable_compression > 0.0) {
+            m_cap_footing[t][1] = m_cap.add(erf_conductors::ComponentKind::FootingCompression, n + "_footing_compression");
+        }
+        const erf_towers::FrameTower* fr = frame_tower(t);
+        if (fr && fr->has_member_checks()) {
+            for (const auto& m : fr->frame().inputs().members) {
+                m_cap_member[t].push_back(m_cap.add(erf_conductors::ComponentKind::Member, n + "_m" + std::to_string(m.id)));
+            }
+        }
+    }
+    if (m_in.failure_stop && m_cap.empty()) {
+        Abort("conductors.failure_stop = true needs a capacity to check: a line's rated_breaking_strength, "
+              "insulator_rated_load or hardware_rated_load, a tower type's allowable_uplift or allowable_compression, "
+              "or a frame tower's member design data");
+    }
+    if (!m_cap.empty()) {
+        Print() << "conductors: " << m_cap.size() << " component(s) checked against their capacities after every coupling step"
+                << (m_in.failure_stop ? "; the first exceedance stops the run" : "") << " (" << m_in.diagnostics_dir
+                << "/capacities.csv, failures.dat)\n";
+    }
+}
+
+void
+Conductors::check_line_capacities (std::size_t i, double t, std::vector<std::size_t>& fresh)
+{
+    if (m_cap.empty()) { return; }
+    const LineInputs& s = m_placed[i];
+    const ConductorLine& c = *m_lines[i];
+    auto record = [&] (std::size_t id, double demand, double capacity) {
+        if (id != no_component && m_cap.record(id, demand, capacity, t)) { fresh.push_back(id); }
+    };
+    for (int k = 0; k < c.num_spans(); ++k) {
+        record(m_cap_span[i][static_cast<std::size_t>(k)], static_cast<double>(c.max_tension(k)),
+               static_cast<double>(s.rated_breaking_strength));
+    }
+    for (int j = 0; j < c.num_insulators(); ++j) {
+        record(m_cap_string[i][static_cast<std::size_t>(j)], static_cast<double>(c.insulator_tension(j)),
+               static_cast<double>(s.insulator_rated_load));
+    }
+    if (s.hardware_rated_load > 0.0) {
+        auto mag = [] (const std::array<Real,3>& f) {
+            return std::sqrt(static_cast<double>(f[0]) * f[0] + static_cast<double>(f[1]) * f[1] + static_cast<double>(f[2]) * f[2]);
+        };
+        const int ns = c.num_spans();
+        for (int a = 0; a <= ns; ++a) {
+            const double demand = (a == 0) ? mag(c.end_force(0)) : (a == ns ? mag(c.end_force(1)) : mag(c.tower_force(a - 1)));
+            record(m_cap_hardware[i][static_cast<std::size_t>(a)], demand, static_cast<double>(s.hardware_rated_load));
+        }
+    }
+}
+
+void
+Conductors::check_tower_capacities (std::size_t tw, double t, std::vector<std::size_t>& fresh)
+{
+    if (m_cap.empty()) { return; }
+    auto record = [&] (std::size_t id, double demand, double capacity) {
+        if (id != no_component && m_cap.record(id, demand, capacity, t)) { fresh.push_back(id); }
+    };
+    const auto& type = m_towers[tw].type();
+    if (m_cap_footing[tw][0] != no_component || m_cap_footing[tw][1] != no_component) {
+        erf_towers::FoundationLoad L;
+        if (m_models[tw]) {
+            L = tower_foundation(tw);
+        } else {
+            // a tower that stands still holds the lines' pull from the step's start: load a copy with their pull now
+            erf_towers::Tower copy = m_towers[tw];
+            std::vector<std::array<Real,3>> force, at;
+            tower_line_loads(tw, force, at);
+            copy.set_line_loads(force, at);
+            L = copy.foundation();
+        }
+        record(m_cap_footing[tw][0], static_cast<double>(L.max_uplift), static_cast<double>(type.allowable_uplift));
+        record(m_cap_footing[tw][1], static_cast<double>(L.max_compression), static_cast<double>(type.allowable_compression));
+    }
+    if (!m_cap_member[tw].empty()) {
+        const auto checks = member_checks(tw);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(checks.size() == m_cap_member[tw].size(),
+                                         "Conductors::check_tower_capacities: one check per member");
+        for (std::size_t m = 0; m < checks.size(); ++m) {
+            if (!(checks[m].tension_capacity > 0.0 && checks[m].compression_capacity > 0.0)) {
+                // EN 1993-1-2 leaves no strength at 1200 C, which the tower inputs refuse; a fire coupling heating the
+                // members must decide how such a member is reported before it lets them reach it
+                Abort("conductors: member " + std::to_string(checks[m].member) + " of tower " + m_towers[tw].name() +
+                      " has no design strength (its steel at 1200 C or above), so its capacity cannot be checked");
+            }
+            double demand = 0.0, capacity = 0.0;
+            erf_conductors::member_demand(checks[m].tension, checks[m].compression, checks[m].tension_capacity,
+                                          checks[m].compression_capacity, demand, capacity);
+            record(m_cap_member[tw][m], demand, capacity);
+        }
+    }
+}
+
+void
+Conductors::report_failures (const std::vector<std::size_t>& fresh)
+{
+    if (m_in.failure_stop && !m_cap.empty()) {
+        // every rank steps its own copy of the lines; the I/O rank's decision to stop is everyone's, so that no
+        // rank goes on into ERF's next collective while another stops
+        int n = static_cast<int>(fresh.size());
+        ParallelDescriptor::Bcast(&n, 1, ParallelDescriptor::IOProcessorNumber());
+        if ((n > 0) != !fresh.empty()) {
+            Abort("conductors: the ranks disagree on whether a capacity was exceeded at this step (their copies of the "
+                  "lines differ)");
+        }
+    }
+    if (fresh.empty()) { return; }
+    if (ParallelDescriptor::IOProcessor()) {
+        std::ofstream out;
+        if (erf_actuator::open_log(out, m_in.diagnostics_dir + "/failures.dat", false)) {
+            out << erf_conductors::CapacityMonitor::failure_log_header() << "\n";
+        }
+        for (const std::size_t id : fresh) { out << m_cap.failure_row(id) << "\n"; }
+        if (!out) { Abort("cannot write '" + m_in.diagnostics_dir + "/failures.dat'"); }
+        m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv");
+    }
+    // a few lines a step on the console (a frame tower can have dozens of members over their strength at once);
+    // failures.dat has every one
+    constexpr std::size_t shown = 5;
+    for (std::size_t i = 0; i < fresh.size() && i < shown; ++i) {
+        const auto& c = m_cap.component(fresh[i]);
+        Print() << "conductors: CAPACITY EXCEEDED at t = " << std::setprecision(10) << c.first_time << " s: "
+                << erf_conductors::kind_name(c.kind) << " " << c.name << " demand " << c.first_demand << " N > capacity "
+                << c.first_capacity << " N (ratio " << c.first_demand / c.first_capacity << ")\n";
+    }
+    if (fresh.size() > shown) {
+        Print() << "conductors: and " << fresh.size() - shown << " more component(s) first over their capacity in this step ("
+                << m_in.diagnostics_dir << "/failures.dat)\n";
+    }
+    if (m_in.failure_stop) {
+        // the earliest of this step's exceedances (fresh is in time order): one restored from a checkpoint never stops a run
+        const auto& c = m_cap.component(fresh.front());
+        ParallelDescriptor::Barrier();
+        std::ostringstream msg;
+        msg << std::setprecision(10) << "conductors.failure_stop: the first capacity exceedance, " << erf_conductors::kind_name(c.kind)
+            << " " << c.name << " at t = " << c.first_time << " s (demand " << c.first_demand << " N, capacity " << c.first_capacity
+            << " N); see " << m_in.diagnostics_dir << "/failures.dat";
+        Abort(msg.str());
+    }
 }
 
 void
@@ -1178,6 +1374,7 @@ Conductors::log_files () const
     f.push_back(m_in.diagnostics_dir + "/separation.dat");
     f.push_back(m_in.diagnostics_dir + "/transformers.dat");
     f.push_back(m_in.diagnostics_dir + "/coupling.dat");
+    f.push_back(m_in.diagnostics_dir + "/failures.dat");
     return f;
 }
 
@@ -1427,6 +1624,26 @@ Conductors::restore (const std::string& dir)
                   "; the conductors.transformers must match the run being restarted");
         }
     }
+    // the capacities' peaks and first exceedances; a checkpoint without them (or a component it does not hold) starts afresh
+    build_capacities();
+    if (m_cap.empty() && erf_actuator::file_exists_everywhere(dir + "/capacities")) {
+        Print() << "conductors: the checkpoint's capacity records are not checked in this run (no capacity is given)\n";
+    }
+    if (!m_cap.empty()) {
+        if (erf_actuator::file_exists_everywhere(dir + "/capacities")) {
+            Vector<char> cchars;
+            ParallelDescriptor::ReadAndBcastFile(dir + "/capacities", cchars);
+            std::vector<std::string> dropped;
+            // ReadAndBcastFile ends the buffer with a NUL
+            const std::string err = m_cap.restore(std::string(cchars.dataPtr()), dropped);
+            if (!err.empty()) { Abort("the conductor checkpoint '" + dir + "/capacities': " + err); }
+            for (const auto& n : dropped) { Print() << "conductors: the checkpoint's capacity record " << n << " is not checked in this run\n"; }
+        } else {
+            Print() << "conductors: the checkpoint '" << dir << "' holds no capacity records; they start at the restart\n";
+        }
+        // the table as of the checkpoint, not as the run being restarted left it after it
+        if (ParallelDescriptor::IOProcessor()) { m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv"); }
+    }
     // the logs continue from the checkpoint: rows a run wrote after it are dropped
     if (ParallelDescriptor::IOProcessor()) {
         for (const std::string& f : log_files()) { erf_conductors::trim_log_after(f, m_time); }
@@ -1479,6 +1696,13 @@ Conductors::write_checkpoint (const std::string& chkdir) const
         if (!out) { Abort("cannot write the conductor checkpoint state '" + dir + "/state'"); }
         // every rank holds the same line; one copy of each is saved
         for (const auto& span : m_lines) { span->save(dir + "/" + span->name() + ".moordyn"); }
+        if (!m_cap.empty()) {
+            std::ofstream cp(dir + "/capacities", std::ios::trunc);
+            cp << m_cap.state();
+            if (!cp) { Abort("cannot write the conductor checkpoint '" + dir + "/capacities'"); }
+            // the table as checkpointed, so that a run ending here, off the diagnostics cadence, has its last peaks
+            m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv");
+        }
         if (!m_gust_z.empty()) {
             // the random gusts' processes: their number and whether they hold values, then each process's name and value
             std::ofstream gz(dir + "/gust_processes", std::ios::trunc);
@@ -1649,7 +1873,24 @@ Conductors::advance (int lev, double time, double dt,
     ++m_step;
     const bool first = (m_step == 1);
     const bool write = first || (m_step % m_in.diagnostics_int == 0);
-    if (first) { write_separation(time, true); write_transformers(time, true); }
+    if (first) {
+        write_separation(time, true);
+        write_transformers(time, true);
+        if (ParallelDescriptor::IOProcessor()) {
+            if (!m_cap.empty()) {
+                // a fresh run's failure log: the header only, until a component exceeds its capacity
+                std::ofstream out;
+                if (erf_actuator::open_log(out, m_in.diagnostics_dir + "/failures.dat", true)) {
+                    out << erf_conductors::CapacityMonitor::failure_log_header() << "\n";
+                }
+            } else {
+                // a fresh run without capacities: no failure log or table of an earlier run is left as if it were this run's
+                std::error_code ec;
+                std::filesystem::remove(m_in.diagnostics_dir + "/failures.dat", ec);
+                std::filesystem::remove(m_in.diagnostics_dir + "/capacities.csv", ec);
+            }
+        }
+    }
     // the flow's wind at the start of the step, where the lines' nodes and the towers' members are, held over the
     // step; with gusts, also the nodes' positions and k there, every line's and tower's in one pass
     const bool sample_gusts_now = gusts && time + dt >= m_in.stats_start;
@@ -1743,12 +1984,26 @@ Conductors::advance (int lev, double time, double dt,
     // the lines on towers that move step with their towers, those sharing towers together
     m_coupling_iterations = 0;
     m_coupling_unconverged = 0;
+    m_step_fresh.clear();
     for (const auto& g : m_groups) {
         if (m_lines[g.front()]->towers_move()) {
             step_moving_group(g, time, dt);
         } else {
             for (const std::size_t line : g) { m_lines[line]->step(time, dt); }
         }
+    }
+    {
+        // the lines on fixed supports and the towers that stand still against their capacities at the end of the step
+        // (the moving groups' were checked after each of their coupling steps). The step's first exceedances are
+        // logged in time order, so that with failure_stop the run stops at the earliest of them whichever group
+        // stepped first
+        for (const auto& g : m_groups) {
+            if (m_lines[g.front()]->towers_move()) { continue; }
+            for (const std::size_t line : g) { check_line_capacities(line, time + dt, m_step_fresh); }
+        }
+        for (std::size_t t = 0; t < m_towers.size(); ++t) { if (!m_models[t]) { check_tower_capacities(t, time + dt, m_step_fresh); } }
+        m_cap.order_by_first_time(m_step_fresh);
+        report_failures(m_step_fresh);
     }
     m_time = time + dt;
     if (std::any_of(m_models.begin(), m_models.end(), [] (const auto& m) { return m != nullptr; }) &&
@@ -1830,6 +2085,7 @@ Conductors::advance (int lev, double time, double dt,
     // spread into the momentum sources ERF adds over this same step (the lines advance before the flow)
     if (m_in.drag_on_flow) { spread_drag(U, z_phys_nd, detJ_cc, geom); }
     if (write) { write_total_load(time + dt, first); }
+    if (write && !m_cap.empty() && ParallelDescriptor::IOProcessor()) { m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv"); }
 }
 
 std::vector<double>

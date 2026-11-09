@@ -291,12 +291,28 @@ std::string ConductorInputs::validate_line (const LineInputs& s, bool check_slac
         {"stringing_tension", s.stringing_tension}, {"diameter", s.diameter}, {"mass_per_length", s.mass_per_length},
         {"axial_stiffness", s.axial_stiffness}, {"drag_coefficient", s.drag_coefficient}, {"damping_ratio", s.damping_ratio},
         {"insulator_length", s.insulator_length}, {"insulator_mass", s.insulator_mass}, {"insulator_diameter", s.insulator_diameter},
-        {"epsilon", s.epsilon}};
+        {"epsilon", s.epsilon}, {"rated_breaking_strength", s.rated_breaking_strength},
+        {"insulator_rated_load", s.insulator_rated_load}, {"hardware_rated_load", s.hardware_rated_load}};
     for (const auto& kv : scalars) {
         if (!std::isfinite(kv.second)) { return key + kv.first + " must be finite"; }
     }
     if (s.epsilon_given && !(s.epsilon > 0.0)) {
         return key + "epsilon must be positive (in units of the anchor level's dx; not given: conductors.epsilon)";
+    }
+    // the capacities (ERF_Capacities.H): absent means not checked, so a given one must be a real capacity
+    if (s.rated_breaking_strength_given && !(s.rated_breaking_strength > 0.0)) {
+        return key + "rated_breaking_strength must be positive (N; not given: the conductor's tension is not checked)";
+    }
+    if (s.insulator_rated_load_given && !(s.insulator_rated_load > 0.0)) {
+        return key + "insulator_rated_load must be positive (N; not given: the strings' tension is not checked)";
+    }
+    if (s.hardware_rated_load_given && !(s.hardware_rated_load > 0.0)) {
+        return key + "hardware_rated_load must be positive (N; not given: the attachments' pull is not checked)";
+    }
+    if (s.insulator_rated_load_given && !(s.insulator_length > 0.0)) {
+        // insulator_length > 0 without towers is refused below, naming insulator_length
+        return key + "insulator_rated_load is given but the line hangs from no insulator strings (it needs towers and "
+                     "insulator_length > 0)";
     }
     if (s.stringing_tension < 0.0) { return key + "stringing_tension must be positive (N), or 0 with length"; }
     if (s.stringing_tension > 0.0 && !s.lengths.empty()) { return key + "length and stringing_tension both given: give one of them"; }
@@ -524,7 +540,8 @@ std::string ConductorInputs::validate_settings (const ConductorInputs& in)
     }
     // the logs the run writes itself in diagnostics_dir, the towers' frame logs among them: no line's log may take
     // their names (the paths compared after lexical normalisation, so that conductors/./towers is conductors/towers)
-    std::vector<std::string> own{"total_load", "separation", "transformers", "ground"};
+    // failures: the capacities' first-failure log (ERF_Capacities.H), reserved whether or not a capacity is given
+    std::vector<std::string> own{"total_load", "separation", "transformers", "ground", "failures"};
     bool towers = false, moving = false;
     for (const LineInputs& s : in.lines) {
         const erf_towers::TowerType* type = in.tower_type(s);
@@ -660,6 +677,7 @@ ConductorInputs ConductorInputs::read ()
         }
     }
     pp.query("flashover_distance", in.flashover_distance);
+    pp.query("failure_stop", in.failure_stop);
     pp.query("asce74_wind", in.asce74_wind);
     pp.query("asce74_exposure", in.asce74_exposure);
     in.has_asce74_wire_height = pp.query("asce74_wire_height", in.asce74_wire_height) != 0;
@@ -724,6 +742,9 @@ ConductorInputs ConductorInputs::read ()
         ps.query("insulator_length", s.insulator_length);
         s.insulator_mass_given = ps.query("insulator_mass", s.insulator_mass) != 0;
         s.insulator_diameter_given = ps.query("insulator_diameter", s.insulator_diameter) != 0;
+        s.rated_breaking_strength_given = ps.query("rated_breaking_strength", s.rated_breaking_strength) != 0;
+        s.insulator_rated_load_given = ps.query("insulator_rated_load", s.insulator_rated_load) != 0;
+        s.hardware_rated_load_given = ps.query("hardware_rated_load", s.hardware_rated_load) != 0;
         s.output_root = in.diagnostics_dir + "/" + name;
         ps.query("output_root", s.output_root);
         // the slack is checked in Conductors::set_ground once the attachment points stand on the

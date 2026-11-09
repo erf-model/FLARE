@@ -1200,6 +1200,315 @@ have no lateral fluctuation, which carries much of the load normal to such a
 span; on the same line's 33 m span, at the same angle, it is 1.25. The default is kept: these numbers come from one LES
 realization of one network over one terrain, and no test checks them.
 
+Component capacities and first failure
+--------------------------------------
+
+This section describes how the model compares the load on each structural
+component of the lines and towers with that component's capacity, and how it
+records the first time a capacity is exceeded. It is the first stage of the
+line-failure work: it identifies which component is critical, when, and by
+how much. The structure itself is not changed when a capacity is exceeded. No
+conductor breaks and no tower is released; later stages model those events.
+The implementation is ``Structures/Conductors/ERF_Capacities.{H,cpp}``
+(class ``CapacityMonitor``), called from ``Conductors``.
+
+Demand-to-capacity ratio
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Let :math:`c` index the monitored components and :math:`t_n` the times at
+which they are checked (defined under `Instants of the check`_). The
+demand-to-capacity ratio of component :math:`c` at :math:`t_n` is
+
+.. math::
+   :label: cap-ratio
+
+   r_c(t_n) = \frac{D_c(t_n)}{C_c(t_n)} ,
+
+where :math:`D_c \ge 0` (N) is the demand on the component and
+:math:`C_c > 0` (N) its capacity. The capacities are constant within a run. A
+frame member's capacity is evaluated at each check from its steel temperature
+(:doc:`TowerFrame`), which is fixed today; a coupling that heats the members
+would make it vary. A component **exceeds** its capacity at
+:math:`t_n` when :math:`D_c(t_n) > C_c(t_n)`. A demand equal to the capacity
+is not an exceedance. The model records, for each component, the peak ratio
+and the first exceedance time:
+
+.. math::
+   :label: cap-peak
+
+   \hat r_c = \max_{n} \, r_c(t_n) , \qquad
+   t_c^{*} = \min \{\, t_n : D_c(t_n) > C_c(t_n) \,\} .
+
+The run's **first failure** is the component with the smallest
+:math:`t_c^{*}`. When two components first exceed at the same instant, the one
+listed first in ``capacities.csv`` is reported. The first exceedances of one
+ERF step, those of every group of lines and towers, are logged in time order
+once all groups have stepped, so the stop of ``conductors.failure_stop``
+follows the earliest of them, whichever group stepped first.
+
+Component demands and capacities
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A component is monitored only when its capacity is given. The capacity of
+each kind of component is a single input, so no input is added for footings
+or members: the existing tower-type and frame inputs are reused. A run whose
+tower types already give allowables, or whose frames give member design
+data, is therefore monitored without further input; its flow, lines, towers
+and existing logs are unchanged, and it writes ``capacities.csv`` and
+``failures.dat`` besides them.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 44 40
+
+   * - Kind
+     - Demand :math:`D_c`
+     - Capacity :math:`C_c` (input)
+   * - conductor (one per span)
+     - largest segment tension in the span, :math:`\max_s T_s`
+     - rated breaking strength, ``conductors.<line>.rated_breaking_strength``
+   * - insulator (one per string)
+     - tension at the top of the string, :math:`T_{\mathrm{top}}`
+     - rated mechanical load, ``conductors.<line>.insulator_rated_load``
+   * - hardware (one per dead end and per tower attachment)
+     - magnitude of the line's pull on the support, :math:`|\mathbf{F}_a|`
+     - rated load, ``conductors.<line>.hardware_rated_load``
+   * - footing uplift (one per tower)
+     - largest leg tension, Eq. :eq:`cap-legs`
+     - ``conductors.<type>.allowable_uplift``
+   * - footing compression (one per tower)
+     - largest leg compression, Eq. :eq:`cap-legs`
+     - ``conductors.<type>.allowable_compression``
+   * - member (one per frame member with design data)
+     - axial force on the governing side, Eq. :eq:`cap-member`
+     - ASCE 10-15 design strength on that side
+
+**Conductor.** :math:`T_s` (N) is the tension in segment :math:`s` of the
+span as MoorDyn reports it. MoorDyn-C reports segment (mid-segment)
+tensions, so the largest lies slightly below the tension at the attachment,
+by about :math:`w\,\Delta s\,V / (2T)` with :math:`\Delta s` the segment
+length and :math:`V` the vertical part of the end tension: 0.16 % for a
+300 m span of 20 segments. The bundled stub includes the end node. The rated breaking strength (RBS) is the
+conductor manufacturer's rating; for example, the 795 kcmil 26/7 ACSR
+(aluminium conductor, steel reinforced) Drake conductor has an RBS of
+140.1 kN.
+
+**Insulator string.** :math:`T_{\mathrm{top}}` (N) is the tension in the
+string's top segment, where it hangs from the cross-arm. The capacity is the
+string's rated mechanical load: the specified mechanical load (SML) of a
+composite insulator (IEC 61109), or the mechanical and electrical (M&E)
+rating of its porcelain or glass cap-and-pin units (ANSI C29.2B). A string of
+units in series has the rating of one unit, not the sum.
+
+**Attachment hardware.** :math:`\mathbf{F}_a` (N) is the force of the line on
+its support at attachment :math:`a`: the dead end ``end_a``, each tower, and
+``end_b``. At a dead end it is the net force on the line's end node. At a
+tower it is the net force on the top node of the insulator string, or on the
+two span ends meeting there when the conductor is clamped. Both include the
+node's share of the conductor's weight and drag with MoorDyn-C; the bundled
+stub reports the end tension alone. On a tangent tower with the conductor
+clamped, the force is the net of the two spans' pulls, mostly the weight
+between the mid-spans. The capacity applies to the
+whole load path: dead-end fittings, suspension clamps and shackles share one
+rating per line.
+
+**Footings.** The tower's foundation is four legs on a square of side
+:math:`s` (the type's ``leg_spacing``, or ``base_width`` when it is not
+given), with half-spacing :math:`a = s/2`. The
+legs share the vertical load :math:`P` (N) and the overturning moment
+:math:`(M_x, M_y)` (N m) about the base centre as a rigid cap would:
+
+.. math::
+   :label: cap-legs
+
+   R_i = \frac{P}{4} + \frac{M_y\, x_i - M_x\, y_i}{4 a^2} , \quad i = 1,\dots,4 ,
+   \qquad
+   D_{\mathrm{up}} = \max\!\big(0, -\min_i R_i\big) , \quad
+   D_{\mathrm{comp}} = \max\!\big(0, \max_i R_i\big) ,
+
+where :math:`R_i` (N, compression positive) is the axial force in leg
+:math:`i` at offset :math:`(x_i, y_i) = a(\pm \hat{\mathbf{e}}_{\parallel} \pm
+\hat{\mathbf{e}}_{\perp})` from the base centre, with
+:math:`\hat{\mathbf{e}}_{\parallel}` along the line and
+:math:`\hat{\mathbf{e}}_{\perp}` along the cross-arm.
+:math:`P = W - F_z` is the tower weight :math:`W` (the type's ``weight``)
+plus the downward part of the members' drag and of the lines' pull, the
+lines' pull being taken where each line hangs. For a moving tower the nodes'
+inertial forces are included (see `Moving towers`_). For a frame tower, the
+legs are the frame's support reactions instead (:doc:`TowerFrame`).
+
+**Members.** For a frame member with tension :math:`N_t \ge 0`, compression
+:math:`N_c \ge 0` and design strengths :math:`P_t` and :math:`P_c` in
+tension and compression (ASCE 10-15; see :doc:`TowerFrame`), the governing
+side is the one with the larger ratio:
+
+.. math::
+   :label: cap-member
+
+   (D_c, C_c) =
+   \begin{cases}
+     (N_t, P_t) & \text{if } N_t / P_t \ge N_c / P_c , \\
+     (N_c, P_c) & \text{otherwise,}
+   \end{cases}
+
+so :math:`r_c` equals the member's utilisation in
+``tower_<name>_members.csv``.
+
+Instants of the check
+~~~~~~~~~~~~~~~~~~~~~
+
+The check runs at the end of every coupling step between the lines and the
+rest of the model:
+
+* lines on fixed supports, and towers that stand still, are checked once at
+  the end of each step of the anchor level, :math:`t_n = t + \Delta t`;
+* lines on moving towers, with those towers, are checked at the end of each of
+  the :math:`N` coupling steps of length :math:`h = \Delta t / N` that their
+  group takes within the step (see `Moving towers`_), at
+  :math:`t_n = t + k h`, :math:`k = 1, \dots, N`.
+
+A tower that stands still is loaded, for the check, by the lines' pull at the
+end of the step and by the members' drag held over the step. ``towers.dat``
+reports the same tower at the step's start, so its values can differ from the
+check by the change of the lines' pull over one step.
+
+The lines step only on their anchor level, so the check does too. With
+subcycling, a line on a refined anchor level is checked at every step of that
+level. If the refinement ratio in time is :math:`r_t`, that is
+:math:`r_t` checks per coarse step, stamped with the anchor level's times.
+A call on another level records nothing. This follows the multi-level
+requirement of the structure coupling (erf-model/ERF#5009, raised by
+A. Almgren): the model acts on, and is reported at, its own level's steps.
+
+Assumptions and limitations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* **Nominal values.** Demands are the computed loads and capacities are the
+  given ratings, without load or strength factors. The RBS and the SML are
+  failing loads, so an exceedance of them marks a failure, not a design
+  limit. A design check against a factored limit, for example a fraction of
+  the RBS, is made by entering that limit as the capacity.
+* **Sampling.** Demands are sampled at the coupling instants only: once per
+  ERF step for lines on fixed supports, once per coupling step for lines on
+  moving towers. MoorDyn's internal steps between them are not sampled. For a
+  300 m span the swing modes have periods near 6 s, so at
+  :math:`\Delta t` = 0.1, 0.25 and 0.5 s a sinusoidal swing is sampled 60, 24
+  and 12 times per period and its peak is underestimated by at most 0.14 %,
+  0.9 % and 3.4 % of the fluctuating part, :math:`1 - \cos(\pi/N)`. The
+  axial elastic mode (about 7 Hz) and impulsive loads, such as a release or
+  ice shedding, are shorter than one step and are missed. A smaller ERF step
+  samples more often.
+* **Axial loads only.** Conductor, insulator and hardware demands are force
+  magnitudes. Bending, torsion and fatigue of the hardware and the conductor
+  at the clamp are not checked. Member checks are the axial checks of
+  ASCE 10-15, without combined bending.
+* **Rigid-cap footings.** Eq. :eq:`cap-legs` assumes a rigid cap on four
+  identical legs. Foundation stiffness and soil-structure interaction enter
+  only through the tower models, not the split.
+* **No failure response.** An exceedance does not change the structure. With
+  ``conductors.failure_stop = true`` the run stops instead, with an abort after
+  ``failures.dat`` and ``capacities.csv`` are written. The step's other logs,
+  plotfile and checkpoint are not written; the last periodic checkpoint
+  remains available. Exceedances restored from a checkpoint do not stop a
+  restarted run; only a new one does.
+
+Outputs and restart
+~~~~~~~~~~~~~~~~~~~
+
+``<diagnostics_dir>/capacities.csv`` holds one row per component: its kind
+and name, the last demand and capacity, the peak ratio :math:`\hat r_c` with
+its demand, capacity and time, and, once it has exceeded its capacity,
+:math:`t_c^{*}` with the demand and capacity then. It is rewritten every
+``diagnostics_int`` steps, at each first exceedance, at each checkpoint and on
+a restart.
+``<diagnostics_dir>/failures.dat`` appends one row,
+``time kind component demand capacity ratio``, at each component's first
+exceedance, and the run prints the same line, at most five a step (a frame
+tower can have dozens of members over their strength at once). Component names are
+``<line>`` or ``<line>_span<k>`` (conductor), ``<line>_string<j>``,
+``<line>_end_a``, ``<line>_tower<j>``, ``<line>_end_b``,
+``<tower>_footing_uplift``, ``<tower>_footing_compression`` and
+``<tower>_m<id>``.
+
+A checkpoint stores every component's record (17 significant digits) under
+``<chk>/conductors/capacities``. A restart continues the peaks and keeps the
+first exceedances, which are not reported again. ``failures.dat`` drops the
+rows written after the checkpoint. A component whose capacity is first given
+on the restart starts there. A checkpoint record for a component no longer
+monitored is dropped with a message. A capacity changed on the restart keeps
+the component's record from before it: the earlier peak ratio and first
+exceedance were found against the earlier capacity.
+
+Verification of the checks
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 42 58
+
+   * - Test
+     - What is pinned
+   * - ``Conductors.CapacitiesAreCheckedAfterEveryStepOfTheAnchorLevelOnly``
+     - Two levels, lines on level 1. A level-0 call records nothing. The
+       conductor demand equals the elastic catenary's still-air end tension
+       to 0.5 % (stub −0.03 %, MoorDyn-C −0.28 %). An RBS of 0.99 times that tension is first exceeded at the
+       end of the first level-1 step, and each first exceedance is logged
+       once.
+   * - ``Conductors.ACapacityAboveTheDemandIsNeverExceeded``
+     - An RBS of 1.01 times the catenary tension: peak ratio
+       :math:`1/1.01`, no exceedance.
+   * - ``Conductors.AStandingTowersFootingsAndAttachmentsAreChecked``
+     - Still air: leg compression :math:`(W - F_z)/4`, zero uplift; the
+       tower hardware demand equals the line's pull there.
+   * - ``Conductors.AStandingTowerIsCheckedUnderTheLinesPullAtTheStepsEnd``
+     - A crosswind blows the section out in the first step: the tower's check
+       after it equals the load the tower carries over the next step, not the
+       still-air load it held during the first.
+   * - ``Conductors.AMovingTowerIsCheckedAfterEveryCouplingStep``
+     - Towers bending at 2 Hz, :math:`N = 10` coupling steps per ERF step: the
+       first exceedance is at :math:`t = h = \Delta t / 10`.
+   * - ``Conductors_Capacities_TwoLevel`` (CTest, stub)
+     - ``Conductors_TwoLevel`` with the span on level 1 (0.125 s under level
+       0's 0.25 s) and an RBS of 13 892 N: the first row of ``failures.dat`` is
+       at 1.875 s, the first time the span's largest tension in ``S1.dat``
+       passes the RBS, between two level-0 steps (a check at level 0's steps
+       would give 2.0 s); the peak demand in ``capacities.csv`` equals the
+       largest tension in ``S1.dat``.
+   * - ``Conductors_Capacities_Restart`` (CTest, stub)
+     - A checkpoint at step 5 (1.25 s) between the conductor's first
+       exceedance (0.5 s) and the dead ends' (1.875 s): the restarted run's
+       ``failures.dat`` equals the uninterrupted run's.
+   * - ``Conductors_FailureStopAbort``, ``Conductors_FailureStopNeedsCapacityAbort`` (CTests)
+     - The run stops at the first step naming the conductor; ``failure_stop``
+       without a capacity stops at start-up.
+   * - ``Conductors.FailureStopEndsTheRunAtTheFirstExceedance``,
+       ``Conductors.FailureStopNeedsACapacity``
+     - The abort names the component and time after ``failures.dat`` is
+       written; ``failure_stop`` without a capacity is refused.
+   * - ``Conductors.CapacityRecordsContinueAcrossARestart``
+     - First exceedances and peaks survive a checkpoint; rows after it are
+       dropped; a capacity added on the restart starts there.
+   * - ``Capacities.*``
+     - The monitor alone: strict exceedance, peak by ratio under a changing
+       capacity, first failure on ties, bit-exact state round trip, the table
+       and log formats, member governing side, refused inputs.
+
+References
+~~~~~~~~~~
+
+* ASCE (2015). *Design of Latticed Steel Transmission Structures*,
+  ASCE/SEI 10-15. American Society of Civil Engineers, Reston, VA.
+* ASCE (2020). *Guidelines for Electrical Transmission Line Structural
+  Loading*, ASCE Manuals and Reports on Engineering Practice No. 74, 4th ed.
+  American Society of Civil Engineers, Reston, VA.
+* ANSI C29.2B. *American National Standard for Insulators - Wet-Process
+  Porcelain and Toughened Glass - Transmission Suspension Type.* American
+  National Standards Institute, New York.
+* IEC 61109:2008. *Insulators for overhead lines - Composite suspension and
+  tension insulators for a.c. systems with a nominal voltage greater than
+  1 000 V - Definitions, test methods and acceptance criteria.* International
+  Electrotechnical Commission, Geneva.
+
 Restart
 -------
 
@@ -1210,7 +1519,7 @@ statistics of every span, of each line's strings, of every pair of lines,
 transformer and tower, the gusts' per-span means (started afresh when the
 checkpoint has none), the random gusts' processes (drawn afresh at the
 restart's first step when the checkpoint has none, or other ones: another
-number, or lines taking each other's gusts differently), each moving tower's sway, the step count and the time.
+number, or lines taking each other's gusts differently), each moving tower's sway, the capacity records (see `Component capacities and first failure`_), the step count and the time.
 On a restart the line is created from the same inputs, initialised without the initial-shape solve and given that state, so
 it continues blown out exactly where the checkpoint left it, on MoorDyn's
 clock; the statistics go on accumulating, and the diagnostics continue on the

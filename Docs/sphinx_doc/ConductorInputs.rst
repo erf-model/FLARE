@@ -93,6 +93,18 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           |                                                          | insulator_length is  |                          |
 |                                                           |                                                          | 0                    |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.<line>.rated_breaking_strength**             | the conductor's rated breaking strength (N), checked     | Real > 0             | none: not checked        |
+|                                                           | against the largest tension of every span after every    |                      |                          |
+|                                                           | coupling step (capacities.csv, failures.dat)             |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.<line>.insulator_rated_load**                | the rated mechanical load (specified mechanical load, or | Real > 0; needs      | none: not checked        |
+|                                                           | the M&E rating of one unit) of each insulator string     | towers and           |                          |
+|                                                           | (N), checked against the tension at the string's top     | insulator_length > 0 |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.<line>.hardware_rated_load**                 | the rated load of the attachment hardware (N), checked   | Real > 0             | none: not checked        |
+|                                                           | against the magnitude of the line's pull at each dead    |                      |                          |
+|                                                           | end and each tower                                       |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.<line>.tower_type**                          | the suspension towers of the line are lattice towers of  | one of the tower     | none                     |
 |                                                           | this type, loaded by the wind on their members and by    | types; needs towers  |                          |
 |                                                           | the line, on four footings (towers.dat); none: the       |                      |                          |
@@ -212,6 +224,18 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 | **conductors.flashover_distance**                         | two lines whose conductors come closer than this are     | Real > 0             | 1.0                      |
 |                                                           | flagged as clashing in separation.dat, and a conductor   |                      |                          |
 |                                                           | this close to a transformer in transformers.dat (m)      |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.failure_stop**                               | stop the run (an abort naming the component) at the      | true or false; true  | false                    |
+|                                                           | first coupling step where a component's demand exceeds   | needs a capacity: a  |                          |
+|                                                           | its capacity, after failures.dat and capacities.csv are  | line's rated_breakin |                          |
+|                                                           | written; exceedances restored from a checkpoint do not   | g_strength,          |                          |
+|                                                           | stop it                                                  | insulator_rated_load |                          |
+|                                                           |                                                          | or                   |                          |
+|                                                           |                                                          | hardware_rated_load, |                          |
+|                                                           |                                                          | a tower type's       |                          |
+|                                                           |                                                          | allowables, or a     |                          |
+|                                                           |                                                          | frame's member       |                          |
+|                                                           |                                                          | design data          |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.asce74_wind**                                | the 3-second gust at 10 m over open country of an ASCE   | Real >= 0            | 0: no check              |
 |                                                           | 74 design check (m/s): every span's quasi-static wind    |                      |                          |
@@ -333,11 +357,15 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           |                                                          | with frame_file or   |                          |
 |                                                           |                                                          | frame_panels         |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
-| **conductors.<type>.allowable_uplift**                    | a footing's pull-out capacity (N); flagged in towers.dat | Real >= 0 (0: not    | 0                        |
-|                                                           | above it                                                 | checked)             |                          |
+| **conductors.<type>.allowable_uplift**                    | a footing's pull-out capacity (N): flagged in towers.dat | Real >= 0 (0: not    | 0                        |
+|                                                           | above it, and the capacity of each tower's footing       | checked)             |                          |
+|                                                           | uplift after every coupling step (capacities.csv,        |                      |                          |
+|                                                           | failures.dat; a capacity for failure_stop)               |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
-| **conductors.<type>.allowable_compression**               | a footing's bearing capacity (N); flagged above it       | Real >= 0 (0: not    | 0                        |
-|                                                           |                                                          | checked)             |                          |
+| **conductors.<type>.allowable_compression**               | a footing's bearing capacity (N): flagged above it, and  | Real >= 0 (0: not    | 0                        |
+|                                                           | the capacity of each tower's footing compression after   | checked)             |                          |
+|                                                           | every coupling step (capacities.csv, failures.dat; a     |                      |                          |
+|                                                           | capacity for failure_stop)                               |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.<type>.frequency**                           | the tower's first bending frequency on a rigid           | Real >= 0; > 0 needs | 0                        |
 |                                                           | foundation (Hz): the tower sways in that mode under its  | weight > 0; not with |                          |
@@ -377,6 +405,9 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           | (role, yield strength, angle, net area, end conditions;  | frame_file           |                          |
 |                                                           | see the lattice tower frame model): each member is       |                      |                          |
 |                                                           | checked against its strength (ASCE 10-15) every step     |                      |                          |
+|                                                           | and, as a capacity, after every coupling step            |                      |                          |
+|                                                           | (capacities.csv, failures.dat; a capacity for            |                      |                          |
+|                                                           | failure_stop)                                            |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.<type>.frame_panels**                        | generate the tower's frame from this type's dimensions,  | Integer in [0, 200], | 0: none                  |
 |                                                           | with this many panels of the shaft below the cross-arm:  | and a frame of at    |                          |
@@ -441,5 +472,3 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 | **conductors.<transformer>.allowable_moment**             | the overturning moment about the centre of its base it   | Real >= 0 (0: not    | 0                        |
 |                                                           | may take (N m); flagged above it                         | checked)             |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
-
-.. _sec:SolverChoice:

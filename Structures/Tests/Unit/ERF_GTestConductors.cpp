@@ -73,6 +73,27 @@
 //     checkpoint written without gusts draws them afresh from the stationary law at the restart's first step.
 // TheGustFactorRunsOnLinesWithLatticeTowers: gust_type = factor on a section with lattice towers, whose drag nodes
 //     it does not sample, writes gusts.csv and no gust series.
+// CapacitiesAreCheckedAfterEveryStepOfTheAnchorLevelOnly: with two levels and the lines on level 1, a level-0 call
+//     records nothing and each component's first exceedance is stamped with the end of the first level-1 step; the
+//     still-air conductor tension (the demand) matches the elastic catenary; failures.dat holds each once.
+// ACapacityAboveTheDemandIsNeverExceeded: an RBS 1 % over the still-air tension: peak ratio 1/1.01, no row.
+// FailureStopEndsTheRunAtTheFirstExceedance: the abort names the component and time after failures.dat is written.
+// FailureStopNeedsACapacity: failure_stop without any capacity is refused at set_ground.
+// CapacityRecordsContinueAcrossARestart: peaks and first exceedances come back from the checkpoint and are not reported
+//     again (nor stop a run restarted with failure_stop), a capacity added at the restart starts there (the trimming of rows after the checkpoint is the CTest
+//     Conductors_Capacities_Restart's).
+// AStandingTowersFootingsAndAttachmentsAreChecked: in still air each standing tower's legs carry (W - F_z) / 4, which
+//     exceeds a lower allowable_compression, no uplift; the hardware at a tower carries the line's pull there.
+// AStandingTowerIsCheckedUnderTheLinesPullAtTheStepsEnd: a tower that stands still is checked under the lines' pull at
+//     the end of the step, the load it carries over the next step, not the start-of-step load towers.dat reports.
+// AMovingTowerIsCheckedAfterEveryCouplingStep: lines on towers that bend are checked with their towers at the end of
+//     every coupling step, t = h = dt / N, not only at the end of the ERF step.
+// AStepsFirstExceedancesAreLoggedInTimeOrderAcrossGroups: with two groups on bending towers, the step's first
+//     exceedances are written in time order and failure_stop names the earliest, not the first group's.
+// ACircuitsStringsHardwareAndSharedFootingsAreChecked: a circuit on shared bending towers: strings, hardware and the
+//     shared towers' footings (once each, all four lines' load) are first exceeded at t = h, their demands the end state.
+// AFrameTowersMembersAreCheckedAgainstTheirStrength: generated frame towers: one component per member, its ratio the
+//     member's ASCE 10-15 utilisation.
 // ALineTakesAnotherLinesGustsAndAChangedSharingDrawsAfresh: a line naming another in gust_with takes its random
 //     gust, each along its span's mean horizontal wind in a wind that veers with the height; a restart whose lines
 //     share differently, with as many processes, draws them afresh.
@@ -106,6 +127,7 @@
 #include "ERF_GTestTempDir.H"
 #include "ERF_ActuatorSpreading.H"
 #include "ERF_Conductors.H"
+#include "ERF_Constants.H"
 #include "ERF_Gusts.H"
 #include "ERF_IndexDefines.H"
 #include "ERF_GTestThrowOnAbort.H"
@@ -2687,4 +2709,416 @@ TEST(Conductors, ALineTakesAnotherLinesGustsAndAChangedSharingDrawsAfresh)
     check(*b, 0, where[0], erf_conductors::gust_normal(5, 0, 4), "Tga after the restart");
     check(*b, 1, where[1], erf_conductors::gust_normal(5, 1, 4), "Tgb after the restart");
     check(*b, 2, where[2], erf_conductors::gust_normal(5, 0, 4), "Tgc after the restart, with Tga's gusts");
+}
+
+namespace {
+// the still-air end tension of the 300 m span of set_inputs (301.5 m unstretched) by the elastic catenary (N)
+Real still_air_end_tension ()
+{
+    const Real w = (Real(1.628) - Real(1.2) * Real(0.25) * Real(3.14159265358979323846) * Real(0.0281) * Real(0.0281)) * Real(CONST_GRAV);
+    const auto cat = erf_conductors::elastic_catenary(300.0, 301.5, w, 3.0e7);
+    EXPECT_TRUE(cat.solved);
+    return cat.end_tension;
+}
+// still air: the line keeps its catenary, whose tension the elastic catenary gives
+void set_still_air (const std::string& dir, const std::string& name)
+{
+    set_inputs(dir, name, false);
+    amrex::ParmParse("conductors").addarr("prescribed_velocity", std::vector<Real>{0.0, 0.0, 0.0});
+}
+void clear_capacities (const std::string& name)
+{
+    amrex::ParmParse ps("conductors." + name);
+    for (const char* k : {"rated_breaking_strength", "insulator_rated_load", "hardware_rated_load"}) { ps.remove(k); }
+    amrex::ParmParse pp("conductors");
+    pp.remove("failure_stop");
+    pp.remove("prescribed_velocity");
+}
+std::vector<std::string> data_rows (const std::string& file)
+{
+    std::ifstream f(file);
+    std::vector<std::string> rows;
+    for (std::string l; std::getline(f, l);) { if (!l.empty() && l.rfind("time", 0) != 0) { rows.push_back(l); } }
+    return rows;
+}
+} // namespace
+
+TEST(Conductors, CapacitiesAreCheckedAfterEveryStepOfTheAnchorLevelOnly)
+{
+    // Ann's multi-level point (#5009) for the capacities: the lines step on their anchor level, so the
+    // check runs once per anchor-level step and is stamped with that step's end, whatever the other
+    // levels do. Two levels, the anchor level 1: a level-0 call records nothing.
+    const std::string dir = scratch("capacities_anchor");
+    set_still_air(dir, "Tcap");
+    const Real T = still_air_end_tension();
+    amrex::ParmParse ps("conductors.Tcap");
+    ps.add("rated_breaking_strength", 0.99 * T);   // just below the still-air end tension: exceeded at once
+    ps.add("hardware_rated_load", 0.95 * T);       // the dead ends carry the end tension and half a segment's weight
+    Mesh m(false);
+    auto c = Conductors::create(1);
+    ASSERT_TRUE(c);
+    c->set_ground(nullptr, m.geom);
+    const auto& cap = c->capacities();
+    ASSERT_EQ(cap.size(), 3u) << "the span's conductor and the hardware at its two dead ends";
+    EXPECT_EQ(cap.component(0).name, "Tcap");
+    EXPECT_EQ(cap.component(1).name, "Tcap_end_a");
+    EXPECT_EQ(cap.component(2).name, "Tcap_end_b");
+    // the still-air span against the elastic catenary's end tension: the pin of the demand. 0.5 % holds both
+    // libraries: the stub's largest tension includes the end node (-0.03 %); MoorDyn-C's is the largest segment
+    // tension, -0.16 % below the end's with 20 segments, and its line settles from its initial shape (-0.28 %
+    // measured with MoorDyn-C 2.7.1); taking H instead would miss by 1.6 %
+    EXPECT_NEAR(c->lines()[0]->max_tension(0) / T, 1.0, 5.0e-3);
+    c->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    for (const auto& comp : cap.components()) { EXPECT_FALSE(comp.seen) << comp.name << ": level 0 is not the anchor level"; }
+    const double dt = 0.125;
+    for (int s = 0; s < 2; ++s) { c->advance(1, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+    for (const auto& comp : cap.components()) {
+        EXPECT_TRUE(comp.exceeded) << comp.name;
+        EXPECT_EQ(comp.first_time, dt) << comp.name << ": the end of the first anchor-level step";
+        EXPECT_EQ(comp.peak_time == dt || comp.peak_time == 2 * dt, true) << comp.name;
+        EXPECT_EQ(comp.demand >= comp.first_capacity, true);
+    }
+    EXPECT_NEAR(cap.component(0).demand, static_cast<double>(c->lines()[0]->max_tension(0)), 1.0e-9 * T);
+    const auto ea = c->lines()[0]->end_force(0);
+    EXPECT_NEAR(cap.component(1).demand, std::sqrt(double(ea[0]) * ea[0] + double(ea[1]) * ea[1] + double(ea[2]) * ea[2]), 1.0e-9 * T);
+    // each first exceedance logged once, in the order the components were checked
+    const auto rows = data_rows(dir + "/failures.dat");
+    ASSERT_EQ(rows.size(), 3u);
+    EXPECT_EQ(rows[0].rfind("0.125 conductor Tcap ", 0), 0u) << rows[0];
+    EXPECT_EQ(rows[1].rfind("0.125 hardware Tcap_end_a ", 0), 0u) << rows[1];
+    EXPECT_TRUE(std::filesystem::exists(dir + "/capacities.csv"));
+    clear_capacities("Tcap");
+}
+
+TEST(Conductors, ACapacityAboveTheDemandIsNeverExceeded)
+{
+    const std::string dir = scratch("capacities_held");
+    set_still_air(dir, "Tcaph");
+    const Real T = still_air_end_tension();
+    amrex::ParmParse("conductors.Tcaph").add("rated_breaking_strength", 1.01 * T);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    for (int s = 0; s < 4; ++s) { c->advance(0, 0.25 * s, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+    const auto& comp = c->capacities().component(0);
+    EXPECT_TRUE(comp.seen);
+    EXPECT_FALSE(comp.exceeded);
+    EXPECT_NEAR(comp.peak_ratio, 1.0 / 1.01, 5.0e-3);   // the demand's 0.5 % above (stub -0.03 %, MoorDyn-C -0.28 %)
+    EXPECT_TRUE(data_rows(dir + "/failures.dat").empty()) << "the header only";
+    clear_capacities("Tcaph");
+}
+
+TEST(Conductors, FailureStopEndsTheRunAtTheFirstExceedance)
+{
+    const std::string dir = scratch("capacities_stop");
+    set_still_air(dir, "Tstop");
+    const Real T = still_air_end_tension();
+    amrex::ParmParse("conductors.Tstop").add("rated_breaking_strength", 0.99 * T);
+    amrex::ParmParse("conductors").add("failure_stop", true);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    const std::string msg = erf_gtest::abort_message([&] { c->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom); });
+    EXPECT_NE(msg.find("conductors.failure_stop"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("conductor Tstop at t = 0.25"), std::string::npos) << msg;
+    // the logs are written before the run stops
+    EXPECT_TRUE(std::filesystem::exists(dir + "/capacities.csv"));
+    const auto rows = data_rows(dir + "/failures.dat");
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0].rfind("0.25 conductor Tstop ", 0), 0u) << rows[0];
+    clear_capacities("Tstop");
+}
+
+TEST(Conductors, FailureStopNeedsACapacity)
+{
+    const std::string dir = scratch("capacities_none");
+    set_still_air(dir, "Tnone");
+    amrex::ParmParse("conductors").add("failure_stop", true);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    const std::string msg = erf_gtest::abort_message([&] { c->set_ground(nullptr, m.geom); });
+    EXPECT_NE(msg.find("conductors.failure_stop = true needs a capacity"), std::string::npos) << msg;
+    clear_capacities("Tnone");
+}
+
+TEST(Conductors, CapacityRecordsContinueAcrossARestart)
+{
+    const std::string dir = scratch("capacities_restart");
+    set_still_air(dir, "Tcr");
+    const Real T = still_air_end_tension();
+    amrex::ParmParse("conductors.Tcr").add("rated_breaking_strength", 0.99 * T);
+    Mesh m(false);
+    const double dt = 0.25;
+    auto a = Conductors::create(0);
+    a->set_ground(nullptr, m.geom);
+    for (int s = 0; s < 3; ++s) { a->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+    const std::string chk = dir + "/chk00003";
+    std::filesystem::create_directories(chk);
+    a->write_checkpoint(chk);
+    const auto saved = a->capacities().component(0);
+    // the first run goes on past the checkpoint; the restarted run drops its rows after it
+    for (int s = 3; s < 5; ++s) { a->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+    // the restart adds the hardware's capacity: those components start at the restart
+    amrex::ParmParse("conductors.Tcr").add("hardware_rated_load", 0.95 * T);
+    auto b = Conductors::create(0);
+    b->set_ground(nullptr, m.geom, chk);
+    ASSERT_TRUE(b->restored());
+    ASSERT_EQ(b->capacities().size(), 3u);
+    const auto& r = b->capacities().component(0);
+    EXPECT_TRUE(r.exceeded);
+    EXPECT_EQ(r.first_time, saved.first_time);
+    EXPECT_EQ(r.peak_ratio, saved.peak_ratio);
+    EXPECT_FALSE(b->capacities().component(1).seen);
+    for (int s = 3; s < 5; ++s) { b->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+    EXPECT_EQ(b->capacities().component(0).first_time, dt) << "not reported again after the restart";
+    const auto rows = data_rows(dir + "/failures.dat");
+    ASSERT_EQ(rows.size(), 3u) << "the conductor's row from before the checkpoint, then the two dead ends' at the restart";
+    EXPECT_EQ(rows[0].rfind("0.25 conductor Tcr ", 0), 0u) << rows[0];
+    EXPECT_EQ(rows[1].rfind("1 hardware Tcr_end_a ", 0), 0u) << rows[1];
+    // a restart with failure_stop: the conductor's exceedance restored from the checkpoint (0.25 s) does not stop it,
+    // the dead ends' new one at the first step after it (1 s) does, and is the one named
+    amrex::ParmParse("conductors").add("failure_stop", true);
+    auto s = Conductors::create(0);
+    s->set_ground(nullptr, m.geom, chk);
+    const std::string msg = erf_gtest::abort_message([&] { s->advance(0, 3 * dt, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); });
+    EXPECT_NE(msg.find("hardware Tcr_end_a at t = 1 s"), std::string::npos) << msg;
+    clear_capacities("Tcr");
+}
+
+TEST(Conductors, AStandingTowersFootingsAndAttachmentsAreChecked)
+{
+    // still air on a section over two towers that stand still: each tower's legs share its weight and the
+    // lines' downward pull equally, (W - F_z) / 4 in compression, no uplift
+    const std::string dir = scratch("capacities_towers");
+    set_towered_section(dir, "Tft2");
+    amrex::ParmParse("conductors").remove("prescribed_velocity");
+    amrex::ParmParse("conductors").addarr("prescribed_velocity", std::vector<Real>{0.0, 0.0, 0.0});
+    amrex::ParmParse pt("conductors.lat");
+    pt.add("allowable_uplift", 1.0e5);
+    // the legs carry about (9e4 + 4.8e3) / 4 = 2.37e4 N: an allowable of 2.3e4 N is exceeded, 1e5 N of uplift is not
+    pt.add("allowable_compression", 2.3e4);
+    amrex::ParmParse("conductors.Tft2").add("hardware_rated_load", 1.0e6);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    const auto& cap = c->capacities();
+    // per line: four attachments (end_a, two towers, end_b); per tower: uplift and compression
+    ASSERT_EQ(cap.size(), 4u + 2u * 2u);
+    EXPECT_EQ(cap.component(2).name, "Tft2_tower2");
+    EXPECT_EQ(cap.component(4).name, "Tft2_t1_footing_uplift");
+    EXPECT_EQ(cap.component(5).name, "Tft2_t1_footing_compression");
+    for (int s = 0; s < 2; ++s) { c->advance(0, 0.25 * s, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+    for (int t = 0; t < 2; ++t) {
+        const auto f = c->lines()[0]->tower_force(t);
+        const double comp = (9.0e4 - double(f[2])) / 4.0;
+        const auto& up = cap.component(4 + 2 * static_cast<std::size_t>(t));
+        const auto& co = cap.component(5 + 2 * static_cast<std::size_t>(t));
+        EXPECT_NEAR(up.demand, 0.0, 1.0e-6) << up.name;
+        // 1e-6: MoorDyn-C's line leaves a moment of a few N m on the tower (2e-8 of the compression), the stub none
+        EXPECT_NEAR(co.demand, comp, 1.0e-6 * comp) << co.name;
+        EXPECT_TRUE(comp > 2.3e4) << "the case is set up for the compression to exceed its allowable";
+        EXPECT_TRUE(co.exceeded) << co.name;
+        EXPECT_FALSE(up.exceeded) << up.name;
+        const auto& hw = cap.component(1 + static_cast<std::size_t>(t));
+        EXPECT_NEAR(hw.demand, std::sqrt(double(f[0]) * f[0] + double(f[1]) * f[1] + double(f[2]) * f[2]), 1.0e-6) << hw.name;
+    }
+    pt.remove("allowable_uplift");
+    pt.remove("allowable_compression");
+    clear_capacities("Tft2");
+    clear_towered_section("Tft2");
+}
+
+TEST(Conductors, AStandingTowerIsCheckedUnderTheLinesPullAtTheStepsEnd)
+{
+    // a crosswind blows the section out in the first step: a tower that stands still carries, over the next step,
+    // the lines' pull where the first step left them (tower_foundation() after the next step starts), and that is
+    // what the check after the first step must have taken, not the still-air pull the tower held during it
+    const std::string dir = scratch("capacities_tower_end");
+    set_towered_section(dir, "Tte");
+    amrex::ParmParse pt("conductors.lat");
+    pt.add("allowable_compression", 1.0e6);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    const auto& cap = c->capacities();
+    ASSERT_EQ(cap.size(), 2u);
+    const double still = c->tower_foundation(0).max_compression;
+    c->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    const double checked = cap.component(0).demand;
+    c->advance(0, 0.25, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    const double next = c->tower_foundation(0).max_compression;
+    EXPECT_GT(std::abs(next - still), 1.0e-3 * still) << "the case must move the lines in the first step";
+    EXPECT_NEAR(checked, next, 1.0e-9 * next);
+    pt.remove("allowable_compression");
+    clear_capacities("Tte");
+    clear_towered_section("Tte");
+}
+
+TEST(Conductors, AMovingTowerIsCheckedAfterEveryCouplingStep)
+{
+    // towers that bend at 2 Hz: the lines and towers step in N = ceil(dt f 20) = 10 coupling steps of h = dt / 10 per
+    // step of 0.25 s, and the check follows each of them: an allowable below the still-air compression is first
+    // exceeded at the end of the first coupling step, t = h, not at the end of the ERF step
+    const std::string dir = scratch("capacities_moving");
+    set_towered_section(dir, "Tmc");
+    amrex::ParmParse pt("conductors.lat");
+    pt.add("frequency", 2.0);
+    pt.add("allowable_compression", 1.0e3);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    ASSERT_TRUE(c->lines()[0]->towers_move());
+    const auto& cap = c->capacities();
+    ASSERT_EQ(cap.size(), 2u);
+    const double dt = 0.25, h = dt / 10.0;
+    c->advance(0, 0.0, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    for (const auto& comp : cap.components()) {
+        EXPECT_TRUE(comp.exceeded) << comp.name;
+        EXPECT_NEAR(comp.first_time, h, 1.0e-12) << comp.name << ": the end of the first coupling step";
+    }
+    pt.remove("allowable_compression");
+    clear_capacities("Tmc");
+    clear_towered_section("Tmc");
+}
+
+namespace {
+// a second section, 200 m from set_towered_section's, on its own towers of type lat2: lat's dimensions, bending at 8 Hz
+void add_second_towered_section (const std::string& first, const std::string& name)
+{
+    amrex::ParmParse pp("conductors");
+    pp.addarr("lines", std::vector<std::string>{first, name});
+    pp.addarr("tower_types", std::vector<std::string>{"lat", "lat2"});
+    amrex::ParmParse pt("conductors.lat2");
+    pt.add("base_width", 6.0); pt.add("top_width", 1.5); pt.add("solidity", 0.2); pt.add("arm_length", 12.0);
+    pt.add("arm_depth", 1.2); pt.add("weight", 9.0e4); pt.add("frequency", 8.0);
+    amrex::ParmParse ps("conductors." + name);
+    ps.addarr("end_a", std::vector<Real>{100.0, 300.0, 30.0});
+    ps.addarr("end_b", std::vector<Real>{1000.0, 300.0, 30.0});
+    ps.addarr("towers", std::vector<Real>{400.0, 300.0, 30.0, 700.0, 300.0, 30.0});
+    ps.addarr("length", std::vector<Real>{301.5, 301.5, 301.5});
+    ps.add("diameter", 0.0281);
+    ps.add("mass_per_length", 1.628);
+    ps.add("axial_stiffness", 3.0e7);
+    ps.add("tower_type", std::string("lat2"));
+}
+void clear_second_towered_section (const std::string& name)
+{
+    amrex::ParmParse pt("conductors.lat2");
+    for (const char* k : {"base_width", "top_width", "solidity", "arm_length", "arm_depth", "weight", "frequency"}) { pt.remove(k); }
+    amrex::ParmParse ps("conductors." + name);
+    for (const char* k : {"end_a", "end_b", "towers", "length", "diameter", "mass_per_length", "axial_stiffness", "tower_type",
+                          "rated_breaking_strength"}) { ps.remove(k); }
+}
+} // namespace
+
+TEST(Conductors, AStepsFirstExceedancesAreLoggedInTimeOrderAcrossGroups)
+{
+    // two sections on their own bending towers: two groups, Tga's (2 Hz: 10 coupling steps of 0.025 s per step of
+    // 0.25 s) stepped before Tgb's (8 Hz: 40 of 0.00625 s). Both spans' ratings are far below their tension, so each is
+    // first exceeded at its group's first coupling step: Tgb's at 0.00625 s, before Tga's at 0.025 s, though Tga's group
+    // stepped first. The step's rows must be in time order (Tgb's first) and failure_stop must name Tgb.
+    const std::string dir = scratch("capacities_order");
+    set_towered_section(dir, "Tga");
+    add_second_towered_section("Tga", "Tgb");
+    amrex::ParmParse("conductors.lat").add("frequency", 2.0);
+    amrex::ParmParse("conductors.Tga").add("rated_breaking_strength", 1.0);
+    amrex::ParmParse("conductors.Tgb").add("rated_breaking_strength", 1.0);
+    amrex::ParmParse("conductors").add("failure_stop", true);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    const double dt = 0.25;
+    const std::string msg = erf_gtest::abort_message([&] { c->advance(0, 0.0, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); });
+    EXPECT_NE(msg.find("conductor Tgb_span1 at t = 0.00625"), std::string::npos) << msg;
+    const auto rows = data_rows(dir + "/failures.dat");
+    ASSERT_EQ(rows.size(), 6u) << "three spans of each line";
+    double tprev = -1.0;
+    for (const auto& r : rows) {
+        const double t = std::stod(r);
+        EXPECT_GE(t, tprev) << "rows in time order: " << r;
+        tprev = t;
+    }
+    EXPECT_NE(rows.front().find(" Tgb_span1 "), std::string::npos) << rows.front();
+    EXPECT_NEAR(std::stod(rows.front()), dt / 40.0, 1.0e-12);
+    EXPECT_NE(rows.back().find(" Tga_span3 "), std::string::npos) << rows.back();
+    EXPECT_NEAR(std::stod(rows.back()), dt / 10.0, 1.0e-12);
+    clear_second_towered_section("Tgb");
+    clear_capacities("Tga");
+    clear_towered_section("Tga");
+}
+
+TEST(Conductors, ACircuitsStringsHardwareAndSharedFootingsAreChecked)
+{
+    // the circuit of set_circuit on towers that bend: C1's insulator strings, the shield wire CS's hardware on the shared
+    // towers and each tower's footings, all checked at the end of every coupling step against capacities below their
+    // still-air demands, so each is first exceeded at the end of the first coupling step, t = h
+    const std::string dir = scratch("capacities_circuit");
+    set_circuit(dir, 0.02);
+    amrex::ParmParse("conductors.C1").add("insulator_rated_load", 1.0);
+    amrex::ParmParse("conductors.CS").add("hardware_rated_load", 1.0);
+    amrex::ParmParse("conductors.lat").add("allowable_compression", 1.0);
+    Mesh m(true);
+    auto c = Conductors::create(0);
+    c->set_ground(m.znd.get(), m.geom);
+    const auto& cap = c->capacities();
+    // C1: two strings; CS: end_a, two towers, end_b; the two shared towers' compression, once each
+    ASSERT_EQ(cap.size(), 2u + 4u + 2u);
+    EXPECT_EQ(cap.component(0).name, "C1_string1");
+    EXPECT_EQ(cap.component(3).name, "CS_tower1");
+    EXPECT_EQ(cap.component(6).name, "C2_t1_footing_compression");
+    const double dt = 0.25, h = dt / 10.0;   // 2 Hz: ceil(0.25 x 2 x 20) = 10 coupling steps
+    c->advance(0, 0.0, dt, m.u, m.v, m.w, m.znd.get(), nullptr, m.geom);
+    for (const auto& comp : cap.components()) {
+        EXPECT_TRUE(comp.exceeded) << comp.name;
+        EXPECT_NEAR(comp.first_time, h, 1.0e-12) << comp.name;
+    }
+    // the last records are the state the step ended at
+    const auto& c1 = *c->lines()[0];
+    const auto& cs = *c->lines()[3];
+    ASSERT_EQ(c1.name(), "C1");
+    ASSERT_EQ(cs.name(), "CS");
+    EXPECT_NEAR(cap.component(1).demand, static_cast<double>(c1.insulator_tension(1)), 1.0e-9 * cap.component(1).demand);
+    const auto f = cs.tower_force(0);
+    EXPECT_NEAR(cap.component(3).demand, std::sqrt(double(f[0]) * f[0] + double(f[1]) * f[1] + double(f[2]) * f[2]),
+                1.0e-9 * cap.component(3).demand);
+    EXPECT_NEAR(cap.component(6).demand, static_cast<double>(c->tower_foundation(0).max_compression), 1.0e-9 * cap.component(6).demand)
+        << "the tower carries all four lines";
+    amrex::ParmParse("conductors.C1").remove("insulator_rated_load");
+    amrex::ParmParse("conductors.CS").remove("hardware_rated_load");
+    amrex::ParmParse("conductors.lat").remove("allowable_compression");
+    clear_circuit();
+}
+
+TEST(Conductors, AFrameTowersMembersAreCheckedAgainstTheirStrength)
+{
+    // generated frame towers with angle design data: every member is a component, its demand-to-capacity ratio the
+    // member's ASCE 10-15 utilisation on the side that governs, at the state the step ended at
+    const std::string dir = scratch("capacities_members");
+    set_towered_section(dir, "Tfm");
+    amrex::ParmParse pt("conductors.lat");
+    pt.remove("weight");
+    pt.add("frame_panels", 8);
+    pt.addarr("leg_angle", std::vector<Real>{0.15, 0.012});
+    pt.addarr("brace_angle", std::vector<Real>{0.10, 0.008});
+    pt.add("damping_ratio", 0.02);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    const auto checks0 = c->member_checks(0);
+    ASSERT_FALSE(checks0.empty());
+    const auto& cap = c->capacities();
+    ASSERT_EQ(cap.size(), 2 * checks0.size()) << "every member of the two towers";
+    EXPECT_EQ(cap.component(0).name, "Tfm_t1_m" + std::to_string(checks0[0].member));
+    c->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    for (std::size_t t = 0; t < 2; ++t) {
+        const auto checks = c->member_checks(t);
+        for (std::size_t k = 0; k < checks.size(); ++k) {
+            const auto& comp = cap.component(t * checks0.size() + k);
+            EXPECT_EQ(comp.kind, erf_conductors::ComponentKind::Member);
+            EXPECT_NEAR(comp.demand / comp.capacity, checks[k].utilisation, 1.0e-12 + 1.0e-9 * checks[k].utilisation) << comp.name;
+        }
+    }
+    for (const char* k : {"frame_panels", "leg_angle", "brace_angle", "damping_ratio"}) { pt.remove(k); }
+    clear_capacities("Tfm");
+    clear_towered_section("Tfm");
 }
