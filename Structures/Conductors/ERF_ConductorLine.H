@@ -59,6 +59,10 @@ public:
     int num_spans () const { return m_in.num_spans(); }
     /** The insulator strings, one per tower when the line hangs from strings, else none. */
     int num_insulators () const { return m_in.has_insulators() ? static_cast<int>(m_in.towers.size()) : 0; }
+    /** Span k's unstretched length now (m; MoorDyn's). */
+    double span_unstretched_length (int k) const;
+    /** Set span k's unstretched length (m, > 0), from the next step on (the thermal sag, ERF_LineThermal.H). */
+    void set_span_unstretched_length (int k, double length);
     /** All nodes of the line, numbered from 0: the spans' in span order, then the strings'. */
     unsigned num_nodes () const { return m_first.back(); }
     /**

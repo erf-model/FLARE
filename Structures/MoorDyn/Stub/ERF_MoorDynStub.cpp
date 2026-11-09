@@ -36,6 +36,9 @@
 //  - point forces have no point mass, volume or CdA terms;
 //  - MoorDyn_ExternalWaveKinInit returns 0 unless WaveKin = 1 (MoorDyn-C returns the full count
 //    whatever WaveKin is); MoorDyn_ExternalWaveKinSet ignores Ud and t;
+//  - MoorDyn_SetLineUnstretchedLength changes the length the next placement uses; MoorDyn_Save and
+//    MoorDyn_Serialize store the length with each line (MoorDyn-C stores the segment lengths but not the
+//    unstretched length, so a caller that changes it sets it again on a restart);
 //  - MoorDyn_Save stores the swing angles, the node positions, the last fluid velocity and the free
 //    and coupled points in a text format; MoorDyn_Load restarts the node velocities from rest;
 //    MoorDyn_Serialize stores the whole stub state as doubles in its own format, the fluid velocity
@@ -493,7 +496,8 @@ std::vector<double> stub_state (const StubSystem& s)
 {
     std::vector<double> b{s.t};
     for (const auto& l : s.lines) {
-        b.insert(b.end(), {l.phi, l.phi_across, l.sag, l.H, l.w_eff, l.es[0], l.es[1], l.es[2], l.across[0], l.across[1], l.across[2]});
+        b.insert(b.end(), {l.phi, l.phi_across, l.sag, l.H, l.w_eff, l.es[0], l.es[1], l.es[2], l.across[0], l.across[1], l.across[2],
+                           l.length});
         pack(b, l.pos); pack(b, l.vel); pack(b, l.ten); pack(b, l.drag);
     }
     for (const auto& pt : s.points) { b.insert(b.end(), {pt.pos[0], pt.pos[1], pt.pos[2], pt.force[0], pt.force[1], pt.force[2]}); }
@@ -669,7 +673,8 @@ int MoorDyn_Save (MoorDyn system, const char* filepath)
     out.precision(17);
     out << "moordyn-stub-state " << s.t << " " << s.lines.size() << " " << s.U.size() << "\n";
     for (const auto& l : s.lines) {
-        out << l.phi << " " << l.phi_across;
+        // the unstretched length too: it may have changed since the input (MoorDyn_SetLineUnstretchedLength)
+        out << l.phi << " " << l.phi_across << " " << l.length;
         for (double v : l.pos) { out << " " << v; }
         out << "\n";
     }
@@ -694,7 +699,7 @@ int MoorDyn_Load (MoorDyn system, const char* filepath)
     std::size_t nl = 0, nu = 0;
     if (!(in >> tag >> s.t >> nl >> nu) || tag != "moordyn-stub-state" || nl != s.lines.size()) { return MOORDYN_INVALID_INPUT; }
     for (auto& l : s.lines) {
-        if (!(in >> l.phi >> l.phi_across)) { return MOORDYN_INVALID_INPUT; }
+        if (!(in >> l.phi >> l.phi_across >> l.length) || !(l.length > 0.0)) { return MOORDYN_INVALID_INPUT; }
         for (double& v : l.pos) { if (!(in >> v)) { return MOORDYN_INVALID_INPUT; } }
     }
     // the fluid velocity of the last step, for the points ExternalWaveKinInit set up
@@ -735,10 +740,11 @@ int MoorDyn_Deserialize (MoorDyn system, const uint64_t* data)
     if (p >= end) { return MOORDYN_INVALID_INPUT; }
     s.t = *p++;
     for (auto& l : s.lines) {
-        if (p + 11 > end) { return MOORDYN_INVALID_INPUT; }
+        if (p + 12 > end) { return MOORDYN_INVALID_INPUT; }
         l.phi = p[0]; l.phi_across = p[1]; l.sag = p[2]; l.H = p[3]; l.w_eff = p[4];
         for (int d = 0; d < 3; ++d) { l.es[d] = p[5+d]; l.across[d] = p[8+d]; }
-        p += 11;
+        l.length = p[11];
+        p += 12;
         if (!unpack(p, end, l.pos) || !unpack(p, end, l.vel) || !unpack(p, end, l.ten) || !unpack(p, end, l.drag)) { return MOORDYN_INVALID_INPUT; }
     }
     for (auto& pt : s.points) {
@@ -756,6 +762,13 @@ int MoorDyn_Deserialize (MoorDyn system, const uint64_t* data)
 int MoorDyn_GetLineN (MoorDynLine l, unsigned int* n) { STUB_LINE(l); if (!n) { return MOORDYN_INVALID_VALUE; } *n = L.nseg; return MOORDYN_SUCCESS; }
 int MoorDyn_GetLineNumberNodes (MoorDynLine l, unsigned int* n) { STUB_LINE(l); if (!n) { return MOORDYN_INVALID_VALUE; } *n = L.nseg + 1; return MOORDYN_SUCCESS; }
 int MoorDyn_GetLineUnstretchedLength (MoorDynLine l, double* ul) { STUB_LINE(l); if (!ul) { return MOORDYN_INVALID_VALUE; } *ul = L.length; return MOORDYN_SUCCESS; }
+// the new length shapes the line from its next placement on (the next step), as MoorDyn-C's new segment lengths act from its next step
+int MoorDyn_SetLineUnstretchedLength (MoorDynLine l, double ul)
+{
+    if (l == nullptr || !(ul > 0.0) || !std::isfinite(ul)) { return MOORDYN_INVALID_VALUE; }
+    reinterpret_cast<LineHandle*>(l)->s->lines[reinterpret_cast<LineHandle*>(l)->index].length = ul;
+    return MOORDYN_SUCCESS;
+}
 
 int MoorDyn_GetLineNodePos (MoorDynLine l, unsigned int i, double pos[3])
 {

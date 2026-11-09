@@ -105,6 +105,37 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           | against the magnitude of the line's pull at each dead    |                      |                          |
 |                                                           | end and each tower                                       |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.<line>.absorptivity**                        | the conductor surface's absorptivity of the sun's and    | Real in [0, 1];      | none                     |
+|                                                           | the fire's radiation (IEEE 738)                          | needed with          |                          |
+|                                                           |                                                          | thermal_model =      |                          |
+|                                                           |                                                          | ieee738              |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.<line>.emissivity**                          | the conductor surface's emissivity (IEEE 738)            | Real in [0, 1];      | none                     |
+|                                                           |                                                          | needed with          |                          |
+|                                                           |                                                          | thermal_model =      |                          |
+|                                                           |                                                          | ieee738              |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.<line>.heat_capacity**                       | the conductor's heat capacity per unit length, m c_p,    | Real > 0; needed     | none                     |
+|                                                           | summed over its materials (J/(m K))                      | with thermal_model = |                          |
+|                                                           |                                                          | ieee738              |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.<line>.thermal_expansion**                   | the conductor's thermal expansion coefficient (1/K);     | Real in [0, 1e-4];   | none                     |
+|                                                           | each span's unstretched length follows its mean          | needed with          |                          |
+|                                                           | temperature                                              | thermal_model =      |                          |
+|                                                           |                                                          | ieee738              |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.<line>.current**                             | the current the conductor carries (A), for its Joule     | Real in [0, 1e5]     | 0                        |
+|                                                           | heating                                                  |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.<line>.resistance**                          | the conductor's AC resistance at the two                 | two Reals > 0,       | none                     |
+|                                                           | resistance_temperatures (ohm/m); linear between and      | staying positive     |                          |
+|                                                           | beyond them; not used without a current                  | from -150 to 3000 C; |                          |
+|                                                           |                                                          | needed with a        |                          |
+|                                                           |                                                          | current              |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.<line>.resistance_temperatures**             | the temperatures of the two resistance values (C)        | two increasing Reals | 25 75                    |
+|                                                           |                                                          | in [-50, 500]        |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.<line>.tower_type**                          | the suspension towers of the line are lattice towers of  | one of the tower     | none                     |
 |                                                           | this type, loaded by the wind on their members and by    | types; needs towers  |                          |
 |                                                           | the line, on four footings (towers.dat); none: the       |                      |                          |
@@ -236,6 +267,34 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           |                                                          | allowables, or a     |                          |
 |                                                           |                                                          | frame's member       |                          |
 |                                                           |                                                          | design data          |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.thermal_model**                              | the conductors' temperature: ieee738 steps every span    | none or ieee738      | none                     |
+|                                                           | node's IEEE 738 heat balance with the fire's radiation   |                      |                          |
+|                                                           | and the air around it, and lengthens each span with its  |                      |                          |
+|                                                           | mean temperature (conductor_temperature.dat; theory:     |                      |                          |
+|                                                           | Conductor temperature under a fire)                      |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.thermal.radiative_fraction**                 | the fraction of the fire's heat release it radiates,     | Real in (0, 1];      | none                     |
+|                                                           | chi_r                                                    | needed when the run  |                          |
+|                                                           |                                                          | has a fire           |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.thermal.source_height**                      | the height above the terrain of the point sources that   | Real in [0, 1000]    | 0                        |
+|                                                           | stand for the burning fire cells (m)                     |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.thermal.cutoff_radius**                      | sources farther than this from a node are left out of    | Real in [0, 1e6]; >  | 0                        |
+|                                                           | its irradiance (m); only burning cells within it of the  | 0 needed when the    |                          |
+|                                                           | lines are gathered every step                            | run has a fire       |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.thermal.elevation**                          | the lines' elevation above sea level (m), for the air's  | Real in [-500, 9000] | 0                        |
+|                                                           | density                                                  |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.thermal.solar_flux**                         | the sun's flux on the conductors, normal to them (W/m^2) | Real in [0, 1500]    | 0                        |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.thermal.reference_temperature**              | the temperature at which the spans have their input      | Real in [-50, 300]   | none: each span's mean   |
+|                                                           | unstretched lengths (C), a stringing temperature say     |                      | steady temperature at    |
+|                                                           |                                                          |                      | the first step (it       |
+|                                                           |                                                          |                      | starts at its input      |
+|                                                           |                                                          |                      | length)                  |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.asce74_wind**                                | the 3-second gust at 10 m over open country of an ASCE   | Real >= 0            | 0: no check              |
 |                                                           | 74 design check (m/s): every span's quasi-static wind    |                      |                          |

@@ -69,6 +69,7 @@ int DECLDIR MoorDyn_Deserialize (MoorDyn system, const uint64_t* data);
 int DECLDIR MoorDyn_GetLineN (MoorDynLine l, unsigned int* n);
 int DECLDIR MoorDyn_GetLineNumberNodes (MoorDynLine l, unsigned int* n);
 int DECLDIR MoorDyn_GetLineUnstretchedLength (MoorDynLine l, double* ul);
+int DECLDIR MoorDyn_SetLineUnstretchedLength (MoorDynLine l, double ul);
 int DECLDIR MoorDyn_GetLineNodePos (MoorDynLine l, unsigned int i, double pos[3]);
 int DECLDIR MoorDyn_GetLineNodeVel (MoorDynLine l, unsigned int i, double vel[3]);
 int DECLDIR MoorDyn_GetLineNodeTen (MoorDynLine l, unsigned int i, double t[3]);

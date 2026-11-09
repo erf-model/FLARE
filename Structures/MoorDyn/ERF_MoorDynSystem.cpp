@@ -292,6 +292,15 @@ double MoorDynSystem::line_unstretched_length (unsigned l) const
     return v;
 }
 
+void MoorDynSystem::set_line_unstretched_length (unsigned l, double length)
+{
+    if (!(std::isfinite(length) && length > 0.0)) {
+        amrex::Abort("MoorDynSystem::set_line_unstretched_length: the length must be finite and positive (m), " +
+                     std::to_string(length) + " given, for line " + std::to_string(l) + " of the system from '" + m_file + "'");
+    }
+    check(MoorDyn_SetLineUnstretchedLength(line(l), length), "MoorDyn_SetLineUnstretchedLength");
+}
+
 std::array<double,3> MoorDynSystem::line_node_position (unsigned l, unsigned node) const
 {
     std::array<double,3> r{{0.0, 0.0, 0.0}};

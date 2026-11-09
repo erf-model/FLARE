@@ -23,6 +23,8 @@
 #include "ERF_ActuatorSpreading.H"
 #include "ERF_DiagnosticsLog.H"
 #include "ERF_Constants.H"
+#include "ERF_EOS.H"
+#include "ERF_StructureModel.H"
 #include "ERF_ConductorGeometry.H"
 #include "ERF_Gusts.H"
 #include "ERF_IndexDefines.H"
@@ -143,7 +145,18 @@ Conductors::set_closure (bool keqn_rans, Real Cmu0)
 }
 
 Conductors::Conductors (ConductorInputs_t in, int anchor)
-    : m_in(std::move(in)), m_anchor(anchor) {}
+    : m_in(std::move(in)), m_anchor(anchor)
+{
+    if (erf_conductors::LineThermal::selected()) {
+        std::vector<std::string> names;
+        std::vector<double> diameters;
+        for (const LineInputs& s : m_in.lines) {
+            names.push_back(s.name);
+            diameters.push_back(static_cast<double>(s.diameter));
+        }
+        m_thermal = std::make_unique<erf_conductors::LineThermal>(names, diameters, m_in.diagnostics_dir);
+    }
+}
 
 void
 Conductors::require_anchor_level (int finest_level) const
@@ -1375,6 +1388,7 @@ Conductors::log_files () const
     f.push_back(m_in.diagnostics_dir + "/transformers.dat");
     f.push_back(m_in.diagnostics_dir + "/coupling.dat");
     f.push_back(m_in.diagnostics_dir + "/failures.dat");
+    if (m_thermal) { f.push_back(m_thermal->log_file()); }
     return f;
 }
 
@@ -1644,6 +1658,13 @@ Conductors::restore (const std::string& dir)
         // the table as of the checkpoint, not as the run being restarted left it after it
         if (ParallelDescriptor::IOProcessor()) { m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv"); }
     }
+    // the conductors' temperatures and the spans' lengths at them (MoorDyn's saved state does not hold the lengths)
+    if (m_thermal) {
+        m_thermal->restore(dir, m_lines);
+    } else if (erf_actuator::file_exists_everywhere(dir + "/thermal")) {
+        Print() << "conductors: the checkpoint's conductor temperatures are not used in this run (no conductors.thermal_model): "
+                << "the spans return to their input lengths at the first step\n";
+    }
     // the logs continue from the checkpoint: rows a run wrote after it are dropped
     if (ParallelDescriptor::IOProcessor()) {
         for (const std::string& f : log_files()) { erf_conductors::trim_log_after(f, m_time); }
@@ -1696,6 +1717,7 @@ Conductors::write_checkpoint (const std::string& chkdir) const
         if (!out) { Abort("cannot write the conductor checkpoint state '" + dir + "/state'"); }
         // every rank holds the same line; one copy of each is saved
         for (const auto& span : m_lines) { span->save(dir + "/" + span->name() + ".moordyn"); }
+        if (m_thermal) { m_thermal->write_checkpoint(dir); }
         if (!m_cap.empty()) {
             std::ofstream cp(dir + "/capacities", std::ios::trunc);
             cp << m_cap.state();
@@ -1851,7 +1873,7 @@ void
 Conductors::advance (int lev, double time, double dt,
                      const MultiFab& U, const MultiFab& V, const MultiFab& W,
                      const MultiFab* z_phys_nd, const MultiFab* detJ_cc, const Geometry& geom,
-                     const MultiFab* cons)
+                     const MultiFab* cons, const StructureFire* fire)
 {
     if (lev != m_anchor) { return; }
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(dt > 0.0 && std::isfinite(dt) && std::isfinite(time),
@@ -1888,6 +1910,11 @@ Conductors::advance (int lev, double time, double dt,
                 std::error_code ec;
                 std::filesystem::remove(m_in.diagnostics_dir + "/failures.dat", ec);
                 std::filesystem::remove(m_in.diagnostics_dir + "/capacities.csv", ec);
+            }
+            if (!m_thermal) {
+                // likewise the temperature log of an earlier run with the thermal model
+                std::error_code ec;
+                std::filesystem::remove(m_in.diagnostics_dir + "/conductor_temperature.dat", ec);
             }
         }
     }
@@ -1973,6 +2000,8 @@ Conductors::advance (int lev, double time, double dt,
             }
         }
     }
+    // the conductors' temperatures over the step, and the spans' lengths at them, before the lines step
+    if (m_thermal) { step_thermal(time, dt, wind, cons, U, z_phys_nd, geom, fire, write); }
     for (std::size_t line = 0; line < m_lines.size(); ++line) {
         ConductorLine& span = *m_lines[line];
         span.set_wind(wind[line], time + 0.5 * dt);
@@ -2101,6 +2130,89 @@ Conductors::sample_k (const std::vector<Real>& pos, const MultiFab& cons, const 
         k[p] = (r > 0.0 && std::isfinite(rk)) ? std::max(rk / r, 0.0) : std::numeric_limits<double>::quiet_NaN();
     }
     return k;
+}
+
+void
+Conductors::step_thermal (double time, double dt, const std::vector<std::vector<Real>>& wind, const MultiFab* cons,
+                          const MultiFab& U, const MultiFab* z_phys_nd, const Geometry& geom, const StructureFire* fire,
+                          bool write_row)
+{
+    if (cons == nullptr) {
+        Abort("conductors.thermal_model = ieee738 needs the conserved state (rho, rho theta): the air's temperature at the nodes");
+    }
+    // the air's temperature at every line node, from the equation of state (dry air)
+    std::vector<Real> all;
+    for (const auto& line : m_lines) {
+        const std::vector<Real> p = line->node_positions();
+        all.insert(all.end(), p.begin(), p.end());
+    }
+    std::vector<Real> rho, rth;
+    erf_actuator::sample_cell_scalar(*cons, Rho_comp, z_phys_nd, geom, all, rho);
+    erf_actuator::sample_cell_scalar(*cons, RhoTheta_comp, z_phys_nd, geom, all, rth);
+    std::vector<std::vector<double>> T_air(m_lines.size());
+    std::size_t n0 = 0;
+    for (std::size_t i = 0; i < m_lines.size(); ++i) {
+        const unsigned nn = m_lines[i]->num_nodes();
+        T_air[i].resize(nn);
+        for (unsigned m = 0; m < nn; ++m) {
+            const Real r = rho[n0 + m], rt = rth[n0 + m];
+            if (!(r > Real(0.0)) || !(rt > Real(0.0)) || !std::isfinite(rt)) {
+                Abort("conductors." + m_lines[i]->name() + ": at node " + std::to_string(m) +
+                      " the density or rho theta is not positive and finite, so the air has no temperature");
+            }
+            T_air[i][m] = static_cast<double>(getTgivenRandRTh(r, rt)) - 273.15;
+        }
+        n0 += nn;
+    }
+    // the fire's burning cells as point sources, at the terrain plus source_height
+    std::vector<erf_conductors::FireSource> src;
+    double r_min2 = 0.0;
+    const bool has_fire = (fire != nullptr && fire->heat_release != nullptr);
+    if (has_fire && !m_thermal->settings().radiative_fraction_given) {
+        Abort("conductors.thermal.radiative_fraction is needed when the run has a fire (the fraction of its heat release it radiates)");
+    }
+    if (has_fire && !(m_thermal->settings().cutoff_radius > 0.0)) {
+        Abort("conductors.thermal.cutoff_radius is needed (> 0, m) when the run has a fire: only burning cells within it of the "
+              "lines are gathered every step");
+    }
+    // the domain's length where periodic, for the nearest image of a source
+    const std::array<double,2> period{{geom.isPeriodic(0) ? static_cast<double>(geom.ProbLength(0)) : 0.0,
+                                       geom.isPeriodic(1) ? static_cast<double>(geom.ProbLength(1)) : 0.0}};
+    if (has_fire) {
+        const auto& s = m_thermal->settings();
+        std::array<double,3> lo{{std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max()}};
+        std::array<double,3> hi{{-lo[0], -lo[1], -lo[2]}};
+        for (std::size_t p = 0; p < all.size() / 3; ++p) {
+            for (int d = 0; d < 3; ++d) {
+                lo[static_cast<std::size_t>(d)] = std::min(lo[static_cast<std::size_t>(d)], static_cast<double>(all[3*p+static_cast<std::size_t>(d)]));
+                hi[static_cast<std::size_t>(d)] = std::max(hi[static_cast<std::size_t>(d)], static_cast<double>(all[3*p+static_cast<std::size_t>(d)]));
+            }
+        }
+        src = erf_conductors::gather_fire_sources(*fire, lo, hi, s.cutoff_radius, period);
+        const double dA = static_cast<double>(fire->geom.CellSize(0)) * static_cast<double>(fire->geom.CellSize(1));
+        r_min2 = dA / 3.14159265358979323846;
+        if (!src.empty()) {
+            std::vector<Real> sp(3 * src.size(), Real(0.0));
+            for (std::size_t j = 0; j < src.size(); ++j) {
+                sp[3*j] = static_cast<Real>(src[j].x);
+                sp[3*j+1] = static_cast<Real>(src[j].y);
+            }
+            if (z_phys_nd != nullptr && !m_surface) {
+                // the terrain under a source is read from the anchor level, which must cover it
+                std::string outside;
+                if (!erf_actuator::points_covered_by(U.boxArray(), geom, sp, Real(0.0),
+                                                     outside, erf_actuator::CoverZ::Footprint)) {
+                    Abort("conductors.thermal_model: a burning fire cell lies outside the conductors' anchor level " +
+                          std::to_string(m_anchor) + " (" + outside + "), whose terrain gives the fire's height there; refine "
+                          "that level over the fire or set conductors.thermal.cutoff_radius to leave far cells out");
+                }
+            }
+            std::vector<Real> h;
+            ground_heights(z_phys_nd, geom, sp, h);
+            for (std::size_t j = 0; j < src.size(); ++j) { src[j].z = static_cast<double>(h[j]) + s.source_height; }
+        }
+    }
+    m_thermal->advance(time, dt, m_lines, wind, T_air, src, r_min2, period, write_row);
 }
 
 void

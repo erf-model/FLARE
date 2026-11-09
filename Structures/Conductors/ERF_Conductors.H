@@ -21,6 +21,7 @@
 #include "ERF_ConductorInputs.H"
 #include "ERF_ConductorLine.H"
 #include "ERF_Gusts.H"
+#include "ERF_LineThermal.H"
 #include "ERF_RunningStats.H"
 #include "ERF_Transformer.H"
 #include "ERF_Tower.H"
@@ -118,12 +119,15 @@ public:
      * with an conductors.gust_type, k = (rho k) / rho is read from it at the line nodes (and at
      * the towers' drag nodes with gust_type event or random), and a null cons aborts; it is not read
      * otherwise. With gust_type event or random the lines and towers take the flow's wind plus the
-     * gust (add_gusts).
+     * gust (add_gusts). With conductors.thermal_model = ieee738 the conductors' temperatures are stepped first
+     * (ERF_LineThermal.H): the air temperature at the nodes is read from cons (a null cons aborts), the fire's
+     * radiation from `fire` (the run's fire view, StructureStep::fire; null: no fire), and each span's length is
+     * set to its temperature before the lines step.
      */
     void advance (int lev, double time, double dt,
                   const amrex::MultiFab& U, const amrex::MultiFab& V, const amrex::MultiFab& W,
                   const amrex::MultiFab* z_phys_nd, const amrex::MultiFab* detJ_cc, const amrex::Geometry& geom,
-                  const amrex::MultiFab* cons = nullptr);
+                  const amrex::MultiFab* cons = nullptr, const StructureFire* fire = nullptr);
 
     /**
      * Add the force the lines and the towers' members exert on the air (minus the air's drag on them,
@@ -225,6 +229,8 @@ public:
      * stand still, every coupling step of step_moving_group() for lines on moving towers and those towers.
      */
     const erf_conductors::CapacityMonitor& capacities () const { return m_cap; }
+    /** The conductors' temperatures (conductors.thermal_model = ieee738), or null. */
+    const erf_conductors::LineThermal* thermal () const { return m_thermal.get(); }
 
 private:
     Conductors (ConductorInputs_t in, int anchor);
@@ -520,6 +526,16 @@ private:
     std::vector<amrex::RealBox> m_support;   //!< support(): the spread points with their reach (m)
     /** the air's drag on all lines and on the towers' members (N); total_load.dat drag_x..z */
     std::array<amrex::Real,3> m_drag_total{{0.0, 0.0, 0.0}};
+    std::unique_ptr<erf_conductors::LineThermal> m_thermal;       //!< thermal(): the conductors' temperatures, or null
+    /**
+     * Step the conductors' temperatures over [time, time + dt] and set the spans' lengths (m_thermal): the air
+     * temperature at every line node from cons, the fire's point sources from fire (null: none) at the terrain
+     * plus conductors.thermal.source_height. wind holds each line's wind at its kinematics points; write_row: this
+     * step writes the diagnostics rows.
+     */
+    void step_thermal (double time, double dt, const std::vector<std::vector<amrex::Real>>& wind, const amrex::MultiFab* cons,
+                       const amrex::MultiFab& U, const amrex::MultiFab* z_phys_nd, const amrex::Geometry& geom,
+                       const StructureFire* fire, bool write_row);
     erf_conductors::CapacityMonitor m_cap;                          //!< capacities(): the components' demands against their capacities
     static constexpr std::size_t no_component = static_cast<std::size_t>(-1);
     std::vector<std::vector<std::size_t>> m_cap_span;               //!< per line, per span: its conductor in m_cap (no_component: none)
