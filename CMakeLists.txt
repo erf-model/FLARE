@@ -197,6 +197,11 @@ option(ERF_ENABLE_FIRE "Enable the fire coupling (the atmosphere side) and FLARE
 set(ERF_FIRE_ENGINE_DIRS "" CACHE STRING "Further fire engine directories (each with ERFFireEngine.cmake) to compile in; needs ERF_ENABLE_FIRE")
 option(ERF_ENABLE_MOVING_BODIES "Enable the actuator core and the structure coupling for bodies in the flow (Source/MovingBodies)" OFF)
 set(ERF_STRUCTURE_MODEL_DIRS "" CACHE STRING "Structure model directories (each with ERFStructureModel.cmake) to compile in; needs ERF_ENABLE_MOVING_BODIES")
+option(ERF_ENABLE_STRUCTURES "Build FLARE's structures in Structures/ (the MoorDyn-C wrapper and the tower models; implies ERF_ENABLE_MOVING_BODIES)" OFF)
+option(ERF_MOORDYN_USE_STUB "Build FLARE's structures against the bundled MoorDyn stub instead of MoorDyn-C (for testing where MoorDyn-C is not installed)" OFF)
+if(ERF_MOORDYN_USE_STUB AND NOT ERF_ENABLE_STRUCTURES)
+  message(FATAL_ERROR "ERF_MOORDYN_USE_STUB needs ERF_ENABLE_STRUCTURES=ON: the stub stands in for MoorDyn-C in FLARE's structures")
+endif()
 option(ERF_ENABLE_WSM6_FORT "Enable WSM6 Fortran bridge calls" OFF)
 option(ERF_ENABLE_DUST "Enable the ERF-Dust 2D surface emission module" OFF)
 option(ERF_ENABLE_WDM6_FORT "Enable WDM6 Fortran bridge calls" OFF)
@@ -735,6 +740,12 @@ if(ERF_ENABLE_EAMXX_SHOC)
 
   message(STATUS "SHOC configuration complete")
   list(POP_BACK CMAKE_MESSAGE_CONTEXT)
+endif()
+
+########################## STRUCTURES ##############################
+
+if(ERF_ENABLE_STRUCTURES)
+  include(${PROJECT_SOURCE_DIR}/Structures/ERFStructures.cmake)
 endif()
 
 ########################### ERF #####################################

@@ -560,6 +560,11 @@ if(ERF_ENABLE_MOVING_BODIES)
     ${CMAKE_CURRENT_SOURCE_DIR}/MovingBodies/ERF_GTestStructureRegistry.cpp
   )
 endif()
+if(ERF_ENABLE_STRUCTURES)
+  # FLARE's structures (Structures/): the MoorDyn wrapper and the tower models
+  include(${PROJECT_SOURCE_DIR}/Structures/Tests/Unit/ERFStructuresUnitTests.cmake)
+  erf_structures_unit_tests(${erf_exe_name})
+endif()
 build_erf_exe(${erf_exe_name} NO_ERF_MAIN)
 target_link_libraries(${erf_exe_name} PRIVATE GTest::gtest)
 
@@ -1045,6 +1050,9 @@ if(ERF_ENABLE_MPI)
       ${CMAKE_CURRENT_SOURCE_DIR}/MovingBodies/ERF_GTestActuatorSampling.cpp
       ${CMAKE_CURRENT_SOURCE_DIR}/MovingBodies/ERF_GTestActuatorSpreading.cpp
     )
+  endif()
+  if(ERF_ENABLE_STRUCTURES)
+    erf_structures_parallel_tests(${erf_parallel_exe_name})
   endif()
   build_erf_exe(${erf_parallel_exe_name} NO_ERF_MAIN)
   target_link_libraries(${erf_parallel_exe_name}
