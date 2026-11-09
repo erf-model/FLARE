@@ -169,6 +169,34 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
   add_test_abort(Conductors_FailureStopNeedsCapacityAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
       Conductors_PrescribedWind.i "conductors.failure_stop = true needs a capacity to check" "conductors.failure_stop=true")
   set_tests_properties(Conductors_FailureStopAbort Conductors_FailureStopNeedsCapacityAbort PROPERTIES LABELS "regression;conductors")
+  # conductors.ground_contact: the terrain is each line's MoorDyn seafloor. On flat ground, 330 m of
+  # conductor over the 300 m chord sags 58 m from ends 30 m up and rests on the ground in the
+  # crosswind; on the hills of Conductors_Terrain, both lines strung at 1.5 kN instead of 20 kN sag
+  # onto the hillsides. Without contact both runs stop (a node below the ground leaves the domain;
+  # Conductors_GroundContactOffAbort for the flat one). The restarted runs must carry the spans' ground records and their lines across the
+  # checkpoint as the straight runs do; the lines reach the ground in the first steps
+  if(ERF_MOORDYN_USE_STUB)
+    set(_ground_flat Conductors_GroundContact_Restart)
+    set(_ground_hills Conductors_GroundContact_Terrain_Restart)
+  else()
+    set(_ground_flat Conductors_GroundContact_Restart_MoorDyn)
+    set(_ground_hills Conductors_GroundContact_Terrain_Restart_MoorDyn)
+  endif()
+  add_test_restart_parity(${_ground_flat} Conductors_PrescribedWind 5 10
+      COMMON_OPTIONS "conductors.ground_contact=true conductors.S1.length=330"
+      DATALOG "conductors/ground_contact.csv S1.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
+  add_test_restart_parity(${_ground_hills} Conductors_Terrain 5 10
+      COMMON_OPTIONS "conductors.ground_contact=true conductors.L1.stringing_tension=1500 conductors.L2.stringing_tension=1500"
+      DATALOG "conductors/ground_contact.csv conductors/L1_span2.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
+  set_tests_properties(${_ground_flat} ${_ground_hills} PROPERTIES LABELS "regression;restart-parity;conductors")
+  # ground_contact with a MoorDyn step too long for the contact (five 60 m segments, moordyn_dt = 0.01 s)
+  add_test_abort(Conductors_GroundContactStepAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
+      Conductors_PrescribedWind.i "conductors.S1: with ground_contact MoorDyn's internal step"
+      "conductors.ground_contact=true conductors.S1.segments=5 conductors.moordyn_dt=0.01")
+  # the same flat-ground span without ground_contact: a node passes below the ground and leaves the domain
+  add_test_abort(Conductors_GroundContactOffAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
+      Conductors_PrescribedWind.i "has left the domain" "conductors.S1.length=330")
+  set_tests_properties(Conductors_GroundContactStepAbort Conductors_GroundContactOffAbort PROPERTIES LABELS "regression;conductors")
   # A circuit: three phases 6 m apart hanging from insulator strings over two suspension towers,
   # and a shield wire clamped above them, across the same sheared crosswind. The middle phase's
   # middle span, its strings and their statistics, the shield wire's middle span and the

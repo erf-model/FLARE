@@ -29,7 +29,14 @@
 //    fluid velocity averaged over the line, and only when the chord's midpoint is below z = 0; w is
 //    the weight minus buoyancy in the fluid of density rho (WtrDnsty, default 1025 kg/m^3);
 //  - node tensions are the parabola's, H (ec + slope es), with no internal damping, bending
-//    stiffness or seabed contact; node velocities are finite differences of successive placements;
+//    stiffness; node velocities are finite differences of successive placements;
+//  - seabed contact only with a SeafloorFile (MoorDyn-C's 3-D seafloor, same format, interpolated
+//    bilinearly and held at its edge values beyond the grid as MoorDyn-C does): a span's node
+//    placed below the seafloor is lifted onto it, its tension unchanged; there is no contact
+//    stiffness, damping or friction (kbot and cbot are read and unused), no contact for free points
+//    (MoorDyn-C's free points rest through their lines' end nodes), no contact on the flat bottom at
+//    -WtrDpth, and the file is read as a stream (MoorDyn-C needs nx entries on line 2, ny on line 3 and
+//    three per row);
 //  - MoorDyn_GetLineNodeForce is zero at inner nodes and plus or minus the end tension at the end
 //    nodes (no end-node weight, drag or inertia);
 //  - MoorDyn_GetLineMaxTen includes the last node (MoorDyn-C stops at node N-1);
@@ -98,7 +105,62 @@ struct StubSystem;
 struct LineHandle { StubSystem* s; unsigned index; };    // index 0-based
 struct PointHandle { StubSystem* s; unsigned index; };   // index 0-based
 
+// MoorDyn-C's 3-D seafloor: the depth z (m, MoorDyn's frame) at the grid points (x[i], y[j]), z[i * ny + j]
+struct Seafloor {
+    std::vector<double> x, y, z;
+    bool active () const { return !z.empty(); }
+    // the index i - 1 below x (clamped) and the weight f of x[i], as MoorDyn-C's interp_factor
+    static void factor (const std::vector<double>& t, double v, std::size_t& i, double& f)
+    {
+        if (v <= t.front()) { i = 0; f = 0.0; return; }
+        if (v >= t.back()) { i = t.size() - 2; f = 1.0; return; }
+        i = static_cast<std::size_t>(std::upper_bound(t.begin(), t.end(), v) - t.begin()) - 1;
+        f = (v - t[i]) / (t[i+1] - t[i]);
+    }
+    double depth_at (double px, double py) const
+    {
+        std::size_t i = 0, j = 0;
+        double fx = 0.0, fy = 0.0;
+        factor(x, px, i, fx);
+        factor(y, py, j, fy);
+        const std::size_t ny = y.size();
+        return (1.0 - fx) * ((1.0 - fy) * z[i*ny + j] + fy * z[i*ny + j + 1]) + fx * ((1.0 - fy) * z[(i+1)*ny + j] + fy * z[(i+1)*ny + j + 1]);
+    }
+};
+
+bool read_seafloor (const std::string& fname, Seafloor& sf)
+{
+    std::ifstream in(fname);
+    if (!in) { std::fprintf(stderr, "MoorDyn stub: cannot open the seafloor file '%s'\n", fname.c_str()); return false; }
+    std::size_t nx = 0, ny = 0;
+    if (!(in >> nx >> ny) || nx < 2 || ny < 2) { std::fprintf(stderr, "MoorDyn stub: '%s' needs nx ny >= 2 first\n", fname.c_str()); return false; }
+    sf.x.resize(nx); sf.y.resize(ny); sf.z.assign(nx * ny, 0.0);
+    for (auto* t : {&sf.x, &sf.y}) {
+        for (std::size_t k = 0; k < t->size(); ++k) {
+            if (!(in >> (*t)[k]) || !std::isfinite((*t)[k]) || (k > 0 && !((*t)[k] > (*t)[k-1]))) {
+                std::fprintf(stderr, "MoorDyn stub: the ticks in '%s' must be finite and increasing\n", fname.c_str());
+                return false;
+            }
+        }
+    }
+    for (std::size_t k = 0; k < nx * ny; ++k) {
+        double px = 0.0, py = 0.0, pz = 0.0;
+        if (!(in >> px >> py >> pz) || !std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz)) {
+            std::fprintf(stderr, "MoorDyn stub: '%s' holds fewer than nx ny finite points\n", fname.c_str());
+            return false;
+        }
+        // the grid point the row is at: as MoorDyn-C, the tick at or below it
+        std::size_t i = 0, j = 0;
+        double f = 0.0;
+        Seafloor::factor(sf.x, px, i, f); if (f >= 1.0 - 1.0e-9) { ++i; }
+        Seafloor::factor(sf.y, py, j, f); if (f >= 1.0 - 1.0e-9) { ++j; }
+        sf.z[i * ny + j] = pz;
+    }
+    return true;
+}
+
 struct StubSystem {
+    Seafloor seafloor;
     std::vector<LineType> types;
     std::vector<Point> points;
     std::vector<Line> lines;
@@ -191,6 +253,7 @@ bool parse (const std::string& fname, StubSystem& s)
             else if (key == "rho" || key == "wtrdnsty") { s.rho = std::stod(tok[0]); }
             else if (key == "wtrdpth") { s.depth = std::stod(tok[0]); }
             else if (key == "wavekin") { s.wave_kin = std::stoi(tok[0]); }
+            else if (key == "seafloorfile") { if (!read_seafloor(tok[0], s.seafloor)) { return false; } }
         }
     }
     if (s.lines.empty()) { std::fprintf(stderr, "MoorDyn stub: no lines in '%s'\n", fname.c_str()); return false; }
@@ -309,6 +372,12 @@ void place (StubSystem& s, Line& l, const double* U_nodes, double dt)
         for (int d = 0; d < 3; ++d) {
             newpos[3*i+d] = A.pos[d] + xi * chord[d] + y * es[d];
             newten[3*i+d] = l.H * (ec[d] + slope * es[d]);   // the tension along the tangent; its component along the chord is H (N)
+        }
+    }
+    // a node below the seafloor rests on it
+    if (s.seafloor.active()) {
+        for (unsigned i = 0; i < nn; ++i) {
+            newpos[3*i+2] = std::max(newpos[3*i+2], s.seafloor.depth_at(newpos[3*i], newpos[3*i+1]));
         }
     }
     // the drag on each node: 0.5 rho Cd D |u_n| u_n (N/m) over its share of the chord (half a segment

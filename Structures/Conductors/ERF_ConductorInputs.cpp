@@ -246,6 +246,23 @@ Catenary elastic_catenary (Real chord, Real length, Real w, Real EA)
     return cat;
 }
 
+Real ConductorInputs::ground_damping (Real mu, Real d)
+{
+    return Real(2.0) * std::sqrt(ground_stiffness * mu / d);
+}
+
+Real ConductorInputs::ground_frequency (Real mu, Real d)
+{
+    return std::sqrt(ground_stiffness * d / mu);
+}
+
+Real ConductorInputs::ground_rate (Real mu, Real d, Real cb)
+{
+    const Real w = ground_frequency(mu, d);
+    const Real a = cb * d / (Real(2.0) * mu);
+    return Real(2.0) * std::max(w, a + std::sqrt(std::max(a * a - w * w, Real(0.0))));
+}
+
 std::string ConductorInputs::validate_slack (const LineInputs& s, bool on_terrain)
 {
     if (s.stringing_tension > 0.0) { return std::string(); }
@@ -678,6 +695,7 @@ ConductorInputs ConductorInputs::read ()
     }
     pp.query("flashover_distance", in.flashover_distance);
     pp.query("failure_stop", in.failure_stop);
+    pp.query("ground_contact", in.ground_contact);
     pp.query("asce74_wind", in.asce74_wind);
     pp.query("asce74_exposure", in.asce74_exposure);
     in.has_asce74_wire_height = pp.query("asce74_wire_height", in.asce74_wire_height) != 0;
