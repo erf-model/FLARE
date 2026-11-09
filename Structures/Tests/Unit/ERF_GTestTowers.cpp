@@ -120,7 +120,7 @@ TEST(TowerType, EveryValueOutsideItsRangeIsRefusedByName)
         TowerType t = lattice();
         mutate(t);
         const std::string err = t.validate();
-        EXPECT_NE(err.find("erf.conductors.lattice." + key), std::string::npos) << key << ": " << err;
+        EXPECT_NE(err.find("conductors.lattice." + key), std::string::npos) << key << ": " << err;
     };
     bad([](TowerType& t) { t.base_width = 0.0; }, "base_width");
     bad([](TowerType& t) { t.top_width = 7.0; }, "top_width");
@@ -147,7 +147,7 @@ TEST(TowerType, EveryValueOutsideItsRangeIsRefusedByName)
     {
         TowerType t = lattice();
         EXPECT_FALSE(t.epsilon_given);
-        EXPECT_TRUE(t.validate().empty()) << "no epsilon of its own: the towers take erf.conductors.epsilon";
+        EXPECT_TRUE(t.validate().empty()) << "no epsilon of its own: the towers take conductors.epsilon";
         t.epsilon_given = true;
         t.epsilon = 0.5;
         EXPECT_TRUE(t.validate().empty()) << t.validate();
@@ -200,7 +200,7 @@ TEST(TowerType, EveryValueOutsideItsRangeIsRefusedByName)
     moving.foundation_rotational_stiffness = 1.0e9;
     moving.damping_given = true;
     EXPECT_TRUE(moving.validate().empty()) << moving.validate();
-    bad([](TowerType& t) { t.arm_length = 1.5; }, "arm_length must exceed top_width for erf.conductors.lattice.arm_outside_shaft");
+    bad([](TowerType& t) { t.arm_length = 1.5; }, "arm_length must exceed top_width for conductors.lattice.arm_outside_shaft");
     bad([](TowerType& t) { t.arm_length = 1.5; }, "arm_outside_shaft = false for a cross-arm within");
     {
         TowerType narrow = lattice();
@@ -208,7 +208,7 @@ TEST(TowerType, EveryValueOutsideItsRangeIsRefusedByName)
         narrow.arm_outside_shaft = false;
         EXPECT_TRUE(narrow.validate().empty()) << narrow.validate();
     }
-    bad([](TowerType& t) { t.angle_axes_given = true; }, "angle_principal_axes needs erf.conductors.lattice.frame_panels");
+    bad([](TowerType& t) { t.angle_axes_given = true; }, "angle_principal_axes needs conductors.lattice.frame_panels");
     bad([](TowerType& t) { t.frame_panels = 4; t.leg_angle = {0.1, 0.01}; t.brace_angle = {0.08, 0.006}; t.leg_spacing = 5.0; },
         "leg_spacing is not given with a frame");
     // an undamped frame's higher modes grow under the members' drag
@@ -520,7 +520,7 @@ TEST(Tower, ANonFiniteLinePullIsRefusedNamingTheTower)
     tw.set_line_loads({P3{{0.0, 1000.0, -5000.0}}}, {P3{{500.0, 500.0, 50.0}}});
     std::string msg = erf_gtest::abort_message([&] { tw.set_line_loads({P3{{nan, 0.0, 0.0}}}, {P3{{500.0, 500.0, 50.0}}}); });
     EXPECT_NE(msg.find("L1_t3"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("erf.conductors.moordyn_cfl"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("conductors.moordyn_cfl"), std::string::npos) << msg;
     EXPECT_EQ(tw.line_forces()[0][1], Real(1000.0));
     // two pulls for one attachment
     msg = erf_gtest::abort_message([&] {
@@ -540,16 +540,16 @@ TEST(Tower, AFlatOrBadlyAimedTowerIsRefusedNamingIt)
     TowerType bad = t;
     bad.solidity = 0.0;
     msg = erf_gtest::abort_message([&] { Tower tw("T9", bad, P3{{0.0, 0.0, 0.0}}, Real(30.0), P3{{0.0, 1.0, 0.0}}); });
-    EXPECT_NE(msg.find("erf.conductors.lattice.solidity"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("conductors.lattice.solidity"), std::string::npos) << msg;
     // a cross-arm no longer than the shaft is wide at the middle of its face (1.59 m at 29.4 m), though longer
     // than the top width, has no part outside the shaft
     TowerType stub = t;
     stub.arm_length = 1.55;
     msg = erf_gtest::abort_message([&] { Tower tw("T9", stub, P3{{0.0, 0.0, 0.0}}, Real(30.0), P3{{0.0, 1.0, 0.0}}); });
-    EXPECT_NE(msg.find("erf.conductors.lattice.arm_length"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("conductors.lattice.arm_length"), std::string::npos) << msg;
     EXPECT_NE(msg.find("arm_outside_shaft"), std::string::npos) << msg;
     // a cross-arm whose face's middle would lie below the base
     msg = erf_gtest::abort_message([&] { Tower tw("T9", t, P3{{0.0, 0.0, 0.0}}, Real(0.5), P3{{0.0, 1.0, 0.0}}); });
-    EXPECT_NE(msg.find("erf.conductors.lattice.arm_depth"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("conductors.lattice.arm_depth"), std::string::npos) << msg;
     EXPECT_TRUE(erf_gtest::abort_message([&] { Tower tw("T9", t, P3{{0.0, 0.0, 0.0}}, Real(30.0), P3{{0.0, 1.0, 0.0}}); }).empty());
 }

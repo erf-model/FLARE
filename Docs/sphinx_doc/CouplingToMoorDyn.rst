@@ -16,11 +16,12 @@ MoorDyn's line nodes through its external wave-kinematics interface, so the
 "water" MoorDyn's lines hang in is ERF's air. The actuator core of
 :ref:`sec:ActuatorCore` provides the sampling of the wind at the nodes, and a
 body model (one that writes a MoorDyn input for its lines and steps them with
-ERF) builds on the wrapper described here. The wrapper and the tower models live
-in FLARE's ``Structures`` directory; they have no caller in a run yet: the
-conductor model, which registers on ERF's structure coupling
-(:ref:`sec:StructureCoupling`), follows in a later change. This page is the
-how-to for building FLARE with MoorDyn and for what the wrapper in
+ERF) builds on the wrapper described here. The wrapper, the tower models and
+the conductor model (:ref:`sec:Conductors`, inputs in :ref:`sec:ConductorInputs`)
+live in FLARE's ``Structures`` directory; the conductor model drives them in a
+run, as a structure model on ERF's structure coupling
+(:ref:`sec:StructureCoupling`, ``erf.structures.model = conductors``). This
+page is the how-to for building FLARE with MoorDyn and for what the wrapper in
 ``Structures/MoorDyn`` checks.
 
 Building

@@ -92,7 +92,7 @@ std::string check_wave_kinematics_option (const std::string& input_file);
  * below z = 0 in MoorDyn's frame, which is where MoorDyn applies its fluid loads.
  *
  * MoorDyn's frame is the coordinates of the input file. A body model for lines in air writes ERF
- * coordinates lowered by an offset (erf.conductors.surface_offset for the conductor lines), so that
+ * coordinates lowered by an offset (conductors.surface_offset for the conductor lines), so that
  * the lines lie below MoorDyn's free surface z = 0.
  */
 class MoorDynSystem

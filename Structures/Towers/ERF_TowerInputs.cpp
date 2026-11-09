@@ -24,7 +24,7 @@ Real TowerType::force_coefficient () const
 
 std::string TowerType::validate () const
 {
-    const std::string key = "erf.conductors." + name + ".";
+    const std::string key = "conductors." + name + ".";
     if (!positive(base_width)) { return key + "base_width must be finite and positive (m)"; }
     if (!(positive(top_width) && top_width <= base_width)) { return key + "top_width must be finite, positive and at most base_width (m)"; }
     if (!(solidity > 0.0 && solidity < 1.0)) { return key + "solidity must be in (0, 1): the members' area over a face's outline"; }
@@ -40,7 +40,7 @@ std::string TowerType::validate () const
     if (segments < 1) { return key + "segments must be >= 1"; }
     if (!std::isfinite(epsilon)) { return key + "epsilon must be finite"; }
     if (epsilon_given && !(epsilon > 0.0)) {
-        return key + "epsilon must be positive (in units of the anchor level's dx; not given: erf.conductors.epsilon)";
+        return key + "epsilon must be positive (in units of the anchor level's dx; not given: conductors.epsilon)";
     }
     if (!non_negative(weight)) { return key + "weight must be finite and >= 0 (N)"; }
     if (!non_negative(leg_spacing)) { return key + "leg_spacing must be finite and >= 0 (m; 0: base_width)"; }
@@ -135,7 +135,7 @@ std::string TowerType::unused_on_a_still_tower () const
     if (foundation_rotational_stiffness != 0.0) { add("foundation_rotational_stiffness"); }
     if (foundation_lateral_stiffness != 0.0) { add("foundation_lateral_stiffness"); }
     if (keys.empty()) { return keys; }
-    return "erf.conductors." + name + ": " + keys + " not used: frequency = 0 and no frame, so the tower stands still";
+    return "conductors." + name + ": " + keys + " not used: frequency = 0 and no frame, so the tower stands still";
 }
 
 } // namespace erf_towers

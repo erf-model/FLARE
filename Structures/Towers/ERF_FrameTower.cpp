@@ -146,7 +146,7 @@ FrameTower::FrameTower (const Tower& tower, std::shared_ptr<const Frame> frame, 
     : m_frame(std::move(frame)), m_name(tower.name()), m_designs(std::move(designs)), m_gravity(gravity)
 {
     const TowerType& type = tower.type();
-    const std::string key = source.empty() ? "erf.conductors." + type.name + ".frame_file = " + type.frame_file : source;
+    const std::string key = source.empty() ? "conductors." + type.name + ".frame_file = " + type.frame_file : source;
     m_source = key;
     const auto& ac = tower.across();
     m_across = {{static_cast<double>(ac[0]), static_cast<double>(ac[1]), 0.0}};

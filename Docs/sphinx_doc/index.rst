@@ -82,6 +82,7 @@ In addition to this documentation, there is API documentation for ERF generated 
    theory/FireCoupling.rst
    theory/ActuatorCore.rst
    theory/TowerFrame.rst
+   theory/Conductors.rst
    theory/StructureCoupling.rst
    theory/Radiation.rst
    Particles.rst
@@ -122,6 +123,7 @@ In addition to this documentation, there is API documentation for ERF generated 
    CouplingToWW3.rst
    CouplingToNoahMP.rst
    CouplingToMoorDyn.rst
+   ConductorInputs.rst
 
 .. toctree::
    :caption: ERF vs WRF

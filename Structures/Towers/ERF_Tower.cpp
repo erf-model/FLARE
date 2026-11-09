@@ -118,7 +118,7 @@ Tower::Tower (std::string name, const TowerType& type, const std::array<Real,3>&
     // arm_face() deep all along
     const int na = TowerType::arm_segments;
     const bool outside = m_type.arm_outside_shaft;
-    const std::string key = "erf.conductors." + m_type.name + ".";
+    const std::string key = "conductors." + m_type.name + ".";
     const Real za = m_arm_height - (outside ? Real(0.5) * m_type.arm_face() : Real(0.0));
     if (!(za > Real(0.0))) {
         amrex::Abort("Tower " + m_name + ": the middle of the cross-arm's face lies " + std::to_string(-za) + " m below the base: " + key +
@@ -197,7 +197,7 @@ void Tower::set_line_loads (const std::vector<std::array<Real,3>>& force, const 
             if (!std::isfinite(force[a][d]) || !std::isfinite(at[a][d])) {
                 amrex::Abort("Tower " + m_name + ": the pull of the line at attachment " + std::to_string(a) +
                              " (0-based) or its point is not finite; MoorDyn's line integration may have diverged: "
-                             "reduce erf.conductors.moordyn_cfl or erf.conductors.moordyn_dt");
+                             "reduce conductors.moordyn_cfl or conductors.moordyn_dt");
             }
         }
     }
