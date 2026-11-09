@@ -62,6 +62,10 @@ function(erf_structures_unit_tests target)
   # level), its demand pinned to the still-air catenary tension or the footings' share of the
   # weight, its first exceedance logged once and kept across a restart, and failure_stop must stop
   # the run after the log is written (ERF_GTestCapacities.cpp holds the monitor's own tests).
+  # With ground_contact the terrain under each line must reach MoorDyn as its seafloor, node for
+  # node, and hold a slack span on the ground; the contact's damping must be critical for the
+  # conductor and a MoorDyn step too long for it refused; the spans' ground records must survive a
+  # restart (ERF_GTestGroundContact.cpp holds the log's own tests).
   target_sources(${target} PRIVATE
     ${_erf_structures_tests_dir}/ERF_GTestConductorInputsReset.cpp
     ${_erf_structures_tests_dir}/ERF_GTestConductorGeometry.cpp
@@ -72,6 +76,7 @@ function(erf_structures_unit_tests target)
     ${_erf_structures_tests_dir}/ERF_GTestConductorLine.cpp
     ${_erf_structures_tests_dir}/ERF_GTestConductors.cpp
     ${_erf_structures_tests_dir}/ERF_GTestCapacities.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestGroundContact.cpp
     ${_erf_structures_tests_dir}/ERF_GTestTransformer.cpp
   )
   # Motivation: against the real MoorDyn-C (the tests skip on the stub, which has no line

@@ -5,6 +5,7 @@
 
 #include <array>
 #include <string>
+#include <vector>
 
 #include <AMReX_REAL.H>
 
@@ -30,15 +31,59 @@ namespace erf_conductors {
  * the initial shape comes from MoorDyn's stationary solver, and MoorDyn's own outputs are off
  * (ERF writes the diagnostics).
  *
+ *
+ * With conductors.ground_contact the bottom is the terrain instead: the options name the seafloor
+ * file (seafloor_file()) that the caller writes before MoorDyn reads the input, with
+ * ConductorInputs::ground_stiffness as kbot and the conductor's critical ground_damping() as cbot.
+ *
  * @param s the line; its attachment points already at their absolute heights (the terrain added)
  * @param in the shared settings (air density, surface offset, moordyn_dt, and moordyn_cfl, MoorDyn's
  *           Courant (CFL) factor) and the tower types, which decide whether the towers are Coupled points
  * @param gravity ERF's gravity (m/s^2)
  */
-std::string moordyn_input_text (const LineInputs& s, const ConductorInputs& in, amrex::Real gravity);
+std::string moordyn_input_text (const LineInputs& s, const ConductorInputs& in, amrex::Real gravity,
+                                const std::string& seafloor = std::string());
 
-/** Write moordyn_input_text() to a file (creating its directory); aborts when the file cannot be written. */
+/**
+ * Write moordyn_input_text() to a file (creating its directory); aborts when the file cannot be written.
+ * With conductors.ground_contact the input names seafloor_file(fname).
+ */
 void write_moordyn_input (const std::string& fname, const LineInputs& s, const ConductorInputs& in, amrex::Real gravity);
+
+/**
+ * The seafloor file that goes with the MoorDyn input fname: its ".moordyn.txt" ending replaced by
+ * ".seafloor.txt" (".seafloor.txt" appended to any other name). MoorDyn opens it from the run's
+ * directory, as it opens the input.
+ */
+std::string seafloor_file (const std::string& fname);
+
+/**
+ * The text of a MoorDyn-C 3-D seafloor file: "nx ny", the nx x ticks, the ny y ticks, then one
+ * "x y z" row per grid point, x the slower index. z is the ground's height in MoorDyn's frame,
+ * z_erf - surface_offset; MoorDyn interpolates bilinearly between the points and holds the edge
+ * values beyond the grid.
+ *
+ * @param x the x ticks (m), increasing
+ * @param y the y ticks (m), increasing
+ * @param z_erf the ground's height in ERF's frame (m) at (x[i], y[j]), at z_erf[i * y.size() + j]
+ * @param surface_offset conductors.surface_offset (m)
+ */
+/**
+ * The node indices of a seafloor grid from nlo to nhi (inclusive) in x and y: every node, or every
+ * stride-th with the smallest stride that keeps the grid at max_points or fewer, the last node always
+ * included (so the grid covers the whole range).
+ */
+void seafloor_ticks (const std::array<int,2>& nlo, const std::array<int,2>& nhi, long max_points,
+                     std::vector<int>& ii, std::vector<int>& jj, int& stride);
+
+/**
+ * Replace the NaN heights in h (nodes no grid holds) by the lowest of the others, set in lowest.
+ * Returns how many were replaced; when all are NaN, h is left as it is and h.size() returned.
+ */
+std::size_t fill_missing_heights (std::vector<double>& h, double& lowest);
+
+std::string seafloor_text (const std::vector<double>& x, const std::vector<double>& y,
+                           const std::vector<double>& z_erf, double surface_offset);
 
 /** A position (m) in ERF's frame from MoorDyn's: z_erf = z_md + surface_offset. */
 inline std::array<amrex::Real,3> to_erf_frame (const std::array<double,3>& p, amrex::Real surface_offset)

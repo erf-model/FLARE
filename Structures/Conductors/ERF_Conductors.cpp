@@ -27,6 +27,7 @@
 #include "ERF_Gusts.H"
 #include "ERF_IndexDefines.H"
 #include "ERF_LatticeFrame.H"
+#include "ERF_MoorDynInputWriter.H"
 #include "ERF_MoorDynSystem.H"
 
 using namespace amrex;
@@ -255,6 +256,7 @@ Conductors::set_ground (const MultiFab* z_phys_nd, const Geometry& geom, const s
     build_towers();
     write_asce74();
     setup_gusts(geom);
+    write_seafloors(z_phys_nd, geom);
 
     if (!restart_chkdir.empty()) {
         const std::string dir = restart_chkdir + "/conductors";
@@ -376,6 +378,7 @@ Conductors::set_ground (const MultiFab* z_phys_nd, const Geometry& geom, const s
         write_member_tables();
     }
     build_capacities();
+    build_ground_log();
 }
 
 void
@@ -977,6 +980,180 @@ Conductors::tower_line_loads (std::size_t t, std::vector<std::array<Real,3>>& fo
             for (int d = 0; d < 3; ++d) { at[a][d] += x[d]; }
         }
     }
+}
+
+namespace {
+// The ground's height (m) at the anchor level's nodes (ii[a], jj[b]) of the k = 0 plane, at h[a * jj.size() + b];
+// nodes no grid holds are NaN. Each node has one owner: the box holding the cell (i, j) whose lower corner it is (the
+// last node of the domain in x or y, the cell below it), so that boxes sharing a face never write the same point,
+// whatever streams their kernels run on. ii and jj increase.
+void ground_at_nodes (const MultiFab& z_phys_nd, const Geometry& geom, const std::vector<int>& ii, const std::vector<int>& jj,
+                      std::vector<double>& h)
+{
+    const Box& dom = geom.Domain();
+    const int klo = dom.smallEnd(2);
+    const int ny = static_cast<int>(jj.size());
+    const int np = static_cast<int>(ii.size()) * ny;
+    Gpu::DeviceVector<int> d_i(ii.size()), d_j(jj.size());
+    Gpu::copy(Gpu::hostToDevice, ii.begin(), ii.end(), d_i.begin());
+    Gpu::copy(Gpu::hostToDevice, jj.begin(), jj.end(), d_j.begin());
+    Gpu::DeviceVector<Real> d_h(np, 0.0);
+    Gpu::DeviceVector<int> d_cnt(np, 0);
+    const int* p_i = d_i.data();
+    const int* p_j = d_j.data();
+    Real* p_h = d_h.data();
+    int* p_cnt = d_cnt.data();
+    const int ihi = dom.bigEnd(0), jhi = dom.bigEnd(1);
+    // the fills above finish before the boxes' kernels start on their own streams
+    Gpu::streamSynchronize();
+    for (MFIter mfi(z_phys_nd, false); mfi.isValid(); ++mfi) {
+        const Box nbx = mfi.validbox();
+        if (nbx.smallEnd(2) > klo || nbx.bigEnd(2) < klo) { continue; }
+        const Box cbx = amrex::enclosedCells(nbx);
+        // the ticks whose owning cell this box holds: a contiguous range of each (they increase)
+        auto range = [] (const std::vector<int>& t, int lo, int hi, int last, int& a0, int& a1) {
+            // node n is owned by cell min(n, last)
+            a0 = static_cast<int>(std::lower_bound(t.begin(), t.end(), lo) - t.begin());
+            a1 = (hi >= last) ? static_cast<int>(t.size()) : static_cast<int>(std::upper_bound(t.begin(), t.end(), hi) - t.begin());
+        };
+        int a0, a1, b0, b1;
+        range(ii, cbx.smallEnd(0), cbx.bigEnd(0), ihi, a0, a1);
+        range(jj, cbx.smallEnd(1), cbx.bigEnd(1), jhi, b0, b1);
+        if (a1 <= a0 || b1 <= b0) { continue; }
+        Array4<Real const> const& z = z_phys_nd.const_array(mfi);
+        const int nb = b1 - b0;
+        ParallelFor((a1 - a0) * nb, [=] AMREX_GPU_DEVICE (int q) noexcept
+        {
+            const int a = a0 + q / nb, b = b0 + q % nb;
+            p_h[a * ny + b] = z(p_i[a], p_j[b], klo);
+            p_cnt[a * ny + b] = 1;
+        });
+    }
+    Gpu::streamSynchronize();
+    std::vector<Real> hr(np);
+    std::vector<int> cnt(np);
+    Gpu::copy(Gpu::deviceToHost, d_h.begin(), d_h.end(), hr.begin());
+    Gpu::copy(Gpu::deviceToHost, d_cnt.begin(), d_cnt.end(), cnt.begin());
+    ParallelDescriptor::ReduceRealSum(hr.data(), np);
+    ParallelDescriptor::ReduceIntSum(cnt.data(), np);
+    h.assign(static_cast<std::size_t>(np), std::numeric_limits<double>::quiet_NaN());
+    for (int p = 0; p < np; ++p) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(cnt[p] <= 1, "ground_at_nodes: a terrain node has two owners");
+        if (cnt[p] == 1) { h[static_cast<std::size_t>(p)] = static_cast<double>(hr[p]); }
+    }
+}
+} // namespace
+
+void
+Conductors::write_seafloors (const MultiFab* z_phys_nd, const Geometry& geom)
+{
+    if (!m_in.ground_contact) { return; }
+    const Box& dom = geom.Domain();
+    const auto plo = geom.ProbLoArray();
+    const auto dx = geom.CellSizeArray();
+    for (const LineInputs& s : m_placed) {
+        // the line and one span length (and its string) around it: where a span that lets go of one end can swing
+        Real margin = *std::max_element(s.lengths.begin(), s.lengths.end());
+        if (s.has_insulators()) { margin += s.insulator_length; }
+        std::array<Real,2> lo{{s.point(0)[0], s.point(0)[1]}}, hi = lo;
+        for (int k = 1; k <= s.num_spans(); ++k) {
+            for (int d = 0; d < 2; ++d) { lo[d] = std::min(lo[d], s.point(k)[d]); hi[d] = std::max(hi[d], s.point(k)[d]); }
+        }
+        // the anchor level's node indices covering that, within the domain
+        std::array<int,2> nlo, nhi;
+        for (int d = 0; d < 2; ++d) {
+            nlo[d] = std::clamp(static_cast<int>(std::floor((lo[d] - margin - plo[d]) / dx[d])), dom.smallEnd(d), dom.bigEnd(d) + 1);
+            nhi[d] = std::clamp(static_cast<int>(std::ceil((hi[d] + margin - plo[d]) / dx[d])), dom.smallEnd(d), dom.bigEnd(d) + 1);
+            if (nhi[d] == nlo[d]) { (nlo[d] > dom.smallEnd(d)) ? --nlo[d] : ++nhi[d]; }   // at least two ticks
+        }
+        int stride = 1;
+        std::vector<int> ii, jj;
+        erf_conductors::seafloor_ticks(nlo, nhi, ConductorInputs::max_seafloor_points, ii, jj, stride);
+        std::vector<double> x(ii.size()), y(jj.size()), h;
+        for (std::size_t a = 0; a < ii.size(); ++a) { x[a] = static_cast<double>(plo[0]) + ii[a] * static_cast<double>(dx[0]); }
+        for (std::size_t b = 0; b < jj.size(); ++b) { y[b] = static_cast<double>(plo[1]) + jj[b] * static_cast<double>(dx[1]); }
+        // MoorDyn-C reads the ticks as float: at large coordinates (a UTM northing) neighbouring ticks could become equal
+        for (const auto* t : {&x, &y}) {
+            for (std::size_t a = 0; a + 1 < t->size(); ++a) {
+                if (!(static_cast<float>((*t)[a+1]) > static_cast<float>((*t)[a]))) {
+                    Abort("conductors." + s.name + ": with ground_contact the seafloor's grid points " + std::to_string((*t)[a]) + " and " +
+                          std::to_string((*t)[a+1]) + " m are equal in single precision, as MoorDyn-C reads them: shift geometry.prob_lo "
+                          "towards the origin");
+                }
+            }
+        }
+        if (m_surface) {
+            // the surface ERF gave, bilinear between its nodes, as the clearances are measured
+            std::vector<Real> pos, hr;
+            for (const double xa : x) { for (const double yb : y) { pos.insert(pos.end(), {static_cast<Real>(xa), static_cast<Real>(yb), Real(0.0)}); } }
+            ground_heights(z_phys_nd, geom, pos, hr);
+            h.assign(hr.begin(), hr.end());
+        } else if (z_phys_nd == nullptr) {
+            h.assign(x.size() * y.size(), static_cast<double>(geom.ProbLo(2)));
+        } else {
+            ground_at_nodes(*z_phys_nd, geom, ii, jj, h);
+        }
+        double lowest = 0.0;
+        const std::size_t missing = erf_conductors::fill_missing_heights(h, lowest);
+        if (missing == h.size()) {
+            Abort("conductors." + s.name + ": with ground_contact no terrain node under the line lies on the grids of the anchor level " +
+                  std::to_string(m_anchor));
+        }
+        // MoorDyn's contact acts on the node, the conductor's axis: the seafloor is the terrain raised by the
+        // conductor's radius, so that its surface rests on the ground and its axis stays above it
+        const double radius = 0.5 * static_cast<double>(s.diameter);
+        for (double& v : h) { v += radius; }
+        const std::string file = erf_conductors::seafloor_file(m_in.diagnostics_dir + "/" + s.name + ".moordyn.txt");
+        if (ParallelDescriptor::IOProcessor()) {
+            UtilCreateDirectory(m_in.diagnostics_dir, 0755);
+            std::ofstream out(file, std::ios::trunc);
+            out << erf_conductors::seafloor_text(x, y, h, static_cast<double>(m_in.surface_offset));
+            if (!out) { Abort("conductors." + s.name + ": cannot write the seafloor file '" + file + "'"); }
+        }
+        Print() << "conductors." << s.name << ": the ground under the line, " << x.size() << " x " << y.size() << " terrain nodes of level "
+                << m_anchor << (stride > 1 ? " (every " + std::to_string(stride) + "th node)" : std::string()) << " raised by the conductor's radius, "
+                << "is MoorDyn's seafloor (" << file << ")";
+        if (missing > 0) { Print() << "; " << missing << " node(s) off the level's grids take the lowest height, " << lowest << " m"; }
+        Print() << "\n";
+    }
+}
+
+void
+Conductors::build_ground_log ()
+{
+    m_ground_log = erf_conductors::GroundContactLog();
+    m_ground_span.assign(m_lines.size(), {});
+    if (!m_in.ground_contact) { return; }
+    for (std::size_t i = 0; i < m_lines.size(); ++i) {
+        const ConductorLine& c = *m_lines[i];
+        for (int k = 0; k < c.num_spans(); ++k) {
+            const std::string name = (c.num_spans() == 1) ? c.name() : c.name() + "_span" + std::to_string(k + 1);
+            m_ground_span[i].push_back(m_ground_log.add(name, static_cast<int>(c.span_num_nodes(k))));
+        }
+    }
+}
+
+void
+Conductors::check_ground (double t)
+{
+    if (m_ground_log.empty()) { return; }
+    int printed = 0, more = 0;
+    for (std::size_t i = 0; i < m_lines.size(); ++i) {
+        const ConductorLine& c = *m_lines[i];
+        for (int k = 0; k < c.num_spans(); ++k) {
+            const int on = c.nodes_on_ground(k);
+            const std::size_t id = m_ground_span[i][static_cast<std::size_t>(k)];
+            if (!m_ground_log.record(id, on, t)) { continue; }
+            if (printed < 5) {
+                Print() << "conductors: " << m_ground_log.span(id).name << " is on the ground at t = " << std::setprecision(10) << t
+                        << " s (" << on << " of its " << m_ground_log.span(id).nodes << " nodes within one diameter of the terrain)\n";
+                ++printed;
+            } else {
+                ++more;
+            }
+        }
+    }
+    if (more > 0) { Print() << "conductors: " << more << " more span(s) on the ground at t = " << t << " s (" << m_in.diagnostics_dir << "/ground_contact.csv)\n"; }
 }
 
 void
@@ -1644,6 +1821,28 @@ Conductors::restore (const std::string& dir)
         // the table as of the checkpoint, not as the run being restarted left it after it
         if (ParallelDescriptor::IOProcessor()) { m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv"); }
     }
+    // the spans' ground contacts; a checkpoint without them (or a span it does not hold) starts afresh
+    build_ground_log();
+    if (!m_ground_log.empty()) {
+        if (erf_actuator::file_exists_everywhere(dir + "/ground_contact")) {
+            Vector<char> gchars;
+            ParallelDescriptor::ReadAndBcastFile(dir + "/ground_contact", gchars);
+            std::vector<std::string> dropped;
+            // ReadAndBcastFile ends the buffer with a NUL
+            const std::string err = m_ground_log.restore(std::string(gchars.dataPtr()), dropped);
+            if (!err.empty()) { Abort("the conductor checkpoint '" + dir + "/ground_contact': " + err); }
+            for (const auto& n : dropped) { Print() << "conductors: the checkpoint's ground-contact record " << n << " is not kept in this run\n"; }
+        } else {
+            Print() << "conductors: the checkpoint '" << dir << "' holds no ground-contact records; they start at the restart\n";
+        }
+        if (ParallelDescriptor::IOProcessor()) { m_ground_log.write_table(m_in.diagnostics_dir + "/ground_contact.csv"); }
+    } else if (erf_actuator::file_exists_everywhere(dir + "/ground_contact")) {
+        Print() << "conductors: WARNING the checkpoint holds ground-contact records, but conductors.ground_contact is false: they are "
+                << "not kept, and a span resting on the ground falls through it and stops the run\n";
+        // the run being restarted left its table: it is not this run's
+        std::error_code ec;
+        if (ParallelDescriptor::IOProcessor()) { std::filesystem::remove(m_in.diagnostics_dir + "/ground_contact.csv", ec); }
+    }
     // the logs continue from the checkpoint: rows a run wrote after it are dropped
     if (ParallelDescriptor::IOProcessor()) {
         for (const std::string& f : log_files()) { erf_conductors::trim_log_after(f, m_time); }
@@ -1702,6 +1901,12 @@ Conductors::write_checkpoint (const std::string& chkdir) const
             if (!cp) { Abort("cannot write the conductor checkpoint '" + dir + "/capacities'"); }
             // the table as checkpointed, so that a run ending here, off the diagnostics cadence, has its last peaks
             m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv");
+        }
+        if (!m_ground_log.empty()) {
+            std::ofstream gc(dir + "/ground_contact", std::ios::trunc);
+            gc << m_ground_log.state();
+            if (!gc) { Abort("cannot write the conductor checkpoint '" + dir + "/ground_contact'"); }
+            m_ground_log.write_table(m_in.diagnostics_dir + "/ground_contact.csv");
         }
         if (!m_gust_z.empty()) {
             // the random gusts' processes: their number and whether they hold values, then each process's name and value
@@ -1889,6 +2094,14 @@ Conductors::advance (int lev, double time, double dt,
                 std::filesystem::remove(m_in.diagnostics_dir + "/failures.dat", ec);
                 std::filesystem::remove(m_in.diagnostics_dir + "/capacities.csv", ec);
             }
+            if (m_ground_log.empty()) {
+                // nor a ground-contact table or seafloor files of an earlier run
+                std::error_code ec;
+                std::filesystem::remove(m_in.diagnostics_dir + "/ground_contact.csv", ec);
+                for (const LineInputs& pl : m_placed) {
+                    std::filesystem::remove(erf_conductors::seafloor_file(m_in.diagnostics_dir + "/" + pl.name + ".moordyn.txt"), ec);
+                }
+            }
         }
     }
     // the flow's wind at the start of the step, where the lines' nodes and the towers' members are, held over the
@@ -2019,6 +2232,10 @@ Conductors::advance (int lev, double time, double dt,
     if (m_step % m_in.diagnostics_int == 0) { m_coupling_logged_iterations = 0; m_coupling_logged_unconverged = 0; }
     // the lines' current positions: their clearance to the terrain, then the outputs and statistics
     update_ground_under_nodes(z_phys_nd, geom);
+    check_ground(time + dt);
+    if (write && !m_ground_log.empty() && ParallelDescriptor::IOProcessor()) {
+        m_ground_log.write_table(m_in.diagnostics_dir + "/ground_contact.csv");
+    }
     // the air's drag on the lines and on the towers' members
     m_drag_total = {{0.0, 0.0, 0.0}};
     for (const auto& t : m_towers) {
