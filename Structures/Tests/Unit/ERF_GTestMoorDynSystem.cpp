@@ -466,8 +466,8 @@ TEST(MoorDynSystem, CrosswindBlowsTheSpanOutTowardsTheStaticAngle)
         EXPECT_NEAR(phi_mean, phi_static, 1.0e-6 * phi_static);
         const double we = std::hypot(s.weight(), s.drag(U));
         const double He = s.elastic_horizontal_tension(we);
-        const double Te = std::hypot(He, 0.5 * we * s.chord);
-        EXPECT_NEAR(ten_mean, Te, 1.0e-6 * Te) << "the elastic parabola under w_e";
+        const double T_end = std::hypot(He, 0.5 * we * s.chord);
+        EXPECT_NEAR(ten_mean, T_end, 1.0e-6 * T_end) << "the elastic parabola under w_e";
     }
 }
 
