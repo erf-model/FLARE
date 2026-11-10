@@ -236,6 +236,22 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
       add_test_restart_abort(Conductors_TowerFireHeating_RestartUnheatedAbort Conductors_TowerFireHeating 135
           "so the restart needs conductors.thermal.towers = true" RESTART_OPTIONS "conductors.thermal.towers=false")
       set_tests_properties(Conductors_TowerFireHeating_RestartUnheatedAbort PROPERTIES LABELS "regression;conductors;fire;abort")
+      # The fire-under-a-line benchmark's switch (Structures/Exec/FireUnderLine): its own decks, shortened to 80 s
+      # with a 450 m line fire lit at 5 s, 50 m upwind of the line's middle span, once with erf.fire.fire_atm_feedback = 0 and
+      # once with 1. check_feedback.py requires the air at the line to warm by more than 1 K with feedback on, and
+      # the air at every span to move by less than 1 % of that rise with feedback off while the fire's radiation
+      # reaches the line (34 K and 0.08 K here; a mutant that injects the heat whatever the multiplier fails it).
+      # The benchmark's comparison of the two runs rests on this.
+      set(_fu_src ${PROJECT_SOURCE_DIR}/Structures/Exec/FireUnderLine)
+      set(_fu_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/FireUnderLine_Feedback)
+      file(MAKE_DIRECTORY ${_fu_dir})
+      set(_fu_opts "max_step=160 stop_time=80.25 erf.fire.ignition.polygon_time=5 erf.fire.ignition.polygon_file=test_line.csv erf.plot_int_1=-1 erf.check_int=-1 erf.fire.plot_int=-1 amrex.call_addr2line=0")
+      set(_fu_run "rm -rf $d && mkdir $d && cd $d && cp ${_fu_src}/flow.inputs ${_fu_src}/inputs_spinup ${_fu_src}/inflow_profile ${_fu_src}/input_sounding . && echo '1150 775' > test_line.csv && echo '1150 1225' >> test_line.csv && ${_fh_mpi} ${_fh_exe} inputs_spinup ${_fu_opts} erf.fire.fire_atm_feedback=$f > run.log 2>&1 && cd ..")
+      add_test(NAME FireUnderLine_Feedback
+               COMMAND sh -c "d=off f=0 && ${_fu_run} && d=on f=1 && ${_fu_run} && \"${Python3_EXECUTABLE}\" -I ${_fu_src}/check_feedback.py off on"
+               WORKING_DIRECTORY ${_fu_dir})
+      set_tests_properties(FireUnderLine_Feedback PROPERTIES LABELS "regression;conductors;fire" TIMEOUT 1200
+                           PROCESSORS 2 ATTACHED_FILES_ON_FAIL "${_fu_dir}/off/run.log;${_fu_dir}/on/run.log")
     endif()
   endif()
   # The thermal model's start-up checks: an unknown model, a missing conductor property, a value out of range,

@@ -138,7 +138,7 @@ double ieee738_radiation (double D, double emissivity, double T, double T_s)
 double LineThermalProps::resistance_at (double T) const
 {
     const double t0 = resistance_temperatures[0], t1 = resistance_temperatures[1];
-    return resistance[0] + (resistance[1] - resistance[0]) / (t1 - t0) * (T - t0);                            // eq 10
+    return resistance[0] + (resistance[1] - resistance[0]) / (t1 - t0) * (T - t0);                            // eq 33
 }
 
 double heat_gain (const LineThermalProps& p, const ThermalSettings& s, double T, double T_a, double T_s, double V, double phi,
