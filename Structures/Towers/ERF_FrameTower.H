@@ -144,6 +144,8 @@ public:
 
     /** Whether the members' design data was given, so member_checks() has something to check. */
     bool has_member_checks () const { return static_cast<bool>(m_designs); }
+    /** The members' design data (frame order), or null when none was given. */
+    const std::vector<MemberDesign>* designs () const { return m_designs.get(); }
     /**
      * Every member's element forces (FrameSolution::element_force: per element, the forces on it at its
      * nodes in its local axes, N and N m): the static ones under the frame's weight plus K_e (u + a1 v), the
@@ -151,13 +153,22 @@ public:
      * static forces under the frame's weight and the tower's present drag and line pulls, as foundation().
      */
     std::vector<std::array<double,12>> element_forces (const Tower& tower) const;
-    /** The members' strength checks under element_forces() at the members' temperatures; empty without design data. */
+    /**
+     * The members' strength checks under element_forces() at the members' check temperatures (set_check_temperature(),
+     * else the frame's own); empty without design data.
+     */
     std::vector<MemberCheck> member_checks (const Tower& tower) const;
     /**
      * Every frame node's displacement from where it stands under the frame's weight at its first temperature
      * (6 per node, m and rad; frame axes).
      */
     std::vector<double> node_displacements () const;
+
+    /**
+     * A point given in the frame's axes (m) in ERF's axes: the tower's base plus the point turned from the tower-local
+     * axes (x along the line, y along the cross-arm) into ERF's. The frame as it stands, without its displacement.
+     */
+    std::array<double,3> erf_point (const std::array<double,3>& x) const;
 
     /** The members' temperatures (C, one per member in the frame's order). */
     const std::vector<double>& temperature () const { return m_theta; }
@@ -169,6 +180,12 @@ public:
      * of the frame at its first temperature. Returns an empty string, or the problem (and changes nothing).
      */
     std::string set_temperature (const std::vector<double>& theta);
+    /**
+     * The temperatures (C, one per member) member_checks() takes the members' strengths at, without rebuilding the frame:
+     * the steel's present temperatures when the frame was built at slightly different ones (conductors.thermal.towers).
+     * Not saved by state(): the caller sets them again after a restart. Empty: the frame's own temperatures.
+     */
+    void set_check_temperature (const std::vector<double>& theta);
 
 private:
     std::array<double,3> to_local (const std::array<amrex::Real,3>& v) const;
@@ -184,6 +201,7 @@ private:
     std::shared_ptr<const Frame> m_frame;
     std::string m_name;                          //!< the tower's name, for messages
     std::array<double,3> m_along{}, m_across{};  //!< the tower-local x and y axes in ERF's axes
+    std::array<double,3> m_base{};               //!< the tower's base centre in ERF's axes (m)
     std::vector<RigidLink> m_drag;               //!< per drag node of the tower
     std::vector<RigidLink> m_attach;             //!< per attachment of the tower
     std::vector<RigidLink> m_arm;                //!< the cross-arm's centre (one link)
@@ -194,6 +212,7 @@ private:
     std::vector<double> m_sag0;                  //!< the same at the first temperature, which the tower's motion is measured from
     std::shared_ptr<const std::vector<MemberDesign>> m_designs;
     std::vector<double> m_theta;                 //!< the members' temperatures (C)
+    std::vector<double> m_check_theta;           //!< set_check_temperature(); empty: m_theta
     std::string m_source;                        //!< where the frame came from, for messages
     double m_gravity{0.0};                       //!< m/s^2
     double m_f1{0.0};                            //!< first natural frequency (Hz)

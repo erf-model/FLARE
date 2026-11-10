@@ -286,7 +286,9 @@ This section describes how a tower in a run stands on the frame
 - Restart: a frame's state for a checkpoint (``state()`` and ``set_state()``)
   is its Newmark state, its last loads and its members' temperatures;
   ``restart_mismatch()`` refuses a restart whose ``steel_temperature`` gives
-  other temperatures, naming the tower. A frame checkpointed before its first
+  other temperatures, naming the tower. With ``conductors.thermal.towers`` the
+  conductor model does not ask it: the saved temperatures are the fire's, and
+  ``set_state()`` rebuilds the frame at them. A frame checkpointed before its first
   step restarts with the static footings, as the run that wrote it had them.
 
 Generated lattice towers

@@ -151,6 +151,7 @@ FrameTower::FrameTower (const Tower& tower, std::shared_ptr<const Frame> frame, 
     const auto& ac = tower.across();
     m_across = {{static_cast<double>(ac[0]), static_cast<double>(ac[1]), 0.0}};
     m_along = {{m_across[1], -m_across[0], 0.0}};
+    m_base = {{static_cast<double>(tower.base()[0]), static_cast<double>(tower.base()[1]), static_cast<double>(tower.base()[2])}};
     const auto& base = tower.base();
     auto local_point = [&] (const std::array<Real,3>& p) {
         return to_local({{p[0] - base[0], p[1] - base[1], p[2] - base[2]}});
@@ -243,6 +244,11 @@ std::array<double,3> FrameTower::to_local (const std::array<Real,3>& v) const
 {
     const double x = v[0], y = v[1], z = v[2];
     return {{x * m_along[0] + y * m_along[1], x * m_across[0] + y * m_across[1], z}};
+}
+
+std::array<double,3> FrameTower::erf_point (const std::array<double,3>& x) const
+{
+    return {{m_base[0] + x[0] * m_along[0] + x[1] * m_across[0], m_base[1] + x[0] * m_along[1] + x[1] * m_across[1], m_base[2] + x[2]}};
 }
 
 std::array<Real,3> FrameTower::to_erf (const std::array<double,3>& v) const
@@ -402,7 +408,13 @@ std::vector<std::array<double,12>> FrameTower::element_forces (const Tower& towe
 std::vector<MemberCheck> FrameTower::member_checks (const Tower& tower) const
 {
     if (!m_designs) { return {}; }
-    return check_members(*m_frame, *m_designs, element_forces(tower), m_theta);
+    return check_members(*m_frame, *m_designs, element_forces(tower), m_check_theta.empty() ? m_theta : m_check_theta);
+}
+
+void FrameTower::set_check_temperature (const std::vector<double>& theta)
+{
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(theta.empty() || theta.size() == m_theta.size(), "FrameTower::set_check_temperature: one temperature per member");
+    m_check_theta = theta;
 }
 
 std::vector<double> FrameTower::node_displacements () const

@@ -86,6 +86,7 @@ function(erf_structures_unit_tests target)
   # length must follow its mean temperature in MoorDyn and come back from a checkpoint.
   target_sources(${target} PRIVATE
     ${_erf_structures_tests_dir}/ERF_GTestLineThermal.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestTowerThermal.cpp
   )
   # Motivation: against the real MoorDyn-C (the tests skip on the stub, which has no line
   # dynamics), a span's mean swing in a steady crosswind must be the quasi-static blowout angle

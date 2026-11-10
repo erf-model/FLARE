@@ -114,6 +114,18 @@ conductors.thermal.solar_flux = 0.0        # Real in [0, 1500] (W/m^2). The sun'
 #conductors.thermal.reference_temperature = 15.0  # Real in [-50, 300] (C). The temperature at which the spans have
                                                 #   their input lengths. Default: none (each span's mean steady
                                                 #   temperature at the first step)
+conductors.thermal.towers = false          # true or false. The towers' steel temperature: every member of every
+                                                #   tower that bends as a frame follows EN 1993-1-2's heat balance of
+                                                #   unprotected steel under the fire, and the frame is rebuilt as the
+                                                #   steel softens (tower_temperature.dat). true needs thermal_model =
+                                                #   ieee738, a frame tower, and no type's steel_temperature other than
+                                                #   20. Default: false
+conductors.thermal.tower_emissivity = 0.7   # Real in (0, 1]. The steel's emissivity and absorptivity. Default: 0.7
+conductors.thermal.tower_convection = 25.0  # Real in [0, 200] (W/(m^2 K)). Convection between the members and the
+                                                #   air. Default: 25
+conductors.thermal.tower_reduction_tolerance = 0.01  # Real in (0, 0.2]. Rebuild a tower's frame when a member's k_y
+                                                #   or k_E (EN 1993-1-2 Table 3.1) has moved by more than this
+                                                #   fraction. Default: 0.01
 conductors.ground_contact    = false       # true or false. The terrain holds the lines up: each line's MoorDyn
                                                 #   system takes the anchor level's terrain under it, raised by the
                                                 #   conductor's radius, as its seafloor (<line>.seafloor.txt), so a
@@ -389,7 +401,7 @@ conductors.lattice.angle_principal_axes = true   # Boolean. Each generated angle
 conductors.lattice.steel_temperature = 20.0      # Real in (-273.15, 1200) (C). Lowers the frame's stiffness and its
                                                      #   members' yield strength (EN 1993-1-2 Table 3.1); other than
                                                      #   20 needs frame_file or frame_panels; a restart cannot change
-                                                     #   it. Default: 20
+                                                     #   it; not with conductors.thermal.towers. Default: 20
 conductors.lattice.epsilon = 2.0                 # Real > 0 (cells). Width of the Gaussian that spreads the drag of
                                                      #   this type's towers. Needs drag_on_flow = true, as
                                                      #   conductors.epsilon does. Default: conductors.epsilon
