@@ -1,0 +1,11 @@
+# Stage 2, feedback off: restart from the spun-up flow, the fire lit at 600 s and followed to 2100 s (25 min).
+# erf.fire.fire_atm_feedback = 0: the air never sees the fire (one-way); the line and towers are heated by its radiation only.
+FILE = flow.inputs
+amr.restart = chk01180
+max_step    = 4200
+stop_time   = 2100.25
+erf.fire.fire_atm_feedback = 0
+erf.plot_int_1    = 120                    # every 60 s
+erf.fire.plot_int = 120
+erf.check_int     = 3020                   # one checkpoint, at the end
+conductors.stats_start = 600.

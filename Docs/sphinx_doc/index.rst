@@ -139,6 +139,7 @@ In addition to this documentation, there is API documentation for ERF generated 
    UnitTests.rst
    RegressionTests.rst
    Verification.rst
+   FireUnderLine.rst
    Performance.rst
 
 .. toctree::

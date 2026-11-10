@@ -1,0 +1,8 @@
+# Stage 1: the flow and the lines, no fire yet, for 590 s (about three times the 200 s the inflow takes to reach the line), to a checkpoint.
+# The fire is lit at 600 s in stage 2.
+FILE = flow.inputs
+max_step   = 1180
+stop_time  = 590.25
+erf.plot_int_1 = 1180
+erf.check_int  = 1180
+erf.fire.plot_int = 1180

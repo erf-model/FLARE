@@ -1,0 +1,127 @@
+# Fire under a transmission line: everything the three stages share.
+# A neutral boundary layer over flat grass (k-equation RANS, implicit anelastic MidPoint, FFT pressure solve)
+# enters through x-low as the log law of inflow_profile (6 m/s at 10 m). A 600 m grass line fire is lit at
+# 600 s, 600 m upwind of a north-south line of three spans on two lattice towers, and runs under it.
+# The conductors' temperature (IEEE 738) and the towers' steel temperature (EN 1993-1-2) follow the fire's
+# radiation and the air around them.
+
+geometry.prob_lo     = 0.    0.    0.
+geometry.prob_hi     = 4000. 2000. 600.
+amr.n_cell           = 160   80    60      # 25 m x 25 m x 10 m
+amr.max_level        = 0
+amr.max_grid_size_x  = 20                 # box lengths divide by the fire grid ratio (5)
+amr.max_grid_size_y  = 20
+amr.max_grid_size_z  = 60                 # whole columns: the fire module forbids a z decomposition
+amr.blocking_factor  = 1                 # 8 x 4 boxes of 20 x 20 cells: up to 32 ranks each gets whole boxes,
+                                          # whose lengths divide by the fire grid ratio (more ranks would chop them)
+geometry.is_periodic = 0 1 0
+erf.fixed_dt         = 0.5                 # Courant 0.2 in the inflow; the summed advective Courant number reaches
+                                           # 0.83 in the plume (w up to 11 m/s on 10 m cells, in the 60 s plotfiles)
+
+xlo.type           = "Inflow"
+xlo.dirichlet_file = "inflow_profile"      # z u v w theta at the cell centres (make_inflow.py)
+xlo.KE             = 0.6955                # u*^2 / c_mu0^2, u* = 0.4639 m/s (the closure's neutral wall value)
+xhi.type           = "Outflow"
+zhi.type           = "SlipWall"
+zlo.type           = "surface_layer"
+erf.most.z0        = 0.05
+
+erf.compressibility_type = Anelastic
+erf.timestepping_type    = MidPoint
+erf.vert_implicit  = true
+erf.use_fft        = true
+
+erf.init_type           = "input_sounding"
+erf.input_sounding_file = "input_sounding"
+erf.prob_name           = "ABL"
+erf.use_gravity         = true
+erf.theta_ref           = 300.0
+
+erf.dycore_horiz_adv_type  = "Upwind_5th"
+erf.dycore_vert_adv_type   = "Upwind_3rd"
+erf.dryscal_horiz_adv_type = "Upwind_5th"
+erf.dryscal_vert_adv_type  = "Upwind_3rd"
+erf.molec_diff_type        = "None"
+erf.les_type               = "None"
+erf.rans_type              = "kEqn"
+erf.dirichlet_k            = true
+erf.init_tke_from_ustar    = true
+erf.rans_consistent_diffusivities = true
+erf.rans_lscale_min        = 1.0
+erf.max_geom_lscale        = 16.4          # kappa 0.1 z_i for the 400 m inversion (theory/RANS.rst)
+
+amrex.fpe_trap_invalid = 0                 # AMReX's default; MoorDyn's initial-condition solver overflows
+erf.v            = 1
+erf.sum_interval = 20
+erf.plot_file_1  = plt
+erf.plot_vars_1  = density x_velocity y_velocity z_velocity theta KE
+erf.check_file   = chk
+
+# ---- the fire (FLARE)
+erf.fire.enable              = true
+erf.fire.grid_ratio          = 5           # 5 m fire cells
+erf.fire.anchor_level        = 0
+erf.fire.fuel_model_id       = 3           # Anderson 3, tall grass
+erf.fire.moisture_1hr        = 0.06
+erf.fire.moisture_10hr       = 0.07
+erf.fire.moisture_100hr      = 0.08
+erf.fire.moisture_dynamic    = false
+erf.fire.ignition_r          = 0.0
+erf.fire.ignition.polygon_file   = "ignition_line.csv"
+erf.fire.ignition.polygon_type   = "polyline"
+erf.fire.ignition.polyline_width = 10.0
+erf.fire.ignition.polygon_time   = 600.0   # after the flow and the lines have settled
+erf.fire.wind_ref_ht         = 6.1
+erf.fire.use_waf             = true
+erf.fire.waf_formula         = "andrews"
+erf.fire.use_terrain_wind    = false
+erf.fire.wind_sample_z0      = 0.05        # the surface layer's z0
+erf.fire.coupling_type       = "lagged"
+erf.fire.plot_file           = plt_fire_
+erf.fire.write_fire_stats_csv = true
+erf.fire.fire_stats_csv_file = "fire_stats.csv"
+
+# ---- the line (MoorDyn-C): three spans on two lattice towers, across the wind at x = 1200 m, centred in y
+erf.structures.model    = conductors
+conductors.lines        = L1
+conductors.tower_types  = lattice
+conductors.L1.end_a     = 1200. 550. 25.
+conductors.L1.towers    = 1200. 850. 30.  1200. 1150. 30.
+conductors.L1.end_b     = 1200. 1450. 25.
+conductors.L1.stringing_tension = 20000
+conductors.L1.diameter        = 0.0281     # Drake ACSR, IEEE Std 738-2023 4.6
+conductors.L1.mass_per_length = 1.628      # the repository's conductor test values (Structures/Tests)
+conductors.L1.axial_stiffness = 3.0e7
+conductors.L1.tower_type      = lattice
+conductors.L1.insulator_length = 2.5
+conductors.L1.insulator_mass   = 60.
+conductors.L1.segments         = 20
+conductors.L1.output_root      = L1
+conductors.diagnostics_dir     = conductors
+conductors.node_output_int     = 20        # nodes every 10 s
+conductors.diagnostics_int     = 2         # every second
+conductors.air_density         = 1.16
+conductors.drag_on_flow        = false
+
+conductors.lattice.base_width    = 6
+conductors.lattice.top_width     = 1.5
+conductors.lattice.solidity      = 0.2
+conductors.lattice.arm_length    = 12
+conductors.lattice.arm_depth     = 1.2
+conductors.lattice.frame_panels  = 8
+conductors.lattice.leg_angle     = 0.15 0.012
+conductors.lattice.brace_angle   = 0.10 0.008
+conductors.lattice.damping_ratio = 0.02
+
+conductors.thermal_model              = ieee738
+conductors.thermal.radiative_fraction = 0.3         # chosen share of the fire's heat release radiated
+conductors.thermal.cutoff_radius      = 300.0
+conductors.thermal.source_height      = 1.0
+conductors.L1.absorptivity            = 0.5         # chosen for a weathered conductor (the 4.6 sample uses 0.8)
+conductors.L1.emissivity              = 0.5
+conductors.L1.heat_capacity           = 1310.0      # IEEE Std 738-2023 4.6.3 (Drake)
+conductors.L1.thermal_expansion       = 1.93e-5
+conductors.L1.current                 = 600.0
+conductors.L1.resistance              = 7.283e-5 8.688e-5   # IEEE Std 738-2023 4.6 (Drake)
+conductors.L1.resistance_temperatures = 25.0 75.0
+conductors.thermal.towers             = true
