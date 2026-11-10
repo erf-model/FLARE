@@ -2102,7 +2102,8 @@ References
 
 * IEEE (2023). *IEEE Standard for Calculating the Current-Temperature
   Relationship of Bare Overhead Conductors*, IEEE Std 738-2023 (revision of
-  IEEE Std 738-2012). IEEE, New York. ISBN 978-1-5044-9820-3. The equation
+  IEEE Std 738-2012). IEEE, New York. ISBN 978-1-5044-9820-3.
+  doi:10.1109/IEEESTD.2023.10382442. The equation
   numbers above are this edition's.
 
 Tower steel temperature under a fire
