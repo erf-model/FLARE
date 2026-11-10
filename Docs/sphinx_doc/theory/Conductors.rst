@@ -1804,7 +1804,8 @@ Conductor temperature under a fire
 This section describes how the model gives each conductor a temperature that
 follows the heat it gains from a fire, and how the conductor's sag follows that
 temperature. It is the first stage of the fire-to-structures coupling. The
-tower steel temperature is a later stage. The implementation is
+towers' steel temperature is the second (see `Tower steel temperature under a
+fire`_). The implementation is
 ``Structures/Conductors/ERF_LineThermal.{H,cpp}`` (class ``LineThermal``),
 called from ``Conductors`` once per step of the lines' anchor level. It is
 selected with ``conductors.thermal_model = ieee738``; without it nothing
@@ -1814,8 +1815,8 @@ Heat balance
 ~~~~~~~~~~~~
 
 Every node :math:`n` of every span (insulator strings excluded) carries a
-temperature :math:`T_n` (°C). It follows the heat balance of IEEE 738-2012 per
-unit length of conductor,
+temperature :math:`T_n` (°C). It follows the heat balance of IEEE Std 738-2023
+(eq 3) per unit length of conductor,
 
 .. math::
    :label: lt-balance
@@ -1841,22 +1842,22 @@ would overstate the heating (by 873 W/m for a conductor at 100 °C in air at
 
    * - Term
      - Form (SI)
-     - IEEE 738-2012
+     - IEEE Std 738-2023
    * - :math:`q_J`
      - :math:`I^2 R(T)`, :math:`R` linear through the two given resistances
-     - eq 10
+     - eq 33
    * - :math:`q_s`
      - :math:`\alpha D E_s`, with :math:`E_s` the sun's flux normal to the conductor
-     - eq 8, with :math:`E_s` given
+     - eq 23, with :math:`E_s` given
    * - :math:`q_c`
      - the larger in magnitude of forced convection,
        :math:`K_\phi\,\max[(1.01 + 1.35 Re^{0.52}),\ 0.754 Re^{0.6}]\, k_f (T - T_a)`,
        and natural convection, :math:`3.645 \rho_f^{1/2} D^{3/4} |T - T_a|^{5/4}`
        with the sign of :math:`T - T_a`
-     - eqs 3a, 3b, 4a, 5a
+     - eqs 6, 7, 9, 10, 19
    * - :math:`q_r`
      - :math:`17.8\, D\, \varepsilon \left[ \left(\frac{T + 273}{100}\right)^4 - \left(\frac{T_s + 273}{100}\right)^4 \right]`
-     - eq 7b, with :math:`T_s` for :math:`T_a`
+     - eq 21, with :math:`T_s` for :math:`T_a`
 
 Here :math:`D` is the diameter (m), :math:`\alpha` the absorptivity and
 :math:`\varepsilon` the emissivity of the conductor's surface,
@@ -1864,7 +1865,11 @@ Here :math:`D` is the diameter (m), :math:`\alpha` the absorptivity and
 :math:`K_\phi = 1.194 - \cos\phi + 0.194\cos 2\phi + 0.368\sin 2\phi` the wind
 direction factor. The air's viscosity :math:`\mu_f`, density :math:`\rho_f`
 (at ``conductors.thermal.elevation``) and conductivity :math:`k_f` are taken at
-the film temperature :math:`(T + T_a)/2` (IEEE 738-2012 eqs 13a, 14a, 15a).
+the film temperature :math:`(T + T_a)/2` (IEEE Std 738-2023 eqs 12, 13, 15, 17).
+IEEE Std 738-2023 (4.4.6) interpolates the resistance between its values at
+25 and 75 °C up to 100 °C, and between 25 and 200 °C above it. A run whose
+conductors pass 100 °C under a fire should therefore give
+``resistance_temperatures = 25 200`` with the resistance at 200 °C.
 IEEE 738 states the convection correlations for a conductor hotter than the
 air. When the air is hotter, as inside a plume, the same correlations are used
 with the sign of :math:`T - T_a`, so heat flows into the conductor.
@@ -1889,8 +1894,9 @@ ray from the source and the conductor's axis. The absorbed heat is
    q_{f,n} = \alpha D E_n , \qquad
    E_n = \sum_j \frac{\chi_r Q_j \sin\psi_{nj}}{4 \pi \max(R_{nj}^2,\ \Delta A/\pi)} ,
 
-where :math:`R_{nj}` is the distance from the source to the node. This is the
-point-source model of fire radiation (Modak, 1977; Beyler, 2016). The floor
+where :math:`R_{nj}` is the distance from the source to the node. Each source
+radiates equally in every direction, so its flux falls with the square of the
+distance: :math:`\chi_r Q_j` spread over a sphere of radius :math:`R_{nj}`. The floor
 :math:`\Delta A/\pi` is the squared radius of a disc of one fire cell's area. It
 stops the sum from growing without bound when a node comes within a cell of a
 source, where the point-source model does not hold anyway. Sources farther
@@ -2012,8 +2018,9 @@ Limitations
 * The air's density in the convection terms comes from IEEE 738's elevation
   formula, not from ERF's sampled density.
 * Convection along the conductor at low wind uses the wind angle factor as
-  given (0.388 for a wind along the axis); IEEE 738 suggests taking the wind
-  across the conductor below 0.61 m/s.
+  given (0.388 for a wind along the axis). At low wind the convection is the
+  larger of the forced and natural values, as IEEE Std 738-2023 (eq 6)
+  recommends, not a combination of the two.
 * The air temperature uses the equation of state for dry air. Moisture
   changes it by well under 1 K.
 * The conductor is one temperature across its section: no radial gradient
@@ -2027,9 +2034,12 @@ Limitations
 * MoorDyn-C keeps each segment's volume proportional to its length, so a
   lengthened span gains mass in proportion (about 1 % at +500 K); the bundled
   stub keeps the mass.
-* The convection correlations are used outside the range IEEE 738 states them
-  for when the air is hotter than the conductor.
-* Insulator strings and towers are not heated.
+* IEEE Std 738-2023 (Table 2) states the forced convection fits for air at 15
+  to 260 °C, conductors at 21 to 1004 °C and diameters of 0.01 to 150 mm. Plume
+  air hotter than 260 °C, or air colder than 15 °C, lies outside that range,
+  and so does air hotter than the conductor.
+* Insulator strings are not heated. The towers' steel is, with
+  ``conductors.thermal.towers`` (see `Tower steel temperature under a fire`_).
 
 Verification of the thermal model
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2045,6 +2055,11 @@ Verification of the thermal model
        radiation at :math:`D` = 28.1 mm, :math:`V` = 0.61 m/s across,
        :math:`T` = 100 °C, :math:`T_a` = 40 °C, against an independent Python
        calculation (``check_fire_heating.py``), to :math:`10^{-12}`.
+   * - ``LineThermal.TheTermsMatchIEEE7382023sSampleCalculations``
+     - The Drake conductor of IEEE Std 738-2023 (4.6.1 to 4.6.3): the air's
+       properties, natural and forced convection, radiation, solar heating,
+       :math:`R` (100 °C), the 1025 A rating, 97.5 °C at 1000 A and the first two
+       10 s steps after a step to 1200 A, to the standard's printed digits.
    * - ``LineThermal.TheSteadyAndImplicitTemperaturesMatchTheIndependentCalculation``
      - Steady temperatures with 1000 A, with the sun and with a fire, and
        backward-Euler steps, to :math:`10^{-9}` K; without heat sources the
@@ -2085,13 +2100,319 @@ Verification of the thermal model
 References
 ~~~~~~~~~~
 
-* IEEE (2013). *IEEE Standard for Calculating the Current-Temperature
-  Relationship of Bare Overhead Conductors*, IEEE Std 738-2012. IEEE, New York.
-* Modak, A. T. (1977). Thermal radiation from pool fires. *Combustion and
-  Flame*, 29, 177-192.
-* Beyler, C. L. (2016). Fire hazard calculations for large, open hydrocarbon
-  fires. In *SFPE Handbook of Fire Protection Engineering*, 5th ed.
-  Springer, New York.
+* IEEE (2023). *IEEE Standard for Calculating the Current-Temperature
+  Relationship of Bare Overhead Conductors*, IEEE Std 738-2023 (revision of
+  IEEE Std 738-2012). IEEE, New York. ISBN 978-1-5044-9820-3.
+  doi:10.1109/IEEESTD.2023.10382442. The equation
+  numbers above are this edition's.
+
+Tower steel temperature under a fire
+------------------------------------
+
+This section describes how the model gives each member of a lattice tower a
+steel temperature that follows the heat it gains from a fire, and how the
+tower's frame softens as the steel heats. It is the second stage of the
+fire-to-structures coupling, after `Conductor temperature under a fire`_. The
+implementation is ``Structures/Conductors/ERF_TowerThermal.{H,cpp}`` (class
+``TowerThermal``), called from ``Conductors`` once per step of the anchor level,
+after the conductors' temperatures and before the lines and towers step. It is
+selected with ``conductors.thermal.towers = true``, which needs
+``conductors.thermal_model = ieee738`` (the fire's sources and the air
+temperature come from the same pass) and at least one tower that bends as a
+frame model (``frame_file`` or ``frame_panels``, see :ref:`sec:TowerFrame`). Every
+such tower is heated. Without it nothing changes.
+
+Heat balance of a member
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each frame member :math:`m` carries one temperature :math:`\theta_m` (°C). It
+follows the lumped heat balance of unprotected steel of EN 1993-1-2 (its
+relation 4.25, as the JRC report of Vassart et al. (2014), section 2.5.2.2,
+gives it), per unit length of member,
+
+.. math::
+   :label: tt-balance
+
+   \rho_a A_m \frac{dH(\theta_m)}{dt} =
+     P_{x,m} \left[ \alpha_c \left( T_{a,m} - \theta_m \right)
+     + \varepsilon\, \sigma \left( T_{s,m}^4 - \theta_m^4 \right) \right]
+     + \varepsilon\, W_m E_m ,
+
+where :math:`\rho_a` = 7850 kg/m\ :sup:`3` is the steel's density,
+:math:`A_m` (m\ :sup:`2`) the member's area, :math:`H` (J/kg) the steel's
+enthalpy, :math:`P_{x,m}` (m) the perimeter that exchanges heat with the air,
+:math:`\alpha_c` (W/(m\ :sup:`2` K)) the convection coefficient
+(``conductors.thermal.tower_convection``), :math:`\varepsilon` the steel's
+emissivity (``conductors.thermal.tower_emissivity``, 0.7 by default, also its
+absorptivity; the JRC report, section 2.5.2.2), :math:`\sigma` the Stefan-Boltzmann constant, :math:`W_m` (m)
+the width that intercepts the fire's radiation and :math:`E_m` (W/m\ :sup:`2`)
+the fire's irradiance. The fourth powers are of absolute temperatures.
+:math:`T_{a,m}` is ERF's air temperature along the member and
+:math:`T_{s,m}` the temperature of the surroundings it radiates to: its air
+temperature at the first step, held fixed, as for the conductors.
+
+The enthalpy is the integral of the specific heat of carbon steel of
+EN 1993-1-2 (its section 3.4.1.2, which the JRC report plots in Fig. 2.4.7),
+
+.. math::
+   :label: tt-enthalpy
+
+   H(\theta) = \int_{20}^{\theta} c_a(s)\, ds , \qquad
+   c_a(\theta) =
+   \begin{cases}
+     425 + 0.773\,\theta - 1.69 \times 10^{-3}\,\theta^2 + 2.22 \times 10^{-6}\,\theta^3 , & 20 \le \theta < 600 , \\
+     666 + 13002 / (738 - \theta) , & 600 \le \theta < 735 , \\
+     545 + 17820 / (\theta - 731) , & 735 \le \theta < 900 , \\
+     650 , & 900 \le \theta ,
+   \end{cases}
+
+in J/(kg K), integrated in closed form. Below 20 °C the 20 °C value is used.
+The peak of 5000 J/(kg K) at 735 °C is the steel's phase change.
+
+**Section.** The section enters through :math:`A_m`, :math:`P_{x,m}` and
+:math:`W_m`:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 23 22 25
+
+   * - Member
+     - :math:`A_m`
+     - :math:`P_{x,m}`
+     - :math:`W_m`
+   * - Equal-leg angle :math:`b \times t` (its design data)
+     - :math:`t(2b - t)`
+     - :math:`4b`
+     - :math:`[(2 + \sqrt 2)\, b + (2 - \sqrt 2)\, t]/\pi`
+   * - Circular, diameter :math:`D`, wall :math:`t` (0: solid)
+     - :math:`\pi [D^2 - (D - 2t)^2]/4`
+     - :math:`\pi D`
+     - :math:`D`
+   * - Rectangular :math:`S_a \times S_b`, wall :math:`t` (0: solid)
+     - :math:`S_a S_b - (S_a - 2t)(S_b - 2t)`
+     - :math:`2(S_a + S_b)`
+     - :math:`2(S_a + S_b)/\pi`
+
+:math:`P_{x,m}` is EN 1993-1-2's box perimeter, the shadow factor
+:math:`k_{sh}` times the section's perimeter; for an angle the box and the
+section's own perimeter are both :math:`4b`, so :math:`k_{sh}` = 1.
+:math:`W_m` is the mean projected width of the section's convex hull, its
+perimeter over :math:`\pi` (Cauchy's formula); an angle's hull is its two outer
+faces, its two toe edges and the chord between the toes. For a tube it is the
+diameter, so a tube intercepts the fire as a conductor does.
+
+**A hybrid of EN's convention and the geometry.** The heat exchanged with the
+air uses EN 1993-1-2's box perimeter, as the standard does, while the fire's
+beam is intercepted by the geometric width. For a 100 × 8 mm angle in air at
+26.85 °C, the steady temperatures under 1e4, 5e4 and 2e5 W/m\ :sup:`2` are
+89.4, 278.4 and 611.2 °C as coded; 138.2, 364.9 and 677.2 °C with
+:math:`\alpha_c` = 10 W/(m\ :sup:`2` K); 91.0, 287.7 and 637.1 °C with the
+hull's perimeter, :math:`(2 + \sqrt 2) b + (2 - \sqrt 2) t`, for the
+radiation exchange; and 98.5, 306.3 and 653.2 °C with the box's width
+:math:`4b/\pi` for the fire. EN's choices give the cooler steel. A member with an
+arbitrary SubDyn section has no perimeter in the frame file; it needs its
+design data as an angle (``member_file``), or the run stops.
+
+**Why EN 1993-1-2.** It is the standard method for the temperature of
+unprotected structural steel in a fire, and its specific heat and reduction
+factors are the ones the member checks already use (`Moving towers`_). Its
+heating method, its reduction factors (Table 3.1) and a worked example are
+reproduced in the open-access JRC report of Vassart et al. (2014), section 2.5.2
+and Table 2.4.1, against which the model is checked (see below). Its
+section factor :math:`P_{x,m}/A_m` (260 m\ :sup:`-1` for a 100 × 8 mm angle)
+sets how fast a member heats: thin bracing heats faster than the legs.
+
+Fire radiation and air temperature
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The fire's irradiance is that of the conductors, :eq:`lt-fire`: the point
+sources at every burning fire cell within ``cutoff_radius``, at
+``source_height`` above the terrain, with the radiative fraction
+:math:`\chi_r`, projected on the member's axis (:math:`\sin\psi`) and with the
+same floor on the squared distance. :math:`E_m` and :math:`T_{a,m}` are the
+means over three Gauss-Legendre points along the member (at
+:math:`1/2 \mp \sqrt{3/5}/2` and :math:`1/2` of its length, weights 5/18,
+8/18 and 5/18). The points stand on the frame as built, in ERF's axes: the
+tower's base plus the frame's coordinates turned so that its :math:`x` axis
+runs along the line and its :math:`y` axis along the cross-arm. The air
+temperature comes from ERF's equation of state at those points, so a plume
+(lagged or synchronous coupling) heats the steel by convection as well.
+
+Time integration and the frame
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Equation :eq:`tt-balance` is stepped with backward Euler in the enthalpy, with
+the air and the fire held at their values at the start of the step:
+
+.. math::
+   :label: tt-be
+
+   \rho_a A_m \left[ H\!\left(\theta_m^{k+1}\right) - H\!\left(\theta_m^{k}\right) \right]
+     = \Delta t\; G_m\!\left(\theta_m^{k+1}\right) ,
+
+where :math:`G_m` is the right-hand side of :eq:`tt-balance`. The left side
+rises and :math:`G_m` falls with :math:`\theta`, so the root is unique; it is
+bracketed and found by bisection to :math:`10^{-10}` K. Stepping the enthalpy
+rather than the temperature keeps the energy of every step exact across the
+peak of :math:`c_a`, at any step. Backward Euler tends to the steady
+temperature for long steps, short of it by :math:`(\tau/\Delta t)` times the
+remaining change when :math:`\Delta t \gg \tau` (by :math:`1/(1 + \Delta t/\tau)` of
+it for the linearised balance), with :math:`\tau` the member's time constant
+:math:`\rho_a A_m c_a / [P_{x,m} (\alpha_c + 4 \varepsilon \sigma \theta^3)]` (about 450 s for a
+100 × 8 mm angle near ambient, 350 s at 250 °C). On the first step every member starts at its
+air temperature, the steady state without the fire.
+
+**Rebuilding the frame.** The frame's stiffness and the members' strengths
+follow EN 1993-1-2's reduction factors :math:`k_E(\theta)` and
+:math:`k_y(\theta)` (Table 3.1). The tower's frame is rebuilt at its members'
+temperatures (``FrameTower::set_temperature``) when, for any member and for
+:math:`k = k_y` or :math:`k_E`,
+
+.. math::
+   :label: tt-rebuild
+
+   \frac{\left| k(\theta_m) - k(\theta_m^{f}) \right|}{\max\left[ k(\theta_m),\ k(\theta_m^{f}) \right]}
+   > \delta_k ,
+
+where :math:`\theta_m^{f}` is the temperature the frame was last built at and
+:math:`\delta_k` is ``conductors.thermal.tower_reduction_tolerance``. The
+change is relative, so the frame's stiffness lags the steel's by at most the
+fraction :math:`\delta_k` at any temperature; an absolute change would let it lag
+by 8 % of the remaining stiffness at 650 °C and 25 % above 900 °C for
+:math:`\delta_k` = 0.01. The rebuild re-solves the frame's static equilibrium
+under its weight, its first natural frequency and the Newmark factorisation,
+and carries the frame on from the same position and velocity. Both factors are
+1 up to 100 °C, so no rebuild happens below it. The members' strength checks
+do not wait for a rebuild: they take the steel's temperature of the step
+(``FrameTower::set_check_temperature``), under the forces of the frame as last
+built. The coupling's step count follows the frame's lower frequency. A rebuild
+costs a frame assembly, an eigenvalue solve and a static solve; between 500 and
+700 °C, where the factors fall fastest, a member heating by a few kelvin per
+second can rebuild its frame every step.
+
+Outputs and restart
+~~~~~~~~~~~~~~~~~~~
+
+``<diagnostics_dir>/tower_temperature.dat`` has one row per heated tower and
+output step: the time, the tower, the members' mean and largest temperature,
+the member id of the largest, the largest member irradiance, the least
+:math:`k_E` of the frame, the rebuilds so far and the frame's largest member
+temperature :math:`\theta^f`. ``tower_<tower>_member_temperature.dat`` has
+every member's temperature, in the frame's member order (the ids are in its
+header). Rows follow ``conductors.diagnostics_int``. The checkpoint holds every
+member's temperature and surroundings temperature and the rebuild count
+(``<chk>/conductors/tower_thermal``); the frame's own temperatures come back
+with the tower's state, which rebuilds it hot, and the members' checks take the
+member temperatures again. A restart without ``conductors.thermal.towers`` from
+a checkpoint whose frame was rebuilt hot stops, naming the key. From a
+checkpoint of a run with the heating whose frames were not yet rebuilt, it
+continues with a warning: the members stay at their type's
+``steel_temperature``, and the earlier run's tower temperature logs are
+removed. A restart with the heating from a checkpoint without it (written
+before the heating was turned on) starts the member temperatures at the
+restart, at the air temperature then, which also becomes their surroundings'
+temperature, and writes a row at its first step. The ``tower_*`` settings
+without ``conductors.thermal.towers`` are not read, and the run says so.
+
+Limitations
+~~~~~~~~~~~
+
+* One temperature per member: no gradient along a member or across its
+  section. Long legs near a fire are hotter at one end than the other; the
+  Gauss mean of the irradiance sets the member's one temperature.
+* The members' thermal expansion is not applied to the frame: heating lowers
+  the stiffness and the strength but does not lengthen a member, so the forces
+  from restrained expansion are missing. The members are checked against
+  their reduced strengths, but creep at high temperature is not modelled.
+* No member shades another, and the tower does not shade the conductors; the
+  fire's radiation reaches every member as if it stood alone.
+* The members stand where the frame was built; their displacement (of order
+  centimetres) does not move them toward or away from the fire. The frame
+  stands on a flat footing at the height of the tower's centre, so on a slope
+  part of a leg may lie below the terrain; such a point takes the air at the
+  terrain, and its irradiance is taken where it stands.
+* :math:`\alpha_c` is a constant (25 W/(m\ :sup:`2` K) by default, the value
+  for the standard fire; the JRC report, section 2.5.2.2). It does not follow the wind. For a member heated
+  by the fire's radiation in cooler air it overstates the convective cooling
+  in calm air, which gives cooler steel (see the hybrid paragraph above).
+* The specific heat's piecewise formulas have not been checked against the text
+  of EN 1993-1-2, which we do not have; the JRC report plots the curve (Fig.
+  2.4.7, its peak of 5000 J/(kg K) near 735 °C), and its worked example with the
+  varying specific heat (667 °C in about 17 minutes) agrees with the model to
+  6 s.
+* The default emissivity is the JRC report's 0.7 for steel; a galvanised or
+  weathered surface may differ. Set ``tower_emissivity`` for the surface.
+* The point-source model's limits (see `Conductor temperature under a fire`_)
+  apply; flames that engulf a member heat it far faster than
+  :eq:`lt-fire` gives. Near the fire the irradiance depends on the fire's cell
+  size, through the sources' positions and the floor :math:`\Delta A/\pi`:
+  in the test case, 5 m fire cells give the hottest member 1.35 times the
+  irradiance of 10 m cells and heat it to 165 °C instead of 131 °C in 300 s.
+* A member that reaches 1200 °C stops the run: EN 1993-1-2's steel keeps no
+  strength or stiffness there, and the frame cannot be built.
+
+Verification of the towers' heating
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 42 58
+
+   * - Test
+     - What is pinned
+   * - ``TowerThermal.TheSpecificHeatIsEN1993s``,
+       ``TowerThermal.TheEnthalpyIsTheSpecificHeatsIntegral``
+     - :math:`c_a` at 20, 300, 600, 735 and 900 °C; :math:`H` at 300, 700, 800
+       and 1100 °C against an independent numerical integral, to
+       :math:`10^{-9}` relative, and across the peak against a Simpson sum.
+   * - ``TowerThermal.TheJRCWorkedExampleReachesItsCriticalTemperature``
+     - The unprotected beam of the JRC report (Vassart et al., 2014, section
+       2.8.3.7): :math:`k_{sh} A_m/V` = 131.3 m\ :sup:`-1` in the ISO 834 fire,
+       emissivity 0.7, :math:`\alpha_c` = 25 W/(m\ :sup:`2` K), 3 s steps, reaches
+       its critical temperature of 667 °C in about 17 minutes; here in 17 min 6 s.
+   * - ``TowerThermal.TheSectionsAreTheAnglesTheTubesAndTheBoxes``
+     - :math:`A`, :math:`P_x` and :math:`W` of an angle, solid and hollow tubes
+       and a box; an arbitrary section without angle data is refused.
+   * - ``TowerThermal.TheSteadyAndImplicitTemperaturesMatchTheIndependentCalculation``
+     - A 100 × 8 mm angle: steady temperatures with 1e4 and 5e4 W/m\ :sup:`2`
+       (89.399 and 278.387 °C), with an emissivity of 0.35 and 10 W/(m\ :sup:`2` K),
+       and in 400 °C air, backward-Euler steps, and a 60 s step from 700 °C
+       across the peak, to :math:`10^{-9}` K, each step balancing its energy.
+   * - ``TowerThermal.AFrameIsRebuiltWhenItsSteelHasSoftenedAndSurvivesARestart``
+     - On a generated tower: no rebuild below 100 °C; a long step under a fire
+       brings every member to its steady temperature and rebuilds the frame at
+       them, which lowers its frequency; a warming below the tolerance leaves
+       the frame but moves the members' checks to the new temperatures; the
+       checkpoint restores the temperatures to the bit.
+   * - ``Conductors_TowerFireHeating`` and its two-level variants (CTests, stub)
+     - A 2e5 W/m\ :sup:`2` disc of 20 m radius under a generated 310-member
+       tower for 300 s, passive coupling. An independent calculation
+       (``check_tower_heating.py``) of every member from the frame file the run
+       wrote and the fire cells, with its own enthalpy, steps and rebuild rule,
+       with the emissivity, convection and tolerance away from their defaults:
+       every member to :math:`10^{-3}` K at every step, and every row's mean,
+       largest, hottest member, largest irradiance, least :math:`k_E`,
+       rebuilds and the frame's largest temperature. One level; the tower on a
+       level-1 patch; the fire on a level-1 patch.
+   * - ``Conductors_TowerFireHeating_Restart`` (CTest, stub)
+     - A checkpoint at 270 s, after the first rebuild: the temperature logs and
+       the towers' log equal the uninterrupted run's.
+   * - ``Conductors_TowerFireHeating_RestartUnheatedAbort``,
+       ``Conductors_Thermal_Tower*Abort``, ``Conductors_Thermal_TowersNeed*Abort`` (CTests)
+     - A restart without the heating from a hot frame; the heating without the
+       thermal model or a frame tower, with a type's ``steel_temperature``, a
+       value out of range, and a member past 1200 °C, each stop the run.
+
+References
+~~~~~~~~~~
+
+* Vassart, O., Zhao, B., Cajot, L. G., Robert, F., Meyer, U. and Frangi, A.
+  (2014). *Eurocodes: Background & Applications. Structural Fire Design. Worked
+  examples*. M. Poljanšek, B. Nikolova, L. Sousa, S. Dimova and A. Pinto (eds.),
+  JRC Science and Policy Report EUR 26698 EN. Publications Office of the European
+  Union, Luxembourg. doi:10.2788/85432. Open access (reproduction authorised
+  with acknowledgement):
+  https://eurocodes.jrc.ec.europa.eu/sites/default/files/2022-06/2012_11_WS_fire.pdf
 
 Restart
 -------
@@ -2103,7 +2424,7 @@ statistics of every span, of each line's strings, of every pair of lines,
 transformer and tower, the gusts' per-span means (started afresh when the
 checkpoint has none), the random gusts' processes (drawn afresh at the
 restart's first step when the checkpoint has none, or other ones: another
-number, or lines taking each other's gusts differently), each moving tower's sway, the capacity records (see `Component capacities and first failure`_), the conductors' temperatures (see `Conductor temperature under a fire`_), the step count and the time.
+number, or lines taking each other's gusts differently), each moving tower's sway, the capacity records (see `Component capacities and first failure`_), the conductors' temperatures (see `Conductor temperature under a fire`_), the towers' member temperatures (see `Tower steel temperature under a fire`_), the step count and the time.
 On a restart the line is created from the same inputs, initialised without the initial-shape solve and given that state, so
 it continues blown out exactly where the checkpoint left it, on MoorDyn's
 clock; the statistics go on accumulating, and the diagnostics continue on the
@@ -2132,7 +2453,9 @@ points, unstretched lengths and strings' length must be those it was built
 with: a restart that moves an end or a tower, or changes a length, a stringing
 tension or ``insulator_length``, stops, naming the line (checkpoints written
 before this check carry no such record). A frame tower's restart with another
-``steel_temperature`` stops too (its frame and state would not match). The
+``steel_temperature`` stops too (its frame and state would not match), unless
+``conductors.thermal.towers`` heats the towers, whose frames then carry the
+fire's temperatures (see `Tower steel temperature under a fire`_). The
 checkpoint records each tower's ``diagonal_wind_factor``, ``arm_outside_shaft``
 and ``angle_principal_axes`` (on a generated frame), from its type, which set the
 towers' drag nodes, drag and frame: a restart that changes one stops, naming the

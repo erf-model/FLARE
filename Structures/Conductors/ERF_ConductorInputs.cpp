@@ -558,8 +558,10 @@ std::string ConductorInputs::validate_settings (const ConductorInputs& in)
     // the logs the run writes itself in diagnostics_dir, the towers' frame logs among them: no line's log may take
     // their names (the paths compared after lexical normalisation, so that conductors/./towers is conductors/towers)
     // failures: the capacities' first-failure log (ERF_Capacities.H), reserved whether or not a capacity is given;
-    // conductor_temperature: the thermal model's log (ERF_LineThermal.H), reserved whether or not it is selected
-    std::vector<std::string> own{"total_load", "separation", "transformers", "ground", "failures", "conductor_temperature"};
+    // conductor_temperature: the thermal model's log (ERF_LineThermal.H), reserved whether or not it is selected, and
+    // tower_temperature with tower_<tower>_member_temperature per frame tower: the towers' heating logs (ERF_TowerThermal.H), likewise
+    std::vector<std::string> own{"total_load", "separation", "transformers", "ground", "failures", "conductor_temperature",
+                                 "tower_temperature"};
     bool towers = false, moving = false;
     for (const LineInputs& s : in.lines) {
         const erf_towers::TowerType* type = in.tower_type(s);
@@ -568,7 +570,7 @@ std::string ConductorInputs::validate_settings (const ConductorInputs& in)
         if (type == nullptr || !type->has_frame() || !s.share_towers.empty()) { continue; }
         for (std::size_t j = 1; j <= s.towers.size(); ++j) {
             const std::string t = s.name + "_t" + std::to_string(j);
-            own.insert(own.end(), {"frame_" + t, "frame_" + t + "_members"});
+            own.insert(own.end(), {"frame_" + t, "frame_" + t + "_members", "tower_" + t + "_member_temperature"});
             if (in.node_output_int > 0) { own.push_back("tower_" + t + "_frame"); }
         }
     }

@@ -133,8 +133,9 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           |                                                          | needed with a        |                          |
 |                                                           |                                                          | current              |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
-| **conductors.<line>.resistance_temperatures**             | the temperatures of the two resistance values (C)        | two increasing Reals | 25 75                    |
-|                                                           |                                                          | in [-50, 500]        |                          |
+| **conductors.<line>.resistance_temperatures**             | the temperatures of the two resistance values (C); for   | two increasing Reals | 25 75                    |
+|                                                           | conductors heated past 100 C give 25 200 (IEEE Std       | in [-50, 500]        |                          |
+|                                                           | 738-2023, 4.4.6)                                         |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.<line>.tower_type**                          | the suspension towers of the line are lattice towers of  | one of the tower     | none                     |
 |                                                           | this type, loaded by the wind on their members and by    | types; needs towers  |                          |
@@ -295,6 +296,25 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           |                                                          |                      | the first step (it       |
 |                                                           |                                                          |                      | starts at its input      |
 |                                                           |                                                          |                      | length)                  |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.thermal.towers**                             | the towers' steel temperature: every member of every     | Boolean; needs       | false                    |
+|                                                           | tower that bends as a frame follows EN 1993-1-2's heat   | thermal_model =      |                          |
+|                                                           | balance of unprotected steel under the fire, and the     | ieee738, a frame     |                          |
+|                                                           | frame is rebuilt as the steel softens                    | tower and no         |                          |
+|                                                           | (tower_temperature.dat; theory: Tower steel temperature  | steel_temperature    |                          |
+|                                                           |                                                          | other than 20        |                          |
+|                                                           | under a fire)                                            |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.thermal.tower_emissivity**                   | the steel's emissivity, also its absorptivity of the     | Real in (0, 1]       | 0.7                      |
+|                                                           | fire's radiation                                         |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.thermal.tower_convection**                   | the convection coefficient between the members and the   | Real in [0, 200]     | 25                       |
+|                                                           | air (W/(m^2 K))                                          |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.thermal.tower_reduction_tolerance**          | rebuild a tower's frame when any member's k_y or k_E     | Real in (0, 0.2]     | 0.01                     |
+|                                                           | (EN 1993-1-2 Table 3.1) has moved by more than this      |                      |                          |
+|                                                           | fraction of the larger of its two values from the        |                      |                          |
+|                                                           | frame's                                                  |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.ground_contact**                             | the terrain holds the lines up: each line's MoorDyn      | true or false;       | false                    |
 |                                                           | system takes the anchor level's terrain under it, raised | MoorDyn's internal   |                          |
@@ -514,7 +534,8 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           | Table 3.1                                                | frame_file or        |                          |
 |                                                           |                                                          | frame_panels; a      |                          |
 |                                                           |                                                          | restart cannot       |                          |
-|                                                           |                                                          | change it            |                          |
+|                                                           |                                                          | change it; not with  |                          |
+|                                                           |                                                          | thermal.towers       |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.<type>.epsilon**                             | width of the Gaussian that spreads the drag of this      | Real > 0             | conductors.epsilon       |
 |                                                           | type's towers' drag nodes, in cells (dx); given without  |                      |                          |

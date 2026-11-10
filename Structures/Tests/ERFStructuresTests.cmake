@@ -203,6 +203,39 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
           COMMON_OPTIONS "erf.plot_file_1=plt erf.plot_vars_1=density theta x_velocity"
           DATALOG "conductors/conductor_temperature.dat S1.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 40)
       set_tests_properties(Conductors_FireHeating_Restart PROPERTIES LABELS "regression;restart-parity;conductors;fire")
+      # A lattice tower that bends as a generated frame (310 members), heated by a prescribed fire disc under it
+      # (conductors.thermal.towers, EN 1993-1-2), in still air with passive coupling. check_tower_heating.py
+      # recomputes every member's temperature from the frame the run wrote and the fire cells, with its own steel
+      # enthalpy, and the rebuilds of the frame, and requires every member within 1e-3 K and at least one rebuild.
+      # The deck sets the emissivity, the convection and the tolerance away from their defaults, so the check shows
+      # each key is read. The same three layouts as Conductors_FireHeating (the tower on the refined level in the
+      # second). The restart parity checkpoints at 270 s, after the frame's first rebuild (260 s), so the restarted
+      # frame is a heated one.
+      set(_tf_src ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TowerFireHeating)
+      set(_tf_names Conductors_TowerFireHeating Conductors_TowerFireHeating_TowerOnFinerLevel Conductors_TowerFireHeating_FireOnFinerLevel)
+      set(_tf_check_0 "--dt 2 --fire-lags 1 --fire-dx 10")
+      set(_tf_check_1 "--dt 1 --fire-lags 0 --fire-dx 10")
+      set(_tf_check_2 "--dt 2 --fire-lags 1 --fire-dx 5")
+      foreach(_i RANGE 2)
+        list(GET _tf_names ${_i} _tf_name)
+        set(_tf_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/${_tf_name})
+        file(MAKE_DIRECTORY ${_tf_dir})
+        file(COPY ${_tf_src}/Conductors_TowerFireHeating.i ${_tf_src}/input_sounding DESTINATION ${_tf_dir})
+        add_test(NAME ${_tf_name}
+                 COMMAND sh -c "rm -rf conductors S1*.dat && ${_fh_mpi} ${_fh_exe} Conductors_TowerFireHeating.i ${_fh_opts_${_i}} amrex.call_addr2line=0 > run.log 2>&1 && \"${Python3_EXECUTABLE}\" -I ${_tf_src}/check_tower_heating.py ${_tf_check_${_i}}"
+                 WORKING_DIRECTORY ${_tf_dir})
+        set_tests_properties(${_tf_name} PROPERTIES LABELS "regression;conductors;fire;multilevel" TIMEOUT 900
+                             PROCESSORS 2 ATTACHED_FILES_ON_FAIL "${_tf_dir}/run.log")
+      endforeach()
+      add_test_restart_parity(Conductors_TowerFireHeating_Restart Conductors_TowerFireHeating 135 150
+          COMMON_OPTIONS "erf.plot_file_1=plt erf.plot_vars_1=density theta x_velocity"
+          DATALOG "conductors/tower_temperature.dat conductors/tower_S1_t1_member_temperature.dat conductors/towers.dat"
+          DATALOG_SIGDIGITS 10 CHK_LEG_END 150)
+      set_tests_properties(Conductors_TowerFireHeating_Restart PROPERTIES LABELS "regression;restart-parity;conductors;fire")
+      # a restart without the towers' heating from a checkpoint whose frame was rebuilt hot: refused by the frame's own check
+      add_test_restart_abort(Conductors_TowerFireHeating_RestartUnheatedAbort Conductors_TowerFireHeating 135
+          "so the restart needs conductors.thermal.towers = true" RESTART_OPTIONS "conductors.thermal.towers=false")
+      set_tests_properties(Conductors_TowerFireHeating_RestartUnheatedAbort PROPERTIES LABELS "regression;conductors;fire;abort")
     endif()
   endif()
   # The thermal model's start-up checks: an unknown model, a missing conductor property, a value out of range,
@@ -215,6 +248,10 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
   add_test_abort(Conductors_Thermal_RangeAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
       Conductors_PrescribedWind.i "conductors.S1.absorptivity must be in .0, 1."
       "conductors.thermal_model=ieee738 conductors.S1.absorptivity=1.5 conductors.S1.emissivity=0.5 conductors.S1.heat_capacity=1310 conductors.S1.thermal_expansion=1.9e-5")
+  # The towers' heating: without the conductors' thermal model, without a frame tower, with a type's steel_temperature,
+  # a value out of range, and a member that reaches 1200 C (a fire 500 times the case's).
+  add_test_abort(Conductors_Thermal_TowersNeedModelAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
+      Conductors_PrescribedWind.i "conductors.thermal.towers = true needs conductors.thermal_model = ieee738" "conductors.thermal.towers=true")
   if(ERF_ENABLE_FIRE AND ERF_MOORDYN_USE_STUB)
     # the fire deck without its radiative_fraction line (the command line cannot remove a key)
     set(_fn_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/Conductors_Thermal_FireNeedsFractionAbort)
@@ -226,6 +263,19 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
              WORKING_DIRECTORY ${_fn_dir})
     set_tests_properties(Conductors_Thermal_FireNeedsFractionAbort PROPERTIES LABELS "regression;conductors;fire;abort" TIMEOUT 300
                          ATTACHED_FILES_ON_FAIL "${_fn_dir}/run.log")
+    set(_tf_case ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TowerFireHeating)
+    add_test_abort(Conductors_Thermal_TowersNeedFrameAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_FireHeating
+        Conductors_FireHeating.i "conductors.thermal.towers = true needs a tower that bends as a frame" "conductors.thermal.towers=true max_step=1")
+    add_test_abort(Conductors_Thermal_TowerSteelTemperatureAbort ${_tf_case} Conductors_TowerFireHeating.i
+        "conductors.lattice.steel_temperature cannot be set with conductors.thermal.towers = true"
+        "conductors.lattice.steel_temperature=300 max_step=1")
+    add_test_abort(Conductors_Thermal_TowerRangeAbort ${_tf_case} Conductors_TowerFireHeating.i
+        "conductors.thermal.tower_emissivity must be in .0, 1.." "conductors.thermal.tower_emissivity=0 max_step=1")
+    add_test_abort(Conductors_Thermal_TowerMeltsAbort ${_tf_case} Conductors_TowerFireHeating.i
+        "EN 1993-1-2's steel keeps no strength or stiffness at 1200 C" "erf.fire.prescribed_heat.flux=1.0e8 max_step=20")
+    set_tests_properties(Conductors_Thermal_TowersNeedFrameAbort Conductors_Thermal_TowerSteelTemperatureAbort
+                         Conductors_Thermal_TowerRangeAbort Conductors_Thermal_TowerMeltsAbort
+                         PROPERTIES LABELS "regression;conductors;fire;abort")
   endif()
   # conductors.failure_stop stops the run at the first exceedance: the still-air span's ~13.5 kN
   # against a rated_breaking_strength of 10 kN, at the end of the first step (0.5 s)

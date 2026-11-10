@@ -23,6 +23,7 @@
 #include "ERF_ConductorLine.H"
 #include "ERF_Gusts.H"
 #include "ERF_LineThermal.H"
+#include "ERF_TowerThermal.H"
 #include "ERF_RunningStats.H"
 #include "ERF_Transformer.H"
 #include "ERF_Tower.H"
@@ -234,6 +235,10 @@ public:
     const erf_conductors::GroundContactLog& ground_contacts () const { return m_ground_log; }
     /** The conductors' temperatures (conductors.thermal_model = ieee738), or null. */
     const erf_conductors::LineThermal* thermal () const { return m_thermal.get(); }
+    /** The towers' member temperatures (conductors.thermal.towers = true), or null. */
+    const erf_conductors::TowerThermal* tower_thermal () const { return m_tower_thermal.get(); }
+    /** The towers m_tower_thermal heats (indices into towers(), in its order): every tower that bends as a frame. */
+    const std::vector<std::size_t>& heated_towers () const { return m_heated; }
 
 private:
     Conductors (ConductorInputs_t in, int anchor);
@@ -394,6 +399,14 @@ private:
     TowerFrame make_frame (const erf_towers::Tower& tw) const;
     /** Tower t's model when it is a frame, else null. */
     const erf_towers::FrameTower* frame_tower (std::size_t t) const;
+    erf_towers::FrameTower* frame_tower (std::size_t t);
+    /**
+     * With conductors.thermal.towers, create m_tower_thermal for every frame tower (m_heated) and each member's three
+     * Gauss points and axis in ERF's axes (m_member_points, m_member_axes); aborts, naming the key, without the
+     * conductors' thermal model, without a frame tower, on a frame tower whose type sets steel_temperature, or on a
+     * member without a perimeter (member_section()).
+     */
+    void build_tower_thermal ();
     /**
      * Write <diagnostics_dir>/tower_<name>_members.csv for every tower whose members are checked: per member its role,
      * joints, length, slenderness, the design stresses and strengths at its temperature, and the slenderness and
@@ -545,10 +558,15 @@ private:
     /** the air's drag on all lines and on the towers' members (N); total_load.dat drag_x..z */
     std::array<amrex::Real,3> m_drag_total{{0.0, 0.0, 0.0}};
     std::unique_ptr<erf_conductors::LineThermal> m_thermal;       //!< thermal(): the conductors' temperatures, or null
+    std::unique_ptr<erf_conductors::TowerThermal> m_tower_thermal; //!< tower_thermal(): the towers' member temperatures, or null
+    std::vector<std::size_t> m_heated;                             //!< heated_towers()
+    std::vector<std::vector<double>> m_member_points;              //!< per heated tower: 3 Gauss points per member, 3 coordinates each (m)
+    std::vector<std::vector<double>> m_member_axes;                //!< per heated tower: each member's unit axis, repeated per Gauss point
     /**
-     * Step the conductors' temperatures over [time, time + dt] and set the spans' lengths (m_thermal): the air
-     * temperature at every line node from cons, the fire's point sources from fire (null: none) at the terrain
-     * plus conductors.thermal.source_height. wind holds each line's wind at its kinematics points; write_row: this
+     * Step the conductors' temperatures over [time, time + dt] and set the spans' lengths (m_thermal), and the
+     * towers' member temperatures and frames (m_tower_thermal): the air temperature at every line node and member
+     * Gauss point from cons, the fire's point sources from fire (null: none) at the terrain plus
+     * conductors.thermal.source_height. wind holds each line's wind at its kinematics points; write_row: this
      * step writes the diagnostics rows.
      */
     void step_thermal (double time, double dt, const std::vector<std::vector<amrex::Real>>& wind, const amrex::MultiFab* cons,

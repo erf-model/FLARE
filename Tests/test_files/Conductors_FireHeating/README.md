@@ -28,7 +28,7 @@ erf-model/ERF#5018).
   2. the fire's irradiance at every step, from the fire cells whose centres lie in the disc (within the
      300 m cutoff) and the node positions the run wrote at the step's start (`S1_nodes.dat`);
   3. the temperature, from its steady value without the fire, stepped with backward Euler and the
-     IEEE 738-2012 terms written out in the script, radiating to surroundings at the node's first air
+     IEEE 738-2023 terms written out in the script, radiating to surroundings at the node's first air
      temperature;
   4. from these, the hottest node and its temperature, the span's mean and reference temperatures, the
      thermal strain of every row, and the sag at the end from the bundled MoorDyn stub's elastic parabola.

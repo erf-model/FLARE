@@ -29,6 +29,7 @@ function(erf_structure_model_add target)
     ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_Capacities.cpp
     ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_GroundContact.cpp
     ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_LineThermal.cpp
+    ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_TowerThermal.cpp
     ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_Conductors.cpp
     ${ERF_STRUCTURE_MODEL_DIR}/Conductors/ERF_ConductorModel.cpp
   )

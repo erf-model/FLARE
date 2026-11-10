@@ -9,7 +9,7 @@ The script recomputes, from the deck's numbers alone (no code shared with ERF), 
    of chi_r q'' dA at the source height, within the cutoff) and the node positions the run wrote at the
    step's start (S1_nodes.dat);
 3. the node's temperature, from its steady temperature without the fire, stepped with backward Euler and
-   the IEEE 738-2012 terms written out here (Joule heating with a linear resistance, forced and natural
+   the IEEE 738-2023 terms written out here (Joule heating with a linear resistance, forced and natural
    convection, radiation to surroundings at the node's first air temperature), in still air;
 4. from these, the hottest node's temperature, the span's mean (trapezoid) and reference temperatures, the
    thermal strain, and the sag at the end from the bundled MoorDyn stub's elastic parabola.
@@ -20,11 +20,11 @@ import argparse
 import math
 import sys
 
-SIGMA_17_8 = 17.8          # IEEE 738-2012 eq 7b: 17.8 D eps [((T+273)/100)^4 - ((Ta+273)/100)^4]
+SIGMA_17_8 = 17.8          # IEEE 738-2023 eq 21: 17.8 D eps [((T+273)/100)^4 - ((Ta+273)/100)^4]
 
 
 def air(t_film, elev):
-    """IEEE 738-2012 eqs 13a, 14a, 15a: viscosity, density, conductivity of air at the film temperature."""
+    """IEEE 738-2023 eqs 13, 15, 17: viscosity, density, conductivity of air at the film temperature."""
     mu = 1.458e-6 * (t_film + 273.0) ** 1.5 / (t_film + 383.4)
     rho = (1.293 - 1.525e-4 * elev + 6.379e-9 * elev ** 2) / (1.0 + 0.00367 * t_film)
     k = 2.424e-2 + 7.477e-5 * t_film - 4.407e-9 * t_film ** 2
@@ -32,12 +32,12 @@ def air(t_film, elev):
 
 
 def k_angle(phi):
-    """IEEE 738-2012 eq 4a."""
+    """IEEE 738-2023 eq 19."""
     return 1.194 - math.cos(phi) + 0.194 * math.cos(2 * phi) + 0.368 * math.sin(2 * phi)
 
 
 def convection(D, V, phi, T, Ta, elev):
-    """The larger in magnitude of forced (larger of eqs 3a, 3b) and natural (eq 5a) convection, signed by T - Ta."""
+    """The larger in magnitude of forced (larger of eqs 9, 10) and natural (eq 7) convection, signed by T - Ta."""
     mu, rho, k = air(0.5 * (T + Ta), elev)
     dT = T - Ta
     Re = D * rho * V / mu

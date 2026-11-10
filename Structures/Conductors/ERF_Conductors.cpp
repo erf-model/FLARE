@@ -157,6 +157,19 @@ Conductors::Conductors (ConductorInputs_t in, int anchor)
         }
         m_thermal = std::make_unique<erf_conductors::LineThermal>(names, diameters, m_in.diagnostics_dir);
     }
+    if (erf_conductors::TowerThermal::selected() && !m_thermal) {
+        Abort("conductors.thermal.towers = true needs conductors.thermal_model = ieee738 (the fire's sources and the air temperature "
+              "it heats the towers with)");
+    }
+    if (!erf_conductors::TowerThermal::selected()) {
+        // the towers' settings without the towers' heating are not read
+        ParmParse pt("conductors.thermal");
+        for (const char* key : {"tower_emissivity", "tower_convection", "tower_reduction_tolerance"}) {
+            if (pt.contains(key)) {
+                Print() << "conductors: WARNING conductors.thermal." << key << " is not used: conductors.thermal.towers is false\n";
+            }
+        }
+    }
 }
 
 void
@@ -267,6 +280,7 @@ Conductors::set_ground (const MultiFab* z_phys_nd, const Geometry& geom, const s
     ParallelDescriptor::Barrier();
     if (!misplaced.empty()) { Abort(misplaced + " (the placement is in " + m_in.diagnostics_dir + "/ground.dat)"); }
     build_towers();
+    build_tower_thermal();
     write_asce74();
     setup_gusts(geom);
     write_seafloors(z_phys_nd, geom);
@@ -652,6 +666,65 @@ const erf_towers::FrameTower*
 Conductors::frame_tower (std::size_t t) const
 {
     return dynamic_cast<const erf_towers::FrameTower*>(m_models[t].get());
+}
+
+erf_towers::FrameTower*
+Conductors::frame_tower (std::size_t t)
+{
+    return dynamic_cast<erf_towers::FrameTower*>(m_models[t].get());
+}
+
+void
+Conductors::build_tower_thermal ()
+{
+    m_tower_thermal.reset();
+    m_heated.clear();
+    m_member_points.clear();
+    m_member_axes.clear();
+    if (!erf_conductors::TowerThermal::selected()) { return; }
+    std::vector<std::string> names;
+    std::vector<std::vector<erf_conductors::MemberSection>> sections;
+    for (std::size_t t = 0; t < m_towers.size(); ++t) {
+        const erf_towers::FrameTower* fr = frame_tower(t);
+        if (fr == nullptr) { continue; }
+        const erf_towers::TowerType& type = m_towers[t].type();
+        if (type.steel_temperature != Real(20.0)) {
+            Abort("conductors." + type.name + ".steel_temperature cannot be set with conductors.thermal.towers = true: the members' "
+                  "temperatures follow the fire");
+        }
+        const erf_towers::FrameInputs& in = fr->frame().inputs();
+        std::vector<erf_conductors::MemberSection> sec(in.members.size());
+        std::vector<double> pts, axes;
+        pts.reserve(9 * in.members.size());
+        axes.reserve(9 * in.members.size());
+        for (std::size_t m = 0; m < in.members.size(); ++m) {
+            std::string err;
+            if (!erf_conductors::member_section(in, fr->designs(), m, sec[m], err)) {
+                Abort("conductors.thermal.towers: tower " + m_towers[t].name() + " (" + fr->source() + "): " + err);
+            }
+            // FrameInputs::validate() has checked that every member's joints exist
+            const int ia = in.joint_index(in.members[m].joint_a), ib = in.joint_index(in.members[m].joint_b);
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(ia >= 0 && ib >= 0, "Conductors::build_tower_thermal: a member's joint is missing");
+            const auto& ja = in.joints[static_cast<std::size_t>(ia)].x;
+            const auto& jb = in.joints[static_cast<std::size_t>(ib)].x;
+            const std::array<double,3> a = fr->erf_point(ja), b = fr->erf_point(jb);
+            const double L = std::sqrt((b[0]-a[0])*(b[0]-a[0]) + (b[1]-a[1])*(b[1]-a[1]) + (b[2]-a[2])*(b[2]-a[2]));
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(L > 0.0, "Conductors::build_tower_thermal: a member of zero length");
+            for (const auto& p : erf_conductors::gauss_points(a, b)) {
+                pts.insert(pts.end(), p.begin(), p.end());
+                for (std::size_t d = 0; d < 3; ++d) { axes.push_back((b[d] - a[d]) / L); }
+            }
+        }
+        m_heated.push_back(t);
+        names.push_back(m_towers[t].name());
+        sections.push_back(std::move(sec));
+        m_member_points.push_back(std::move(pts));
+        m_member_axes.push_back(std::move(axes));
+    }
+    if (m_heated.empty()) {
+        Abort("conductors.thermal.towers = true needs a tower that bends as a frame (conductors.<type>.frame_file or frame_panels)");
+    }
+    m_tower_thermal = std::make_unique<erf_conductors::TowerThermal>(names, sections, m_in.diagnostics_dir);
 }
 
 std::vector<erf_towers::MemberCheck>
@@ -1566,6 +1639,7 @@ Conductors::log_files () const
     f.push_back(m_in.diagnostics_dir + "/coupling.dat");
     f.push_back(m_in.diagnostics_dir + "/failures.dat");
     if (m_thermal) { f.push_back(m_thermal->log_file()); }
+    if (m_tower_thermal) { for (const std::string& t : m_tower_thermal->log_files()) { f.push_back(t); } }
     return f;
 }
 
@@ -1684,6 +1758,8 @@ Conductors::restore (const std::string& dir)
     }
     // the moving towers' state first: their lines start with the cross-arms where the towers had taken them
     if (std::any_of(m_models.begin(), m_models.end(), [] (const auto& m) { return m != nullptr; })) {
+        // a checkpoint of a run that heated its towers: its frames' saved temperatures are the fire's
+        const bool heated = erf_actuator::file_exists_everywhere(dir + "/tower_thermal");
         Vector<char> mchars;
         ParallelDescriptor::ReadAndBcastFile(dir + "/tower_motion", mchars);
         std::istringstream tm(std::string(mchars.dataPtr(), mchars.size()));
@@ -1697,7 +1773,13 @@ Conductors::restore (const std::string& dir)
             }
             std::vector<double> st(n);
             for (auto& v : st) { if (!(tm >> v)) { Abort("the conductor checkpoint '" + dir + "/tower_motion' is truncated"); } }
-            const std::string why = m_models[t]->restart_mismatch(st);
+            // with the towers' heating continuing from a heated checkpoint, the frame's saved temperatures are the fire's,
+            // which set_state() heats the frame to; otherwise they must be the inputs' (steel_temperature)
+            std::string why = (m_tower_thermal && heated) ? std::string() : m_models[t]->restart_mismatch(st);
+            if (!why.empty() && heated && !m_tower_thermal) {
+                why += "; the checkpoint's frames were heated by conductors.thermal.towers, so the restart needs "
+                       "conductors.thermal.towers = true";
+            }
             if (!why.empty()) { Abort("the conductor checkpoint '" + dir + "/tower_motion': tower " + m_towers[t].name() + ": " + why); }
             if (!m_models[t]->set_state(st)) { Abort("the conductor checkpoint '" + dir + "/tower_motion' does not fit tower " + m_towers[t].name()); }
             move_tower(t);
@@ -1864,6 +1946,25 @@ Conductors::restore (const std::string& dir)
         Print() << "conductors: the checkpoint's conductor temperatures are not used in this run (no conductors.thermal_model): "
                 << "the spans return to their input lengths at the first step\n";
     }
+    // the towers' member temperatures (the frames' own came back with tower_motion)
+    if (m_tower_thermal) {
+        m_tower_thermal->restore(dir);
+        // the members' strength checks at the steel's temperatures (the frames came back at those they were built at)
+        if (m_tower_thermal->started()) {
+            for (std::size_t h = 0; h < m_heated.size(); ++h) { frame_tower(m_heated[h])->set_check_temperature(m_tower_thermal->temperatures(h)); }
+        }
+    } else if (erf_actuator::file_exists_everywhere(dir + "/tower_thermal")) {
+        Print() << "conductors: WARNING the checkpoint's tower steel temperatures are not used in this run (conductors.thermal.towers is "
+                << "false): the members stay at their type's steel_temperature\n";
+        // the logs of the run being restarted are not this run's
+        if (ParallelDescriptor::IOProcessor()) {
+            std::error_code ec;
+            std::filesystem::remove(m_in.diagnostics_dir + "/tower_temperature.dat", ec);
+            for (const auto& tw : m_towers) {
+                std::filesystem::remove(m_in.diagnostics_dir + "/tower_" + tw.name() + "_member_temperature.dat", ec);
+            }
+        }
+    }
     // the logs continue from the checkpoint: rows a run wrote after it are dropped
     if (ParallelDescriptor::IOProcessor()) {
         for (const std::string& f : log_files()) { erf_conductors::trim_log_after(f, m_time); }
@@ -1917,6 +2018,7 @@ Conductors::write_checkpoint (const std::string& chkdir) const
         // every rank holds the same line; one copy of each is saved
         for (const auto& span : m_lines) { span->save(dir + "/" + span->name() + ".moordyn"); }
         if (m_thermal) { m_thermal->write_checkpoint(dir); }
+        if (m_tower_thermal) { m_tower_thermal->write_checkpoint(dir); }
         if (!m_cap.empty()) {
             std::ofstream cp(dir + "/capacities", std::ios::trunc);
             cp << m_cap.state();
@@ -2128,6 +2230,14 @@ Conductors::advance (int lev, double time, double dt,
                 // likewise the temperature log of an earlier run with the thermal model
                 std::error_code ec;
                 std::filesystem::remove(m_in.diagnostics_dir + "/conductor_temperature.dat", ec);
+            }
+            if (!m_tower_thermal) {
+                // and the towers' temperature logs of an earlier run that heated them
+                std::error_code ec;
+                std::filesystem::remove(m_in.diagnostics_dir + "/tower_temperature.dat", ec);
+                for (const auto& tw : m_towers) {
+                    std::filesystem::remove(m_in.diagnostics_dir + "/tower_" + tw.name() + "_member_temperature.dat", ec);
+                }
             }
         }
     }
@@ -2357,11 +2467,30 @@ Conductors::step_thermal (double time, double dt, const std::vector<std::vector<
     if (cons == nullptr) {
         Abort("conductors.thermal_model = ieee738 needs the conserved state (rho, rho theta): the air's temperature at the nodes");
     }
-    // the air's temperature at every line node, from the equation of state (dry air)
+    // the air's temperature at every line node and every heated member's Gauss points, from the equation of state (dry air)
     std::vector<Real> all;
     for (const auto& line : m_lines) {
         const std::vector<Real> p = line->node_positions();
         all.insert(all.end(), p.begin(), p.end());
+    }
+    const std::size_t line_values = all.size() / 3;
+    if (m_tower_thermal) {
+        std::vector<Real> mp;
+        for (const auto& v : m_member_points) { for (const double x : v) { mp.push_back(static_cast<Real>(x)); } }
+        // a point below the terrain (a leg on a slope: the frame stands on its flat footing at the tower's centre) takes
+        // the air at the terrain; the irradiance keeps the point where it is
+        std::vector<Real> gh;
+        ground_heights(z_phys_nd, geom, mp, gh);
+        for (std::size_t p = 0; p < gh.size(); ++p) { mp[3*p+2] = std::max(mp[3*p+2], gh[p]); }
+        // the sampler reads the cells around each point, which must be on the anchor level's grids
+        std::string outside;
+        const Real reach = std::max(geom.CellSize(0), geom.CellSize(1));
+        if (!erf_actuator::points_covered_by(U.boxArray(), geom, mp, reach, outside,
+                                             (z_phys_nd == nullptr) ? erf_actuator::CoverZ::Reach : erf_actuator::CoverZ::Footprint)) {
+            Abort("conductors.thermal.towers: the point " + outside + " of a tower member is not covered, with the cells around it, by "
+                  "the grids of the anchor level " + std::to_string(m_anchor) + "; refine around the whole tower");
+        }
+        all.insert(all.end(), mp.begin(), mp.end());
     }
     std::vector<Real> rho, rth;
     erf_actuator::sample_cell_scalar(*cons, Rho_comp, z_phys_nd, geom, all, rho);
@@ -2380,6 +2509,16 @@ Conductors::step_thermal (double time, double dt, const std::vector<std::vector<
             T_air[i][m] = static_cast<double>(getTgivenRandRTh(r, rt)) - 273.15;
         }
         n0 += nn;
+    }
+    // the same at the members' Gauss points, one value per point
+    std::vector<double> T_pts(rho.size() - line_values);
+    for (std::size_t p = 0; p < T_pts.size(); ++p) {
+        const Real r = rho[line_values + p], rt = rth[line_values + p];
+        if (!(r > Real(0.0)) || !(rt > Real(0.0)) || !std::isfinite(rt)) {
+            Abort("conductors.thermal.towers: at a tower member's point the density or rho theta is not positive and finite, so the "
+                  "air has no temperature");
+        }
+        T_pts[p] = static_cast<double>(getTgivenRandRTh(r, rt)) - 273.15;
     }
     // the fire's burning cells as point sources, at the terrain plus source_height
     std::vector<erf_conductors::FireSource> src;
@@ -2430,6 +2569,30 @@ Conductors::step_thermal (double time, double dt, const std::vector<std::vector<
         }
     }
     m_thermal->advance(time, dt, m_lines, wind, T_air, src, r_min2, period, write_row);
+    if (!m_tower_thermal) { return; }
+    // each member's air temperature and the fire's irradiance on it: the Gauss means over its three points
+    const auto& gw = erf_conductors::gauss_weights();
+    std::vector<std::vector<double>> Tm(m_heated.size()), Em(m_heated.size());
+    std::vector<erf_towers::FrameTower*> frames(m_heated.size(), nullptr);
+    std::size_t q0 = 0;
+    for (std::size_t h = 0; h < m_heated.size(); ++h) {
+        frames[h] = frame_tower(m_heated[h]);
+        const std::vector<double>& pts = m_member_points[h];
+        const std::size_t nm = pts.size() / 9;
+        const std::vector<double> E = src.empty() ? std::vector<double>(3 * nm, 0.0)
+            : erf_conductors::fire_irradiance(pts, m_member_axes[h], src, m_thermal->settings().radiative_fraction,
+                                              m_thermal->settings().cutoff_radius, r_min2, period);
+        Tm[h].assign(nm, 0.0);
+        Em[h].assign(nm, 0.0);
+        for (std::size_t m = 0; m < nm; ++m) {
+            for (std::size_t k = 0; k < 3; ++k) {
+                Tm[h][m] += gw[k] * T_pts[q0 + 3 * m + k];
+                Em[h][m] += gw[k] * E[3 * m + k];
+            }
+        }
+        q0 += 3 * nm;
+    }
+    m_tower_thermal->advance(time, dt, frames, Tm, Em, write_row);
 }
 
 void

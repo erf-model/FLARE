@@ -6,7 +6,7 @@
  * @brief The conductors' temperature under a fire, and the sag it adds
  *
  * conductors.thermal_model = ieee738 gives every node of every span a temperature T [C] that follows
- * the heat balance of IEEE 738-2012 per unit length,
+ * the heat balance of IEEE Std 738-2023 per unit length (eq 3),
  *
  *   m c_p dT/dt = q_J(T) + q_s + q_f - q_c(T, T_a, V) - q_r(T, T_a)          [W/m]
  *
@@ -17,7 +17,7 @@
  * The conductor radiates to surroundings at the air temperature its node had at the first step, not to
  * the plume (hot air is a poor emitter: treating it as a black enclosure would overstate the heating).
  * The fire radiates from every burning fire cell as a point source of chi_r q'' dA at
- * conductors.thermal.source_height above the ground (the point-source model of Modak 1977). The
+ * conductors.thermal.source_height above the ground, radiating equally in every direction. The
  * balance is stepped implicitly (backward Euler) with the anchor level's step.
  *
  * Each span's unstretched length follows the mean temperature of its conductor,
@@ -44,21 +44,21 @@ namespace erf_conductors {
 
 class ConductorLine;
 
-/// The air's film properties of IEEE 738-2012 (SI): viscosity [kg/(m s)], density [kg/m^3], conductivity [W/(m K)].
+/// The air's film properties of IEEE Std 738-2023 (SI): viscosity [kg/(m s)], density [kg/m^3], conductivity [W/(m K)].
 struct AirFilm { double mu{0.0}, rho{0.0}, k{0.0}; };
 
 /**
  * The air's properties at the film temperature T_film [C] (the mean of the conductor's and the air's) and
- * the elevation [m] above sea level: IEEE 738-2012 eqs 13a, 14a and 15a.
+ * the elevation [m] above sea level: IEEE Std 738-2023 eqs 13, 15 and 17.
  */
 AirFilm ieee738_air (double T_film, double elevation);
 
-/** The wind direction factor K_angle of IEEE 738-2012 eq 4a; phi [rad] is the angle between the wind and the conductor's axis. */
+/** The wind direction factor K_angle of IEEE Std 738-2023 eq 19; phi [rad] is the angle between the wind and the conductor's axis. */
 double ieee738_wind_angle_factor (double phi);
 
 /**
- * The convective heat the conductor gives the air [W/m], IEEE 738-2012: the larger in magnitude of forced
- * convection (the larger of eqs 3a and 3b) and natural convection (eq 5a), at the film temperature
+ * The convective heat the conductor gives the air [W/m], IEEE Std 738-2023 eq 6: the larger in magnitude of forced
+ * convection (the larger of eqs 9 and 10) and natural convection (eq 7), at the film temperature
  * (T + T_a)/2. Negative when the air is hotter than the conductor: the same correlations with the sign
  * of T - T_a (an extension of the standard, which states them for a conductor hotter than the air).
  *
@@ -69,11 +69,11 @@ double ieee738_wind_angle_factor (double phi);
  * @param[in] elevation  above sea level [m]
  */
 double ieee738_convection (double D, double V, double phi, double T, double T_a, double elevation);
-/** Forced convection alone [W/m]: the larger of IEEE 738-2012 eqs 3a and 3b (signed as ieee738_convection). */
+/** Forced convection alone [W/m]: the larger of IEEE Std 738-2023 eqs 9 and 10 (signed as ieee738_convection). */
 double ieee738_forced_convection (double D, double V, double phi, double T, double T_a, double elevation);
-/** Natural convection alone [W/m]: IEEE 738-2012 eq 5a with |T - T_a|^1.25 and the sign of T - T_a. */
+/** Natural convection alone [W/m]: IEEE Std 738-2023 eq 7 with |T - T_a|^1.25 and the sign of T - T_a. */
 double ieee738_natural_convection (double D, double T, double T_a, double elevation);
-/** The heat the conductor radiates to surroundings at T_s [W/m]: IEEE 738-2012 eq 7b (there with T_s = T_a). */
+/** The heat the conductor radiates to surroundings at T_s [W/m]: IEEE Std 738-2023 eq 21 (there with T_s = T_a). */
 double ieee738_radiation (double D, double emissivity, double T, double T_s);
 
 /** One conductor's thermal data: conductors.<line>.* */
@@ -88,7 +88,7 @@ struct LineThermalProps
     std::array<double,2> resistance{{0.0, 0.0}};               //!< R at the two temperatures below [ohm/m]
     std::array<double,2> resistance_temperatures{{25.0, 75.0}}; //!< [C]
 
-    /** R(T) [ohm/m]: linear through the two points (IEEE 738-2012 eq 10). */
+    /** R(T) [ohm/m]: linear through the two points (IEEE Std 738-2023 eq 33). */
     double resistance_at (double T) const;
 };
 
