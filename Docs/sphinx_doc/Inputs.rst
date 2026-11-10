@@ -6342,15 +6342,19 @@ Fuel and moisture
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.structures.ignition.residence_s**   | Time above intensity_kW_m at which a structure ignites [s] | Real >= 0                      | 60.0                   |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.structures.ignition.peak_flux_W_m2**| Peak heat release of a burning structure per unit          | Real > 0                       | 2.5e5                  |
+| **erf.fire.structures.ignition.peak_flux_W_m2**| Peak heat release of a burning structure per unit          | Real > 0                       | 1.0e5 (placeholder)    |
 |                                                | footprint area [W/m2]                                      |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.structures.ignition.fuel_load_J_m2**| Heat a structure releases over its whole burn per unit     | Real > 0                       | 7.8e8                  |
+| **erf.fire.structures.ignition.fuel_load_J_m2**| Heat a structure releases over its whole burn per unit     | Real > 0                       | 5.0e8 (placeholder)    |
 |                                                | footprint area [J/m2]                                      |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.structures.ignition.growth_time_s** | Time from ignition to the peak flux (t-squared growth) [s];| Real >= 0; peak_flux_W_m2 *    | 600.0                  |
-|                                                | 0 starts at the peak                                       | growth_time_s / 3 <= 0.7 *     |                        |
+| **erf.fire.structures.ignition.growth_time_s** | Time from ignition to the peak flux (t-squared growth) [s];| Real >= 0; peak_flux_W_m2 *    | 300.0 (placeholder)    |
+|                                                | 0 starts at the peak                                       | growth_time_s / 3 <= (1 -      |                        |
+|                                                |                                                            | decay_fraction) *              |                        |
 |                                                |                                                            | fuel_load_J_m2                 |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.structures.ignition.decay_fraction**| Share of fuel_load_J_m2 the burn curve's linear decay      | Real in [0, 1)                 | 0.5 (placeholder)      |
+|                                                | releases; the plateau releases the rest after the growth   |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.structures.ignition.rad_fraction**  | Share of the release radiated onto the cells around the    | Real in [0, 1]                 | 0.3                    |
 |                                                | structure                                                  |                                |                        |

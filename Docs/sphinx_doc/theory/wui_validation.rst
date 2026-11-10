@@ -101,16 +101,16 @@ CSVs and the logs, prints a table and fails on any of these:
    loses fuel. On 2026-09-16, with the thresholds at a third of the defaults, 19 of the
    24 houses ignited between 250 and 1880 s, all by heat load; nine before
    the front reached their wall band and two whose band the front never
-   reached, from their neighbours' radiation alone. At the documented
+   reached, from their neighbours' radiation alone (with the burn curve's
+   earlier values, 250 kW/m², 780 MJ/m² and 600 s; the curve now runs at
+   placeholder values, so these results describe the earlier curve). At the documented
    defaults no house ignites in 2100 s: the grass fire leaves at most
    3.1 MJ/m² at a wall, peaks at 773 kW/m and drops at most 15 brands on a
    footprint.
 
-The exposure numbers are also reported against the threshold usually quoted
-for the ignition of wood by radiation, about 20 kW/m² (Cohen 2004), as a
-reading rather than a check: the model's fireline intensity per metre of front
-is not a flux on a wall, and the wall energy balance that would turn it into
-one is future work.
+The exposure numbers are a reading rather than a check: the model's
+fireline intensity per metre of front is not a flux on a wall, and the wall
+energy balance that would turn it into one is future work.
 
 .. figure:: ../figures/wui_spread.png
    :width: 100%
@@ -166,7 +166,5 @@ References
 ----------
 
 - Rothermel, R. C. (1972). A mathematical model for predicting fire spread in wildland fuels. USDA Forest Service Research Paper INT-115.
-- Andrews, P. L. (2012). Modeling wind adjustment factor and midflame wind speed for Rothermel's surface fire spread model. USDA Forest Service General Technical Report RMRS-GTR-266.
-- Albini, F. A. (1983). Potential spotting distance from wind-driven surface fires. USDA Forest Service Research Paper INT-309.
-- Cohen, J. D. (2004). Relating flame radiation to home ignition using modeling and experimental crown fires. Canadian Journal of Forest Research, 34, 1616-1626.
-- NFPA 1144 (2018). Standard for Reducing Structure Ignition Hazards from Wildland Fire. National Fire Protection Association.
+- Andrews, P. L. (2012). Modeling wind adjustment factor and midflame wind speed for Rothermel's surface fire spread model. USDA Forest Service General Technical Report RMRS-GTR-266. https://www.fs.usda.gov/rm/pubs/rmrs_gtr266.pdf
+- Albini, F. A. (1983). Potential spotting distance from wind-driven surface fires. USDA Forest Service Research Paper INT-309. https://firedoc.nist.gov/article/zXczXYQBWEcjUZEYBfF9

@@ -12,27 +12,28 @@ using namespace erf_structure_ignition;
 
 /**
  * @file ERF_GTestStructureIgnition.cpp
- * @brief The EN 1991-1-2 burn curve (shape, energy budget, rejected inputs),
+ * @brief The burn curve (shape, energy budget, rejected inputs, the decay fraction),
  *        the ground point-source radiation kernel and the ignition rule.
  */
 
 TEST(StructureIgnition, BurnCurveShapeAndEnergy)
 {
-    // The documented defaults: 250 kW/m2 peak, 780 MJ/m2, 600 s to the peak.
+    // A test curve (not the defaults): 200 kW/m2 peak, 600 MJ/m2, 600 s to the peak, the decay
+    // releasing 40 % of the load.
     BurnCurve c;
-    ASSERT_TRUE(make_burn_curve(2.5e5, 7.8e8, 600.0, c));
-    EXPECT_NEAR(c.q_peak, 2.5e5, TOL * 2.5e5);
+    ASSERT_TRUE(make_burn_curve(2.0e5, 6.0e8, 600.0, 0.4, c));
+    EXPECT_NEAR(c.q_peak, 2.0e5, TOL * 2.0e5);
     EXPECT_NEAR(c.t_growth, 600.0, TOL);
-    // growth releases q t/3 = 50 MJ/m2, the plateau 70 % - 50 = 496 MJ/m2, the decay 30 %
-    EXPECT_NEAR(c.t_plateau, (0.7 * 7.8e8 - 2.5e5 * 600.0 / 3.0) / 2.5e5, 1e3 * TOL);
-    EXPECT_NEAR(c.t_decay, 2.0 * 0.3 * 7.8e8 / 2.5e5, 1e3 * TOL);
+    // growth releases q t/3 = 40 MJ/m2, the plateau 60 % - 40 = 320 MJ/m2, the decay 40 %
+    EXPECT_NEAR(c.t_plateau, (0.6 * 6.0e8 - 2.0e5 * 600.0 / 3.0) / 2.0e5, 1e3 * TOL);
+    EXPECT_NEAR(c.t_decay, 2.0 * 0.4 * 6.0e8 / 2.0e5, 1e3 * TOL);
 
     // zero before ignition, quadratic growth, the peak at t_growth, the plateau, zero after
     EXPECT_NEAR(c.flux_at(-1.0), 0.0, TOL);
-    EXPECT_NEAR(c.flux_at(300.0), 2.5e5 * 0.25, TOL * 2.5e5);
-    EXPECT_NEAR(c.flux_at(600.0), 2.5e5, TOL * 2.5e5);
-    EXPECT_NEAR(c.flux_at(600.0 + 0.5 * c.t_plateau), 2.5e5, TOL * 2.5e5);
-    EXPECT_NEAR(c.flux_at(c.duration() - 0.5 * c.t_decay), 0.5 * 2.5e5, 1e3 * TOL * 2.5e5);
+    EXPECT_NEAR(c.flux_at(300.0), 2.0e5 * 0.25, TOL * 2.0e5);
+    EXPECT_NEAR(c.flux_at(600.0), 2.0e5, TOL * 2.0e5);
+    EXPECT_NEAR(c.flux_at(600.0 + 0.5 * c.t_plateau), 2.0e5, TOL * 2.0e5);
+    EXPECT_NEAR(c.flux_at(c.duration() - 0.5 * c.t_decay), 0.5 * 2.0e5, 1e3 * TOL * 2.0e5);
     EXPECT_NEAR(c.flux_at(c.duration()), 0.0, TOL);
     EXPECT_NEAR(c.flux_at(c.duration() + 1000.0), 0.0, TOL);
 
@@ -41,29 +42,39 @@ TEST(StructureIgnition, BurnCurveShapeAndEnergy)
     const amrex::Real h = c.duration() / n;
     double e = 0.0;
     for (int k = 0; k < n; ++k) { e += c.flux_at((k + 0.5) * h) * h; }
-    EXPECT_NEAR(e / 7.8e8, 1.0, 1e-6);
+    EXPECT_NEAR(e / 6.0e8, 1.0, 1e-6);
 }
 
 TEST(StructureIgnition, BurnCurveInstantGrowth)
 {
     // growth_time_s = 0: the peak from the first instant, no division by zero
     BurnCurve c;
-    ASSERT_TRUE(make_burn_curve(1.0e5, 1.0e8, 0.0, c));
+    ASSERT_TRUE(make_burn_curve(1.0e5, 1.0e8, 0.0, 0.5, c));
     EXPECT_NEAR(c.flux_at(0.0), 1.0e5, TOL * 1.0e5);
-    EXPECT_NEAR(c.t_plateau, 0.7e8 / 1.0e5, 1e3 * TOL);
-    EXPECT_NEAR(c.t_decay, 0.6e8 / 1.0e5, 1e3 * TOL);
+    EXPECT_NEAR(c.t_plateau, 0.5e8 / 1.0e5, 1e3 * TOL);
+    EXPECT_NEAR(c.t_decay, 1.0e8 / 1.0e5, 1e3 * TOL);
+    // the decay fraction sets the split: 0.2 decays over 2 x 0.2 x load / peak
+    ASSERT_TRUE(make_burn_curve(1.0e5, 1.0e8, 0.0, 0.2, c));
+    EXPECT_NEAR(c.t_plateau, 0.8e8 / 1.0e5, 1e3 * TOL);
+    EXPECT_NEAR(c.t_decay, 0.4e8 / 1.0e5, 1e3 * TOL);
+    // no decay: the release stops at the end of the plateau
+    ASSERT_TRUE(make_burn_curve(1.0e5, 1.0e8, 0.0, 0.0, c));
+    EXPECT_NEAR(c.t_decay, 0.0, TOL);
+    EXPECT_NEAR(c.duration(), 1.0e3, 1e3 * TOL);
 }
 
 TEST(StructureIgnition, BurnCurveRejectsImpossibleInputs)
 {
     BurnCurve c;
-    EXPECT_FALSE(make_burn_curve(0.0, 1.0e8, 100.0, c));       // no peak
-    EXPECT_FALSE(make_burn_curve(1.0e5, 0.0, 100.0, c));       // no fuel
-    EXPECT_FALSE(make_burn_curve(1.0e5, 1.0e8, -1.0, c));      // negative growth
-    // growth alone releases q t / 3 = 1e5 * 3000 / 3 = 1e8 > 0.7e8
-    EXPECT_FALSE(make_burn_curve(1.0e5, 1.0e8, 3000.0, c));
-    // right at the limit: growth releases exactly 70 %, so no plateau
-    ASSERT_TRUE(make_burn_curve(1.0e5, 1.0e8, 2100.0, c));
+    EXPECT_FALSE(make_burn_curve(0.0, 1.0e8, 100.0, 0.5, c));       // no peak
+    EXPECT_FALSE(make_burn_curve(1.0e5, 0.0, 100.0, 0.5, c));       // no fuel
+    EXPECT_FALSE(make_burn_curve(1.0e5, 1.0e8, -1.0, 0.5, c));      // negative growth
+    EXPECT_FALSE(make_burn_curve(1.0e5, 1.0e8, 100.0, -0.1, c));    // decay fraction below 0
+    EXPECT_FALSE(make_burn_curve(1.0e5, 1.0e8, 100.0, 1.0, c));     // nothing left for growth and plateau
+    // growth alone releases q t / 3 = 1e5 * 3000 / 3 = 1e8 > 0.5e8
+    EXPECT_FALSE(make_burn_curve(1.0e5, 1.0e8, 3000.0, 0.5, c));
+    // right at the limit: growth releases exactly half, so no plateau
+    ASSERT_TRUE(make_burn_curve(1.0e5, 1.0e8, 1500.0, 0.5, c));
     EXPECT_NEAR(c.t_plateau, 0.0, 1e3 * TOL);
 }
 
@@ -109,35 +120,34 @@ TEST(StructureIgnition, Names)
 }
 
 /**
- * The start-up check in FireParams and make_burn_curve test the same EN 1991-1-2
- * bound, so a deck that passes start-up must build its burn curve and a deck
- * that builds its curve must pass start-up. On this triple the growth phase
- * releases exactly 70 % of the load (plateau 0): 0.7 * load and
- * load - 0.3 * load differ by one ulp in double, and a start-up test written as
- * "> 0.7 * load" refused a curve that make_burn_curve builds. In double the
- * triple is asserted to sit on that boundary; in single the test skips itself
- * when it does not.
+ * The start-up check in FireParams and make_burn_curve make the same decision, so a
+ * deck that passes start-up must build its burn curve and a deck that builds its
+ * curve must pass start-up. On this triple the growth phase releases exactly
+ * load - decay_fraction * load (plateau 0), and in double a bound written apart as
+ * "> (1 - decay_fraction) * load" refuses it by one ulp: the kind of disagreement
+ * that once stopped decks the curve accepted, before the start-up check called
+ * make_burn_curve. In double the triple is asserted to sit on that boundary; in
+ * single the test skips itself when it does not.
  */
 TEST(StructureIgnition, StartupCheckAgreesWithBurnCurveOnTheBoundary)
 {
-    const amrex::Real peak   = static_cast<amrex::Real>(2.5e5);
-    const amrex::Real load   = static_cast<amrex::Real>(1.68e8);
-    const amrex::Real growth = static_cast<amrex::Real>(1411.2);
+    const amrex::Real peak   = static_cast<amrex::Real>(1.0e5);
+    const amrex::Real load   = static_cast<amrex::Real>(1.85e8);
+    const amrex::Real decay  = static_cast<amrex::Real>(0.65);
+    const amrex::Real growth = static_cast<amrex::Real>(1942.5);
 
     BurnCurve c;
-    const bool curve_ok = make_burn_curve(peak, load, growth, c);
-    // the old start-up statement, double literals included, as the compiler saw it
-    const bool old_form_rejects = (peak * growth / 3.0 > 0.7 * load);
+    const bool curve_ok = make_burn_curve(peak, load, growth, decay, c);
+    const bool other_form_rejects = (peak * growth / 3.0 > (1.0 - decay) * load);
     if (sizeof(amrex::Real) == 8) {
-        ASSERT_TRUE(curve_ok)         << "make_burn_curve must accept the exact-boundary triple";
-        ASSERT_TRUE(old_form_rejects) << "the old start-up form must reject it, or the test guards nothing";
-    } else if (!(curve_ok && old_form_rejects)) {
+        ASSERT_TRUE(curve_ok)           << "make_burn_curve must accept the exact-boundary triple";
+        ASSERT_TRUE(other_form_rejects) << "the separately written bound must refuse it, or the test guards nothing";
+    } else if (!(curve_ok && other_form_rejects)) {
         GTEST_SKIP() << "triple is not on the one-ulp boundary in single precision";
     }
     EXPECT_NEAR(c.t_plateau, 0.0, TOL * growth) << "plateau of an exact-boundary curve";
 
-    // Aborted here with "exceeds 70 % of fuel_load_J_m2" before the start-up
-    // test used make_burn_curve's arithmetic.
+    // the start-up check must accept the same triple
     amrex::ParmParse pp("erf.fire");
     pp.add("structures.enable",                 true);
     pp.add("structures.file",                   "unused_by_the_parameter_check");
@@ -146,13 +156,15 @@ TEST(StructureIgnition, StartupCheckAgreesWithBurnCurveOnTheBoundary)
     pp.add("structures.ignition.peak_flux_W_m2", static_cast<double>(peak));
     pp.add("structures.ignition.fuel_load_J_m2", static_cast<double>(load));
     pp.add("structures.ignition.growth_time_s",  static_cast<double>(growth));
+    pp.add("structures.ignition.decay_fraction", static_cast<double>(decay));
     {
         FireParams fp;
         EXPECT_EQ(fp.structures.ignition.growth_time_s, growth);
     }
     for (const char* key : {"structures.enable", "structures.file", "exposure.enable",
                             "structures.ignition.enable", "structures.ignition.peak_flux_W_m2",
-                            "structures.ignition.fuel_load_J_m2", "structures.ignition.growth_time_s"}) {
+                            "structures.ignition.fuel_load_J_m2", "structures.ignition.growth_time_s",
+                            "structures.ignition.decay_fraction"}) {
         pp.remove(key);
     }
 }

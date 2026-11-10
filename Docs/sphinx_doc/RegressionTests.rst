@@ -1143,10 +1143,11 @@ release after, the plotfile state to agree with the CSV, the incident flux of
 the step-10 plotfile to equal the point-source sum recomputed in the checker,
 the restart to reproduce the last CSV rows, and the same checker to fail on
 the ignition-off run, whose CSV has no state column.
-``FireStructureIgnition_no_exposure_abort`` and
-``FireStructureIgnition_curve_abort`` pass when the run stops at start-up
-without the exposure accumulators the rule reads, and with a burn curve whose
-growth phase alone would release more than 70 % of the fuel load.
+``FireStructureIgnition_no_exposure_abort``,
+``FireStructureIgnition_curve_abort`` and ``FireStructureIgnition_decay_abort``
+pass when the run stops at start-up without the exposure accumulators the rule
+reads, with a burn curve whose growth phase alone would release more than
+(1 - ``decay_fraction``) of the fuel load, and with ``decay_fraction`` = 1.
 
 PBL start-up check
 ------------------

@@ -36,7 +36,7 @@ read the same file), the two fuel maps and the sounding.
 | `subdivision` | houses as non-burnable structures, level set extrapolated into them, streets non-burnable, exposure diagnostics every 10 s, seeded Albini spotting; passive atmosphere |
 | `defensible` | the subdivision with a 30 m fuel break at x = 480-510 m and 10 m cleared around every house, which removes the lanes: only embers can reach a house |
 | `coupled` | the subdivision with immersed-forcing houses in the atmosphere, the fire's wind from the open columns beside them, lagged heat coupling with the additive source in the open part of the columns; an atmosphere plotfile at 700 s intervals |
-| `ignition` | the subdivision with structure ignition on (`erf.fire.structures.ignition.*`, 2026-09-16) with the thresholds at a third of the documented defaults: houses ignite from a 2 MJ/m² heat load in their wall band, 15 landed brands, or a minute above 300 kW/m; burn along the EN 1991-1-2 dwelling curve (250 kW/m², 780 MJ/m², 600 s to the peak, the defaults); radiate 30% of it within 100 m and launch brands; passive atmosphere. At the documented thresholds no house ignites here (see the results) |
+| `ignition` | the subdivision with structure ignition on (`erf.fire.structures.ignition.*`, 2026-09-16) with the thresholds at a third of the documented defaults: houses ignite from a 2 MJ/m² heat load in their wall band, 15 landed brands, or a minute above 300 kW/m; burn along the burn curve at its placeholder defaults (100 kW/m² peak, 500 MJ/m² load, 300 s to the peak, half the load in the decay); radiate 30% of it within 100 m and launch brands; passive atmosphere. At the documented thresholds no house ignites here (see the results) |
 
 The runs are two boxes, so at most two ranks; each variant runs 2100 s.
 
@@ -77,11 +77,9 @@ The runs are two boxes, so at most two ranks; each variant runs 2100 s.
    with the CSV; no footprint cell burns or loses fuel (a burning house is a
    heat source, not a burning fuel cell).
 
-The exposure columns are also printed against the threshold usually quoted
-for the ignition of wood by radiation, about 20 kW/m² (Cohen 2004), as a
-reading rather than a check: a fireline intensity per metre of front is not
-a flux on a wall, and the wall energy balance that would turn it into one is
-future work.
+The exposure columns are a reading rather than a check: a fireline
+intensity per metre of front is not a flux on a wall, and the wall energy
+balance that would turn it into one is future work.
 
 ## Reference results
 
@@ -100,7 +98,10 @@ burning cell's Byram intensity uses its full fuel load:
 > `wildland_spotting` and `defensible` arrival times) describe the older form.
 > `check_wui.py` has not been run against the new form either. `inputs_ignition`
 > now sets `erf.fire.spotting.thermal_fuel_model = 1`, since burning houses
-> need a Table 4 fit.
+> need a Table 4 fit. Its burn curve now runs at placeholder values (100 kW/m²,
+> 500 MJ/m², 300 s, a decay releasing half the load) in place of the earlier
+> 250 kW/m², 780 MJ/m² and 600 s, so the `ignition` row and the text about it
+> below describe the earlier curve.
 
 | variant            | x = 780 m at [s] | burned cells | houses reached | peak intensity [kW/m] | max heat load [MJ/m²] | ember landings on footprints |
 |--------------------|-----------------:|-------------:|---------------:|----------------------:|----------------------:|-----------------------------:|
@@ -151,9 +152,7 @@ side-by-side run.
 At the documented default thresholds (6 MJ/m², 50 brands, 1000 kW/m for
 60 s) no house ignited in 2100 s in the 2026-09 run (not re-measured). A
 short-grass fire does not reach those placeholders by radiation at the ground
-next to a wall, which is in line with the field finding that homes in grass
-fires ignite from embers and adjacent fuels rather than from the flame front
-(Cohen 2004); it says nothing about the thresholds' calibration. The fire
+next to a wall; that says nothing about the thresholds' calibration. The fire
 itself is unchanged by an ignition: no footprint cell burns or loses fuel in
 any variant.
 
@@ -265,7 +264,5 @@ carries its own Rothermel; the unit test is left as it is.
 ## References
 
 - Rothermel, R. C. (1972). A mathematical model for predicting fire spread in wildland fuels. USDA Forest Service Research Paper INT-115.
-- Andrews, P. L. (2012). Modeling wind adjustment factor and midflame wind speed for Rothermel's surface fire spread model. RMRS-GTR-266.
-- Albini, F. A. (1983). Potential spotting distance from wind-driven surface fires. USDA Forest Service Research Paper INT-309.
-- Cohen, J. D. (2004). Relating flame radiation to home ignition using modeling and experimental crown fires. Canadian Journal of Forest Research, 34, 1616-1626.
-- NFPA 1144 (2018). Standard for Reducing Structure Ignition Hazards from Wildland Fire.
+- Andrews, P. L. (2012). Modeling wind adjustment factor and midflame wind speed for Rothermel's surface fire spread model. RMRS-GTR-266. https://www.fs.usda.gov/rm/pubs/rmrs_gtr266.pdf
+- Albini, F. A. (1983). Potential spotting distance from wind-driven surface fires. USDA Forest Service Research Paper INT-309. https://firedoc.nist.gov/article/zXczXYQBWEcjUZEYBfF9

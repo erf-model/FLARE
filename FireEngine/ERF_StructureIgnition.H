@@ -8,10 +8,10 @@
 // the number of embers that landed on its footprint, or the time during
 // which the largest fireline intensity in its band stayed above a threshold.
 //
-// A burning structure releases heat on its footprint cells following the
-// EN 1991-1-2 Annex E.4 heat-release curve per unit floor area (t-squared
-// growth to a peak flux, a plateau until 70 % of the fuel load is consumed,
-// a linear decay to zero), so it enters fire_heat_flux and reaches the
+// A burning structure releases heat on its footprint cells following a
+// heat-release curve per unit floor area (t-squared growth to a peak flux, a
+// plateau, a linear decay to zero that releases decay_fraction of the fuel
+// load), so it enters fire_heat_flux and reaches the
 // atmosphere through the coupling like the fire's own heat, launches brands
 // through the Albini spotting model with an equivalent fireline intensity,
 // and radiates onto the cells around it: its radiant fraction is spread from
@@ -27,14 +27,12 @@
 // the rule are rebuilt from it on a restart.
 //
 // References:
-//   EN 1991-1-2 (2002). Eurocode 1: Actions on structures, Part 1-2: General
-//     actions, actions on structures exposed to fire. Annex E (fire load
-//     densities, rate of heat release per unit area, t-squared growth).
 //   Cohen, J. D. (2004). Relating flame radiation to home ignition using
 //     modeling and experimental crown fires. Can. J. For. Res. 34, 1616-1626.
-//   Babrauskas, V. (2003). Ignition Handbook. Fire Science Publishers.
+//     doi:10.1139/x04-049
 //   Masoudvaziri, N., et al. (2021). Streamlined wildland-urban interface fire
 //     tracing (SWUIFT). Environmental Modelling & Software 143, 105097.
+//     doi:10.1016/j.envsoft.2021.105097
 
 #ifndef ERF_STRUCTURE_IGNITION_H
 #define ERF_STRUCTURE_IGNITION_H

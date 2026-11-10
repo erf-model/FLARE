@@ -14,9 +14,10 @@ StructureIgnition::StructureIgnition (const FireGrid& fg,
 {
     // init_params() has already rejected a curve that cannot be built; this
     // is the same test, so a caller that skipped the parameter check still stops.
-    if (!make_burn_curve(m_p.peak_flux_W_m2, m_p.fuel_load_J_m2, m_p.growth_time_s, m_curve)) {
+    if (!make_burn_curve(m_p.peak_flux_W_m2, m_p.fuel_load_J_m2, m_p.growth_time_s, m_p.decay_fraction, m_curve)) {
         Abort("[FIRE] erf.fire.structures.ignition: the growth phase (peak_flux_W_m2 * growth_time_s / 3) "
-              "releases more than 70 % of fuel_load_J_m2; no EN 1991-1-2 curve exists");
+              "releases more than (1 - decay_fraction) of fuel_load_J_m2, or decay_fraction is outside [0, 1); "
+              "no burn curve exists");
     }
     m_state            = std::make_unique<MultiFab>(m_fg.ba, m_fg.dm, NComp, 0);
     m_rad_flux         = std::make_unique<MultiFab>(m_fg.ba, m_fg.dm, 1, 0);

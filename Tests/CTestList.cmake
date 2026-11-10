@@ -4242,11 +4242,13 @@ if(ERF_ENABLE_MPI AND NOT WIN32)
 add_test_fire_script(FireStructureIgnition   FireStructureIgnition run_structure_ignition.sh NRANKS 1)
 endif()
 # its start-up checks: ignition without the exposure accumulators it reads, and a
-# burn curve whose growth phase alone would release more than the EN 1991-1-2 curve allows
+# burn curve whose growth phase alone would release more than the curve allows
 add_test_fire_abort(FireStructureIgnition_no_exposure_abort FireStructureIgnition inputs_on
     "needs erf.fire.exposure.enable" "erf.fire.exposure.enable=false")
 add_test_fire_abort(FireStructureIgnition_curve_abort FireStructureIgnition inputs_on
-    "exceeds 70 % of fuel_load_J_m2" "erf.fire.structures.ignition.growth_time_s=100.0")
+    "exceeds .1 - decay_fraction. of fuel_load_J_m2" "erf.fire.structures.ignition.growth_time_s=100.0")
+add_test_fire_abort(FireStructureIgnition_decay_abort FireStructureIgnition inputs_on
+    "decay_fraction must be in .0, 1.." "erf.fire.structures.ignition.decay_fraction=1.0")
 # the Rothermel reaction-velocity exponent (erf.fire.reaction_velocity_formula) and
 # the WRF-Fire fuel-load deflation (erf.fire.wrf_bmst_compat): the head rate of each
 # combination, calm and windy, against its closed form, on the uniform-fuel path and

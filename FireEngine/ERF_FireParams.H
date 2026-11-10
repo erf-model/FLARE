@@ -792,23 +792,25 @@ struct FireParams
         // on its footprint, or the largest fireline intensity in its band has
         // spent residence_s above intensity_kW_m (a threshold <= 0 turns that
         // criterion off). A burning structure releases heat on its footprint
-        // following the EN 1991-1-2 Annex E.4 curve (t-squared growth to
-        // peak_flux_W_m2 over growth_time_s, a plateau until 70 % of
-        // fuel_load_J_m2 is released, a linear decay), launches brands
+        // following a burn curve (t-squared growth to peak_flux_W_m2 over
+        // growth_time_s, a plateau, and a linear decay that releases
+        // decay_fraction of fuel_load_J_m2), launches brands
         // through the spotting model when that is on, and spreads
         // rad_fraction of its release as ground point sources onto the
         // cells within rad_radius_m, where it adds to the heat-load
-        // accumulator; that is how it loads its neighbours. Off by default;
-        // see ERF_StructureIgnition.H for the sources of the defaults.
+        // accumulator; that is how it loads its neighbours. Off by default.
+        // Every default here is a placeholder, not a value from a source:
+        // set each one for the structures of the case.
         struct IgnitionParams {
             bool        enable             = false;
             amrex::Real heat_load_J_m2     = 6.0e6;   ///< Band heat load at ignition [J/m2]; <= 0 off
             int         ember_count        = 50;      ///< Brands on the footprint at ignition; <= 0 off
             amrex::Real intensity_kW_m     = 1000.0;  ///< Band intensity threshold [kW/m]; <= 0 off
             amrex::Real residence_s        = 60.0;    ///< Time above intensity_kW_m at ignition [s]
-            amrex::Real peak_flux_W_m2     = 2.5e5;   ///< Peak heat release per unit footprint area [W/m2]
-            amrex::Real fuel_load_J_m2     = 7.8e8;   ///< Heat released over the whole burn [J/m2]
-            amrex::Real growth_time_s      = 600.0;   ///< Time from ignition to the peak flux [s]
+            amrex::Real peak_flux_W_m2     = 1.0e5;   ///< Peak heat release per unit footprint area [W/m2] (placeholder)
+            amrex::Real fuel_load_J_m2     = 5.0e8;   ///< Heat released over the whole burn [J/m2] (placeholder)
+            amrex::Real growth_time_s      = 300.0;   ///< Time from ignition to the peak flux [s] (placeholder)
+            amrex::Real decay_fraction     = 0.5;     ///< Share of fuel_load_J_m2 the linear decay releases, [0, 1) (placeholder)
             amrex::Real rad_fraction = 0.3;     ///< Share of the release radiated onto the surroundings
             amrex::Real rad_radius_m = 100.0;   ///< Reach of the incident radiant flux [m]; <= 0 off
         } ignition;
@@ -1736,6 +1738,7 @@ struct FireParams
            pp.query("structures.ignition.peak_flux_W_m2",     st_ig.peak_flux_W_m2);
            pp.query("structures.ignition.fuel_load_J_m2",     st_ig.fuel_load_J_m2);
            pp.query("structures.ignition.growth_time_s",      st_ig.growth_time_s);
+           pp.query("structures.ignition.decay_fraction",     st_ig.decay_fraction);
            pp.query("structures.ignition.rad_fraction", st_ig.rad_fraction);
            pp.query("structures.ignition.rad_radius_m", st_ig.rad_radius_m);
        }
@@ -1832,7 +1835,8 @@ struct FireParams
                  {"structures.ignition.heat_load_J_m2", "structures.ignition.ember_count",
                   "structures.ignition.intensity_kW_m", "structures.ignition.residence_s",
                   "structures.ignition.peak_flux_W_m2", "structures.ignition.fuel_load_J_m2",
-                  "structures.ignition.growth_time_s", "structures.ignition.rad_fraction",
+                  "structures.ignition.growth_time_s", "structures.ignition.decay_fraction",
+                  "structures.ignition.rad_fraction",
                   "structures.ignition.rad_radius_m"});
        if (heat_open_fraction && !structures.enable) {
            amrex::Abort("erf.fire.heat_open_fraction needs erf.fire.structures.enable");
@@ -1859,17 +1863,20 @@ struct FireParams
            if (st_ig.growth_time_s < 0.0) {
                amrex::Abort("erf.fire.structures.ignition.growth_time_s must be >= 0");
            }
-           // EN 1991-1-2 Annex E.4: the decay releases 30 % of the load, so the
-           // t-squared growth (which releases peak * growth / 3) must leave room.
-           // The decision is make_burn_curve's own (the positivity of the three
-           // inputs was checked above), so a deck that passes here always builds
-           // its curve: 0.7 * load and load - 0.3 * load differ by one ulp.
+           if (!(st_ig.decay_fraction >= 0.0 && st_ig.decay_fraction < 1.0)) {
+               amrex::Abort("erf.fire.structures.ignition.decay_fraction must be in [0, 1), the share of "
+                            "fuel_load_J_m2 the linear decay releases");
+           }
+           // the decay releases decay_fraction of the load, so the t-squared growth
+           // (which releases peak * growth / 3) must leave room. The decision is
+           // make_burn_curve's own (the inputs were checked above), so a deck that
+           // passes here always builds its curve.
            erf_structure_ignition::BurnCurve scratch_curve;
            if (!erf_structure_ignition::make_burn_curve(st_ig.peak_flux_W_m2, st_ig.fuel_load_J_m2,
-                                                        st_ig.growth_time_s, scratch_curve)) {
+                                                        st_ig.growth_time_s, st_ig.decay_fraction, scratch_curve)) {
                amrex::Abort("erf.fire.structures.ignition: peak_flux_W_m2 * growth_time_s / 3 exceeds "
-                            "70 % of fuel_load_J_m2, so the growth phase alone would release more "
-                            "than the EN 1991-1-2 curve allows; shorten growth_time_s or raise fuel_load_J_m2");
+                            "(1 - decay_fraction) of fuel_load_J_m2, so the growth phase alone would release "
+                            "more than the burn curve allows; shorten growth_time_s or raise fuel_load_J_m2");
            }
            if (st_ig.rad_fraction < 0.0 || st_ig.rad_fraction > 1.0) {
                amrex::Abort("erf.fire.structures.ignition.rad_fraction must be in [0, 1]");
