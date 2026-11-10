@@ -1798,6 +1798,301 @@ References
 * MoorDyn-C v2 documentation, input file options ``SeafloorFile``, ``kbot``
   and ``cbot``. https://moordyn.readthedocs.io
 
+Conductor temperature under a fire
+----------------------------------
+
+This section describes how the model gives each conductor a temperature that
+follows the heat it gains from a fire, and how the conductor's sag follows that
+temperature. It is the first stage of the fire-to-structures coupling. The
+tower steel temperature is a later stage. The implementation is
+``Structures/Conductors/ERF_LineThermal.{H,cpp}`` (class ``LineThermal``),
+called from ``Conductors`` once per step of the lines' anchor level. It is
+selected with ``conductors.thermal_model = ieee738``; without it nothing
+changes.
+
+Heat balance
+~~~~~~~~~~~~
+
+Every node :math:`n` of every span (insulator strings excluded) carries a
+temperature :math:`T_n` (°C). It follows the heat balance of IEEE 738-2012 per
+unit length of conductor,
+
+.. math::
+   :label: lt-balance
+
+   m c_p \frac{dT_n}{dt} = q_J(T_n) + q_s + q_{f,n} - q_c(T_n, T_{a,n}, V_n, \phi_n) - q_r(T_n, T_{s,n}) ,
+
+where :math:`m c_p` (J/(m K)) is the conductor's heat capacity per unit length
+(``heat_capacity``), :math:`q_J` the Joule heating, :math:`q_s` the solar
+heating, :math:`q_{f,n}` the radiation absorbed from the fire, :math:`q_c` the
+convective loss and :math:`q_r` the radiative loss, all in W/m. :math:`T_{a,n}`
+is the air temperature at the node, :math:`V_n` the wind speed there,
+:math:`\phi_n` the angle between the wind and the conductor's axis, and
+:math:`T_{s,n}` the temperature of the surroundings the conductor radiates to.
+IEEE 738 takes :math:`T_s = T_a`, the ambient air. Here :math:`T_{s,n}` is
+the node's air temperature at the first step and stays fixed: inside a hot
+plume the air is a poor emitter, and radiating to it as to a black enclosure
+would overstate the heating (by 873 W/m for a conductor at 100 °C in air at
+500 °C, more than the fire's own radiation in the test case below).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 52 30
+
+   * - Term
+     - Form (SI)
+     - IEEE 738-2012
+   * - :math:`q_J`
+     - :math:`I^2 R(T)`, :math:`R` linear through the two given resistances
+     - eq 10
+   * - :math:`q_s`
+     - :math:`\alpha D E_s`, with :math:`E_s` the sun's flux normal to the conductor
+     - eq 8, with :math:`E_s` given
+   * - :math:`q_c`
+     - the larger in magnitude of forced convection,
+       :math:`K_\phi\,\max[(1.01 + 1.35 Re^{0.52}),\ 0.754 Re^{0.6}]\, k_f (T - T_a)`,
+       and natural convection, :math:`3.645 \rho_f^{1/2} D^{3/4} |T - T_a|^{5/4}`
+       with the sign of :math:`T - T_a`
+     - eqs 3a, 3b, 4a, 5a
+   * - :math:`q_r`
+     - :math:`17.8\, D\, \varepsilon \left[ \left(\frac{T + 273}{100}\right)^4 - \left(\frac{T_s + 273}{100}\right)^4 \right]`
+     - eq 7b, with :math:`T_s` for :math:`T_a`
+
+Here :math:`D` is the diameter (m), :math:`\alpha` the absorptivity and
+:math:`\varepsilon` the emissivity of the conductor's surface,
+:math:`Re = D \rho_f V / \mu_f` the Reynolds number and
+:math:`K_\phi = 1.194 - \cos\phi + 0.194\cos 2\phi + 0.368\sin 2\phi` the wind
+direction factor. The air's viscosity :math:`\mu_f`, density :math:`\rho_f`
+(at ``conductors.thermal.elevation``) and conductivity :math:`k_f` are taken at
+the film temperature :math:`(T + T_a)/2` (IEEE 738-2012 eqs 13a, 14a, 15a).
+IEEE 738 states the convection correlations for a conductor hotter than the
+air. When the air is hotter, as inside a plume, the same correlations are used
+with the sign of :math:`T - T_a`, so heat flows into the conductor.
+
+Radiation from the fire
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The fire reaches the model through ERF's fire view (``StructureStep::fire``,
+:ref:`sec:StructureCoupling`). Each fire cell :math:`j` with a positive heat
+release :math:`q''_j` (W/m\ :sup:`2`, ``FireEngine::heat_release``) is treated
+as a point source of radiant power :math:`\chi_r Q_j`, with
+:math:`Q_j = q''_j\,\Delta A` the cell's heat release and :math:`\chi_r` the
+radiative fraction (``conductors.thermal.radiative_fraction``). The source sits
+at the cell centre, ``conductors.thermal.source_height`` above the terrain. A
+conductor element at node :math:`n` intercepts radiation over its projected
+width :math:`D \sin\psi_{nj}`, where :math:`\psi_{nj}` is the angle between the
+ray from the source and the conductor's axis. The absorbed heat is
+
+.. math::
+   :label: lt-fire
+
+   q_{f,n} = \alpha D E_n , \qquad
+   E_n = \sum_j \frac{\chi_r Q_j \sin\psi_{nj}}{4 \pi \max(R_{nj}^2,\ \Delta A/\pi)} ,
+
+where :math:`R_{nj}` is the distance from the source to the node. This is the
+point-source model of fire radiation (Modak, 1977; Beyler, 2016). The floor
+:math:`\Delta A/\pi` is the squared radius of a disc of one fire cell's area. It
+stops the sum from growing without bound when a node comes within a cell of a
+source, where the point-source model does not hold anyway. Sources farther
+from the nodes than ``conductors.thermal.cutoff_radius`` are left out; a run
+with a fire must give it, since every burning cell within it of the lines is
+gathered to every rank at every step. In a periodic direction the distance is
+the nearest image's. The conductor's axis at a node comes from its
+neighbouring nodes, so a span that sags or swings changes its exposure.
+
+The burning cells are gathered from every rank once per step and sorted by
+position, so the sums do not depend on the box decomposition. On a
+terrain-following mesh the terrain under a source is read from the lines'
+anchor level, which must therefore cover every source within the cutoff.
+
+Air temperature and wind
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The air temperature at each node comes from the state of the lines' anchor
+level at the start of the step, through ERF's equation of state for dry air
+(:math:`\rho` and :math:`\rho\theta`). The wind is the one the lines already
+take at their nodes. With ``erf.fire.coupling_type`` lagged or synchronous the
+fire heats the air, so a plume that rises through the span heats the
+conductor by convection as well as by radiation. With passive coupling only
+the radiation reaches it.
+
+Time integration and timing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Equation :eq:`lt-balance` is stepped with backward Euler over the anchor
+level's step :math:`\Delta t`, with the air, the wind and the fire held at
+their values at the start of the step:
+
+.. math::
+   :label: lt-be
+
+   m c_p \left(T_n^{k+1} - T_n^{k}\right) = \Delta t \; G\!\left(T_n^{k+1}\right) ,
+
+where :math:`G` is the right-hand side of :eq:`lt-balance`. The new
+temperature is found by bracketing and bisection to :math:`10^{-12}` of its
+value. Over the range of the inputs the equation has one root, although
+:math:`m c_p (T - T^k) - \Delta t\, G(T)` need not be monotone at steps of
+order :math:`10^4` s and high current, where the Joule term's growth with
+:math:`T` can exceed the losses' near :math:`T_a`. Backward Euler is stable
+for any step and tends to the steady temperature for long steps. It is first
+order: against a fine-step solution its error is about
+:math:`0.5\,\Delta t/\tau` times the temperature change, with :math:`\tau`
+the conductor's time constant (about 0.5 K at :math:`\Delta t` = 1 s for
+:math:`\tau \approx` 120 s in a hot plume; 0.04 K for :math:`\tau \approx`
+650 s under radiation alone). On the first step of a run each node starts at
+its steady temperature without the fire, :math:`G(T) = 0` with
+:math:`q_f = 0`.
+
+The fire is read at the start of the lines' step, and the fire steps after
+the dycore of its own level. When the fire is on the lines' level or a finer
+one, its fields therefore belong to the lines' step time exactly (the end of
+its last step), and on the run's first step the lines see no fire yet. When
+the fire is on a coarser level, its fields belong to the end of the coarse
+step that contains the lines' step (:ref:`sec:StructureCoupling`).
+
+Thermal sag
+~~~~~~~~~~~
+
+Each span's unstretched length follows the mean temperature of its conductor:
+
+.. math::
+   :label: lt-length
+
+   L_k = L_{k,\mathrm{ref}} \left[ 1 + \alpha_T \left( \bar T_k - T_{k,\mathrm{ref}} \right) \right] ,
+
+where :math:`\alpha_T` is the thermal expansion coefficient
+(``thermal_expansion``), :math:`\bar T_k` the trapezoid mean of the span's node
+temperatures, :math:`L_{k,\mathrm{ref}}` the span's input unstretched length
+and :math:`T_{k,\mathrm{ref}}` the temperature it belongs to:
+``conductors.thermal.reference_temperature`` when given (a stringing
+temperature, say), otherwise the span's mean steady temperature at the first
+step, so that the span starts at its input length. MoorDyn takes the new length
+before the lines step (``MoorDyn_SetLineUnstretchedLength``), so the span
+lengthens and sags, and its tension falls.
+
+A span that sags comes closer to the fire, which raises its irradiance. With
+the geometry taken from the step's start this feedback is stable at any step
+as long as its loop gain, the rise in irradiance per metre of sag times the
+temperature rise per unit irradiance times the sag per kelvin, stays below
+one (about 0.14 in the test case); above one the line would sag into the
+flames, which is a physical runaway, not a numerical one.
+
+Outputs and restart
+~~~~~~~~~~~~~~~~~~~
+
+``<diagnostics_dir>/conductor_temperature.dat`` has one row per span and
+output step: the time, the line and span, the mean temperature, the hottest
+node's temperature and index, that node's air temperature, wind speed, wind
+angle and fire irradiance, the largest irradiance on the span, the thermal
+strain :math:`\alpha_T(\bar T_k - T_{k,\mathrm{ref}})` and the reference
+temperature; the hottest node is numbered from 0 over all the line's nodes.
+Rows follow ``conductors.diagnostics_int``. The checkpoint holds every node's
+temperature and surroundings temperature and each span's mean, reference
+temperature and reference length (``<chk>/conductors/thermal``). A restart
+restores them and sets the spans' lengths again, since MoorDyn-C's saved state
+holds the segment lengths but not the unstretched length. A checkpoint without
+them starts the temperatures afresh at the restart, with the spans' lengths as
+they are then; a run without the thermal model that restarts from a
+checkpoint with them says so, and its spans return to their input lengths.
+
+Limitations
+~~~~~~~~~~~
+
+* The point-source model places all of a cell's radiation at one point and
+  radiates it equally in every direction. It does not model the flame's shape,
+  its tilt in the wind, or smoke that absorbs radiation between the flame and
+  the conductor. With ``source_height`` 0 half of each source's power goes
+  into the ground: over the test case's disc, an upward (Lambertian) emitter
+  of the same power gives 1.8, 2.7 and 3.2 times the irradiance at 5, 17 and
+  30 m above it. Take ``source_height`` near half the flame height, and read
+  the irradiance as uncertain by a factor of two to three near the fire.
+* :math:`\chi_r` and ``source_height`` are inputs. :math:`\chi_r` ranges from
+  about 0.15 to 0.45 with the fuel, and the radiative heating scales with it
+  directly, so it has no default.
+* The air's density in the convection terms comes from IEEE 738's elevation
+  formula, not from ERF's sampled density.
+* Convection along the conductor at low wind uses the wind angle factor as
+  given (0.388 for a wind along the axis); IEEE 738 suggests taking the wind
+  across the conductor below 0.61 m/s.
+* The air temperature uses the equation of state for dry air. Moisture
+  changes it by well under 1 K.
+* The conductor is one temperature across its section: no radial gradient
+  between the aluminium strands and the steel core. Annealing and loss of
+  strength above about 93 °C (aluminium) are not modelled; the temperatures are
+  reported so that they can be checked against such limits.
+* One expansion coefficient serves at every temperature. An ACSR conductor
+  passes a knee point (about 70 to 120 °C) above which the aluminium carries no
+  tension and the steel core's smaller expansion and stiffness govern, so above
+  it a single :math:`\alpha_T` overstates the sag.
+* MoorDyn-C keeps each segment's volume proportional to its length, so a
+  lengthened span gains mass in proportion (about 1 % at +500 K); the bundled
+  stub keeps the mass.
+* The convection correlations are used outside the range IEEE 738 states them
+  for when the air is hotter than the conductor.
+* Insulator strings and towers are not heated.
+
+Verification of the thermal model
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 42 58
+
+   * - Test
+     - What is pinned
+   * - ``LineThermal.TheIEEE738TermsMatchTheIndependentCalculation``
+     - The air's properties, :math:`K_\phi`, forced and natural convection and
+       radiation at :math:`D` = 28.1 mm, :math:`V` = 0.61 m/s across,
+       :math:`T` = 100 °C, :math:`T_a` = 40 °C, against an independent Python
+       calculation (``check_fire_heating.py``), to :math:`10^{-12}`.
+   * - ``LineThermal.TheSteadyAndImplicitTemperaturesMatchTheIndependentCalculation``
+     - Steady temperatures with 1000 A, with the sun and with a fire, and
+       backward-Euler steps, to :math:`10^{-9}` K; without heat sources the
+       steady temperature is the air's.
+   * - ``LineThermal.APointSourceUnderALongConductorGivesTheLineIntegral``
+     - Over a straight conductor at height :math:`H` above one source,
+       :math:`\int E\, dx = \chi_r Q/(4\pi) \cdot 2a/(H\sqrt{a^2 + H^2})`
+       to :math:`10^{-5}`.
+   * - ``LineThermal.TheSpansLengthFollowsItsMeanTemperatureAndSurvivesARestart``
+     - On the stub, MoorDyn's unstretched length equals :eq:`lt-length`; a
+       checkpoint restores the temperatures to the bit and sets the length again.
+   * - ``Conductors_FireHeating`` and its two-level variants (CTests, stub)
+     - A 2e5 W/m\ :sup:`2` disc of 40 m radius under a 300 m span in still air,
+       passive coupling. An independent calculation of every span node: the air
+       temperature from the sounding (:math:`10^{-4}` K), the irradiance from the
+       fire cells and node positions (:math:`10^{-6}`), the temperatures with its
+       own IEEE 738 terms (hottest node and span mean, :math:`10^{-3}` K), the
+       reference temperature, the strain of every row and the final sag from the
+       stub's elastic parabola (:math:`10^{-4}` m). One level;
+       the lines on a level-1 patch with the fire on level 0; the fire on a
+       level-1 patch with the lines on level 0. The first step sees no fire
+       except when the fire is on the coarser level.
+   * - ``Conductors_FireHeating_Restart`` (CTest, stub)
+     - A checkpoint at 10 s: the temperature log and the span's log equal the
+       uninterrupted run's.
+   * - ``LineThermal.TheConductorRadiatesToItsSurroundingsNotToThePlume``
+     - Plume air at 500 °C with surroundings at 26.7 °C: the heat gain and a
+       step against the independent calculation.
+   * - ``LineThermal.APeriodicSourceIsSeenAcrossTheSeam``,
+       ``LineThermal.TheWindsAngleToTheSpanAndTheReferenceTemperatureAreUsed``
+     - The nearest image across a periodic boundary; a wind along and across
+       the span gives the steady temperatures of :math:`\phi` = 0 and 90°;
+       ``reference_temperature`` sets the span's starting length.
+   * - ``Conductors_Thermal_*Abort`` (CTests)
+     - An unknown model, a missing property, a value out of range and a fire
+       without ``radiative_fraction`` stop the run, naming the key.
+
+References
+~~~~~~~~~~
+
+* IEEE (2013). *IEEE Standard for Calculating the Current-Temperature
+  Relationship of Bare Overhead Conductors*, IEEE Std 738-2012. IEEE, New York.
+* Modak, A. T. (1977). Thermal radiation from pool fires. *Combustion and
+  Flame*, 29, 177-192.
+* Beyler, C. L. (2016). Fire hazard calculations for large, open hydrocarbon
+  fires. In *SFPE Handbook of Fire Protection Engineering*, 5th ed.
+  Springer, New York.
+
 Restart
 -------
 
@@ -1808,7 +2103,7 @@ statistics of every span, of each line's strings, of every pair of lines,
 transformer and tower, the gusts' per-span means (started afresh when the
 checkpoint has none), the random gusts' processes (drawn afresh at the
 restart's first step when the checkpoint has none, or other ones: another
-number, or lines taking each other's gusts differently), each moving tower's sway, the capacity records (see `Component capacities and first failure`_), the step count and the time.
+number, or lines taking each other's gusts differently), each moving tower's sway, the capacity records (see `Component capacities and first failure`_), the conductors' temperatures (see `Conductor temperature under a fire`_), the step count and the time.
 On a restart the line is created from the same inputs, initialised without the initial-shape solve and given that state, so
 it continues blown out exactly where the checkpoint left it, on MoorDyn's
 clock; the statistics go on accumulating, and the diagnostics continue on the

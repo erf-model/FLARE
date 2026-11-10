@@ -168,6 +168,12 @@ public:
     unsigned line_num_nodes (unsigned line) const;
     /** The unstretched length of MoorDyn line `line` (m). */
     double line_unstretched_length (unsigned line) const;
+    /**
+     * Set the unstretched length of MoorDyn line `line` (m, finite and > 0); it acts from the next step().
+     * MoorDyn's saved states (save(), serialize()) need not hold it: a caller that changes it sets it again
+     * after restoring a state.
+     */
+    void set_line_unstretched_length (unsigned line, double length);
     /** The position of node `node` (0-based) of MoorDyn line `line` (1-based) (m, MoorDyn's frame). */
     std::array<double,3> line_node_position (unsigned line, unsigned node) const;
     /** The velocity of node `node` of MoorDyn line `line` (m/s). */

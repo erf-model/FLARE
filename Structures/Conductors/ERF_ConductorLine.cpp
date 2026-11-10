@@ -126,6 +126,22 @@ void ConductorLine::check_outputs_finite (double time) const
     }
 }
 
+double ConductorLine::span_unstretched_length (int k) const
+{
+    check_span(k);
+    unsigned line = 0, local = 0;
+    locate(span_first_node(k), line, local);
+    return m_sys->line_unstretched_length(line);
+}
+
+void ConductorLine::set_span_unstretched_length (int k, double length)
+{
+    check_span(k);
+    unsigned line = 0, local = 0;
+    locate(span_first_node(k), line, local);
+    m_sys->set_line_unstretched_length(line, length);
+}
+
 void ConductorLine::locate (unsigned node, unsigned& line, unsigned& local) const
 {
     check_node(node);

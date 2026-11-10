@@ -161,6 +161,72 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
         DATALOG "conductors/failures.dat conductors/capacities.csv S1.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
     set_tests_properties(Conductors_Capacities_Restart PROPERTIES LABELS "regression;restart-parity;conductors;multilevel")
   endif()
+  # A conductor span heated by a fire below it (conductors.thermal_model = ieee738; stub only, since the sag
+  # check uses the stub's elastic parabola). FLARE's engine releases a prescribed 2e5 W/m^2 over a 40 m disc
+  # under the middle of a 300 m span 30 m up, in still air at 300 K with passive coupling, so the conductor's
+  # temperature follows its heat balance alone. check_fire_heating.py (README.md in the case folder)
+  # recomputes from the deck's numbers, independently of the C++: the hottest node's irradiance at every step
+  # from the fire cells and the node positions (1e-9), its temperature stepped with its own IEEE 738 terms
+  # (1e-6 K over the logged 10 digits), the thermal strain of every row and the final sag from the stub's
+  # parabola (1e-6). Three layouts of the fire and the lines on two levels, which also differ in which fire
+  # step the lines see first (StructureStep::fire):
+  # - one level: the first step sees no fire yet (the fire steps after the lines);
+  # - the lines on a level-1 patch, the fire on level 0: the fire has stepped before the first fine step;
+  # - the fire on a level-1 patch (5 m fire cells), the lines on level 0: the first step sees no fire yet.
+  # The restart parity carries the temperatures, the spans' lengths and the fire across a checkpoint at 10 s.
+  if(ERF_MOORDYN_USE_STUB AND ERF_ENABLE_FIRE)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+      set(_fh_src ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_FireHeating)
+      set(_fh_two "amr.max_level=1 amr.ref_ratio_vect=2 2 2 erf.dt_ref_ratio=2 erf.coupling_type=TwoWay erf.refinement_indicators=box1 erf.box1.max_level=1 erf.box1.in_box_lo_indices_crse=10 6 0 erf.box1.in_box_hi_indices_crse=19 15 11")
+      set(_fh_names Conductors_FireHeating Conductors_FireHeating_LinesOnFinerLevel Conductors_FireHeating_FireOnFinerLevel)
+      set(_fh_opts_0 "")
+      set(_fh_opts_1 "${_fh_two} erf.fire.anchor_level=0 conductors.anchor_level=-1")
+      set(_fh_opts_2 "${_fh_two} erf.fire.anchor_level=1 conductors.anchor_level=0")
+      set(_fh_check_0 "--dt 0.5 --fire-lags 1 --fire-dx 10")
+      set(_fh_check_1 "--dt 0.25 --fire-lags 0 --fire-dx 10")
+      set(_fh_check_2 "--dt 0.5 --fire-lags 1 --fire-dx 5")
+      set(_fh_mpi "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}")
+      resolve_test_exe("" "erf_exec" _fh_exe)
+      foreach(_i RANGE 2)
+        list(GET _fh_names ${_i} _fh_name)
+        set(_fh_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/${_fh_name})
+        file(MAKE_DIRECTORY ${_fh_dir})
+        file(COPY ${_fh_src}/Conductors_FireHeating.i ${_fh_src}/input_sounding DESTINATION ${_fh_dir})
+        add_test(NAME ${_fh_name}
+                 COMMAND sh -c "rm -rf conductors S1*.dat && ${_fh_mpi} ${_fh_exe} Conductors_FireHeating.i ${_fh_opts_${_i}} amrex.call_addr2line=0 > run.log 2>&1 && \"${Python3_EXECUTABLE}\" -I ${_fh_src}/check_fire_heating.py ${_fh_check_${_i}}"
+                 WORKING_DIRECTORY ${_fh_dir})
+        set_tests_properties(${_fh_name} PROPERTIES LABELS "regression;conductors;fire;multilevel" TIMEOUT 600
+                             PROCESSORS 2 ATTACHED_FILES_ON_FAIL "${_fh_dir}/run.log")
+      endforeach()
+      add_test_restart_parity(Conductors_FireHeating_Restart Conductors_FireHeating 20 40
+          COMMON_OPTIONS "erf.plot_file_1=plt erf.plot_vars_1=density theta x_velocity"
+          DATALOG "conductors/conductor_temperature.dat S1.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 40)
+      set_tests_properties(Conductors_FireHeating_Restart PROPERTIES LABELS "regression;restart-parity;conductors;fire")
+    endif()
+  endif()
+  # The thermal model's start-up checks: an unknown model, a missing conductor property, a value out of range,
+  # and a fire without the radiative fraction
+  add_test_abort(Conductors_Thermal_UnknownModelAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
+      Conductors_PrescribedWind.i "conductors.thermal_model must be none or ieee738, got 'cigre'" "conductors.thermal_model=cigre")
+  add_test_abort(Conductors_Thermal_MissingPropertyAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
+      Conductors_PrescribedWind.i "conductors.S1.heat_capacity is needed with conductors.thermal_model = ieee738"
+      "conductors.thermal_model=ieee738 conductors.S1.absorptivity=0.5 conductors.S1.emissivity=0.5 conductors.S1.thermal_expansion=1.9e-5")
+  add_test_abort(Conductors_Thermal_RangeAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
+      Conductors_PrescribedWind.i "conductors.S1.absorptivity must be in .0, 1."
+      "conductors.thermal_model=ieee738 conductors.S1.absorptivity=1.5 conductors.S1.emissivity=0.5 conductors.S1.heat_capacity=1310 conductors.S1.thermal_expansion=1.9e-5")
+  if(ERF_ENABLE_FIRE AND ERF_MOORDYN_USE_STUB)
+    # the fire deck without its radiative_fraction line (the command line cannot remove a key)
+    set(_fn_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/Conductors_Thermal_FireNeedsFractionAbort)
+    file(MAKE_DIRECTORY ${_fn_dir})
+    file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_FireHeating/input_sounding DESTINATION ${_fn_dir})
+    resolve_test_exe("" "erf_exec" _fn_exe)
+    add_test(NAME Conductors_Thermal_FireNeedsFractionAbort
+             COMMAND sh -c "sed '/radiative_fraction/d' ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_FireHeating/Conductors_FireHeating.i > nofraction.i && ${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS} ${_fn_exe} nofraction.i max_step=1 amrex.call_addr2line=0 > run.log 2>&1 && { echo 'the run did not stop'; exit 1; }; grep -q 'conductors.thermal.radiative_fraction is needed when the run has a fire' run.log"
+             WORKING_DIRECTORY ${_fn_dir})
+    set_tests_properties(Conductors_Thermal_FireNeedsFractionAbort PROPERTIES LABELS "regression;conductors;fire;abort" TIMEOUT 300
+                         ATTACHED_FILES_ON_FAIL "${_fn_dir}/run.log")
+  endif()
   # conductors.failure_stop stops the run at the first exceedance: the still-air span's ~13.5 kN
   # against a rated_breaking_strength of 10 kN, at the end of the first step (0.5 s)
   add_test_abort(Conductors_FailureStopAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind

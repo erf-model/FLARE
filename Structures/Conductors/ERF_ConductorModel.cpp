@@ -90,7 +90,7 @@ public:
                   + " is not 1 after a regrid; the actuator core needs map factors of 1");
         }
         m_c->advance(step.lev, step.time, static_cast<double>(step.dt), step.xvel, step.yvel, step.zvel,
-                     step.z_phys_nd, step.detJ_cc, step.geom, &step.cons);
+                     step.z_phys_nd, step.detJ_cc, step.geom, &step.cons, step.fire);
     }
 
     void add_momentum_sources (int lev, MultiFab& xmom_src, MultiFab& ymom_src, MultiFab& zmom_src) const override

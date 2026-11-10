@@ -96,6 +96,24 @@ conductors.failure_stop      = false       # true or false. Stop the run (an abo
                                                 #   first coupling step where a component's demand exceeds its
                                                 #   capacity, after capacities.csv and failures.dat are written.
                                                 #   true needs at least one capacity. Default: false
+conductors.thermal_model     = ieee738     # none or ieee738. The conductors' temperature: each span node follows
+                                                #   the IEEE 738-2012 heat balance with the fire's radiation and the air
+                                                #   around it, and each span lengthens with its mean temperature
+                                                #   (conductor_temperature.dat). Default: none
+conductors.thermal.radiative_fraction = 0.3   # Real in (0, 1]. The fraction of the fire's heat release it radiates.
+                                                #   Needed when the run has a fire. Default: none
+conductors.thermal.cutoff_radius = 300.0   # Real in [0, 1e6] (m). Burning cells farther than this from a node
+                                                #   are left out. > 0 needed when the run has a fire. Default: 0
+conductors.thermal.source_height = 1.0     # Real in [0, 1000] (m). Height above the terrain of the point sources
+                                                #   that stand for the burning cells; about half the flame height.
+                                                #   Default: 0
+conductors.thermal.elevation = 0.0         # Real in [-500, 9000] (m). The lines' elevation above sea level, for
+                                                #   the air's density. Default: 0
+conductors.thermal.solar_flux = 0.0        # Real in [0, 1500] (W/m^2). The sun's flux on the conductors, normal to
+                                                #   them. Default: 0
+#conductors.thermal.reference_temperature = 15.0  # Real in [-50, 300] (C). The temperature at which the spans have
+                                                #   their input lengths. Default: none (each span's mean steady
+                                                #   temperature at the first step)
 conductors.ground_contact    = false       # true or false. The terrain holds the lines up: each line's MoorDyn
                                                 #   system takes the anchor level's terrain under it, raised by the
                                                 #   conductor's radius, as its seafloor (<line>.seafloor.txt), so a
@@ -203,6 +221,18 @@ conductors.L1.rated_breaking_strength = 1.401e5  # Real > 0 (N). The conductor's
                                                #   which L1 above does not have (commented out). Default: none (not checked)
 conductors.L1.hardware_rated_load     = 1.5e5    # Real > 0 (N). The attachment hardware's rated load, against the
                                                #   line's pull at each dead end and tower. Default: none (not checked)
+
+# the conductor's thermal data (needed with conductors.thermal_model = ieee738)
+conductors.L1.absorptivity      = 0.5        # Real in [0, 1]. Absorptivity of the sun's and the fire's radiation.
+conductors.L1.emissivity        = 0.5        # Real in [0, 1]. Emissivity.
+conductors.L1.heat_capacity     = 1310.0     # Real > 0 (J/(m K)). m c_p per unit length, summed over the materials.
+conductors.L1.thermal_expansion = 1.93e-5    # Real in [0, 1e-4] (1/K). Each span's unstretched length follows its
+                                               #   mean temperature.
+conductors.L1.current           = 600.0      # Real in [0, 1e5] (A). Its Joule heating. Default: 0
+conductors.L1.resistance        = 7.283e-5 8.688e-5  # 2 Reals > 0 (ohm/m). AC resistance at the two
+                                               #   resistance_temperatures, linear through them, positive from -150
+                                               #   to 3000 C. Needed with a current; not used without. Default: none
+conductors.L1.resistance_temperatures = 25.0 75.0  # 2 increasing Reals in [-50, 500] (C). Default: 25 75
 
 # the drag's width (needs drag_on_flow)
 conductors.L1.epsilon = 2.0                # Real > 0 (cells). Width of the Gaussian that spreads the drag of this

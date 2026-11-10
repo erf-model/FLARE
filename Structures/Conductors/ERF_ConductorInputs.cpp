@@ -557,8 +557,9 @@ std::string ConductorInputs::validate_settings (const ConductorInputs& in)
     }
     // the logs the run writes itself in diagnostics_dir, the towers' frame logs among them: no line's log may take
     // their names (the paths compared after lexical normalisation, so that conductors/./towers is conductors/towers)
-    // failures: the capacities' first-failure log (ERF_Capacities.H), reserved whether or not a capacity is given
-    std::vector<std::string> own{"total_load", "separation", "transformers", "ground", "failures"};
+    // failures: the capacities' first-failure log (ERF_Capacities.H), reserved whether or not a capacity is given;
+    // conductor_temperature: the thermal model's log (ERF_LineThermal.H), reserved whether or not it is selected
+    std::vector<std::string> own{"total_load", "separation", "transformers", "ground", "failures", "conductor_temperature"};
     bool towers = false, moving = false;
     for (const LineInputs& s : in.lines) {
         const erf_towers::TowerType* type = in.tower_type(s);
