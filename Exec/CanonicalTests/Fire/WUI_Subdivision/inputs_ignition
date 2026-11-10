@@ -2,8 +2,8 @@ FILE = inputs_subdivision
 
 # The subdivision with structure ignition: the houses ignite from the heat
 # load of the grass burning at their walls, from landed brands or from a
-# sustained fireline intensity in their wall band, burn following the
-# EN 1991-1-2 dwelling curve (the documented defaults), launch brands and
+# sustained fireline intensity in their wall band, burn following the burn
+# curve at its placeholder defaults, launch brands and
 # radiate onto their neighbours. Passive atmosphere, so the houses' heat is
 # reported but not fed back; the coupled variant takes the heat into the
 # atmosphere.
@@ -23,8 +23,9 @@ erf.fire.structures.ignition.heat_load_J_m2 = 2.0e6
 erf.fire.structures.ignition.ember_count = 15
 erf.fire.structures.ignition.intensity_kW_m = 300.0
 erf.fire.structures.ignition.residence_s = 60.0
-erf.fire.structures.ignition.peak_flux_W_m2 = 2.5e5
-erf.fire.structures.ignition.fuel_load_J_m2 = 7.8e8
-erf.fire.structures.ignition.growth_time_s = 600.0
+erf.fire.structures.ignition.peak_flux_W_m2 = 1.0e5     # placeholder (the default)
+erf.fire.structures.ignition.fuel_load_J_m2 = 5.0e8     # placeholder (the default)
+erf.fire.structures.ignition.growth_time_s = 300.0      # placeholder (the default)
+erf.fire.structures.ignition.decay_fraction = 0.5       # placeholder (the default)
 erf.fire.structures.ignition.rad_fraction = 0.3
 erf.fire.structures.ignition.rad_radius_m = 100.0

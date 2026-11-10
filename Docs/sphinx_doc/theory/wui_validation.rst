@@ -101,7 +101,9 @@ CSVs and the logs, prints a table and fails on any of these:
    loses fuel. On 2026-09-16, with the thresholds at a third of the defaults, 19 of the
    24 houses ignited between 250 and 1880 s, all by heat load; nine before
    the front reached their wall band and two whose band the front never
-   reached, from their neighbours' radiation alone. At the documented
+   reached, from their neighbours' radiation alone (with the burn curve's
+   earlier values, 250 kW/m², 780 MJ/m² and 600 s; the curve now runs at
+   placeholder values, so these results describe the earlier curve). At the documented
    defaults no house ignites in 2100 s: the grass fire leaves at most
    3.1 MJ/m² at a wall, peaks at 773 kW/m and drops at most 15 brands on a
    footprint.

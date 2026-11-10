@@ -36,7 +36,7 @@ read the same file), the two fuel maps and the sounding.
 | `subdivision` | houses as non-burnable structures, level set extrapolated into them, streets non-burnable, exposure diagnostics every 10 s, seeded Albini spotting; passive atmosphere |
 | `defensible` | the subdivision with a 30 m fuel break at x = 480-510 m and 10 m cleared around every house, which removes the lanes: only embers can reach a house |
 | `coupled` | the subdivision with immersed-forcing houses in the atmosphere, the fire's wind from the open columns beside them, lagged heat coupling with the additive source in the open part of the columns; an atmosphere plotfile at 700 s intervals |
-| `ignition` | the subdivision with structure ignition on (`erf.fire.structures.ignition.*`, 2026-09-16) with the thresholds at a third of the documented defaults: houses ignite from a 2 MJ/m² heat load in their wall band, 15 landed brands, or a minute above 300 kW/m; burn along the EN 1991-1-2 dwelling curve (250 kW/m², 780 MJ/m², 600 s to the peak, the defaults); radiate 30% of it within 100 m and launch brands; passive atmosphere. At the documented thresholds no house ignites here (see the results) |
+| `ignition` | the subdivision with structure ignition on (`erf.fire.structures.ignition.*`, 2026-09-16) with the thresholds at a third of the documented defaults: houses ignite from a 2 MJ/m² heat load in their wall band, 15 landed brands, or a minute above 300 kW/m; burn along the burn curve at its placeholder defaults (100 kW/m² peak, 500 MJ/m² load, 300 s to the peak, half the load in the decay); radiate 30% of it within 100 m and launch brands; passive atmosphere. At the documented thresholds no house ignites here (see the results) |
 
 The runs are two boxes, so at most two ranks; each variant runs 2100 s.
 
@@ -100,7 +100,10 @@ burning cell's Byram intensity uses its full fuel load:
 > `wildland_spotting` and `defensible` arrival times) describe the older form.
 > `check_wui.py` has not been run against the new form either. `inputs_ignition`
 > now sets `erf.fire.spotting.thermal_fuel_model = 1`, since burning houses
-> need a Table 4 fit.
+> need a Table 4 fit. Its burn curve now runs at placeholder values (100 kW/m²,
+> 500 MJ/m², 300 s, a decay releasing half the load) in place of the earlier
+> 250 kW/m², 780 MJ/m² and 600 s, so the `ignition` row and the text about it
+> below describe the earlier curve.
 
 | variant            | x = 780 m at [s] | burned cells | houses reached | peak intensity [kW/m] | max heat load [MJ/m²] | ember landings on footprints |
 |--------------------|-----------------:|-------------:|---------------:|----------------------:|----------------------:|-----------------------------:|
