@@ -392,8 +392,10 @@ TEST(LineThermal, TheWindsAngleToTheSpanAndTheReferenceTemperatureAreUsed)
         LineThermal th(ts, {"W1"}, {drake()}, in.diagnostics_dir);
         th.advance(0.0, 1.0e-6, lines, wind, air, {}, 0.0, {{0.0, 0.0}}, false);
         const double want = (d == 0) ? along : across;
-        // a step of 1e-6 s from the steady state stays there
-        EXPECT_NEAR(th.temperature(0, nn / 2), want, 1e-6) << (d == 0 ? "along" : "across");
+        // a step of 1e-6 s from the steady state stays there. 1e-5 K: with MoorDyn-C (not the stub) the initial
+        // shape is not exactly symmetric, so the middle node's axis is off the wind by about 1e-5 rad, which moves
+        // K_angle near 0 and the temperature by 3e-6 K; along and across differ by 32 K
+        EXPECT_NEAR(th.temperature(0, nn / 2), want, 1e-5) << (d == 0 ? "along" : "across");
     }
     // reference_temperature: the input length belongs to 20 C, so the span starts lengthened by its steady
     // temperature's excess over it
