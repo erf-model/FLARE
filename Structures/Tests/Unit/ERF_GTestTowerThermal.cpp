@@ -15,6 +15,8 @@
 //     20 C, two backward-Euler steps of 0.5 s, and a step of
 //     60 s from 700 C across the peak of c_a, to 1e-9 K; each step balances its energy; an hour's cooling of a thin
 //     angle from 600 C in air at -40 C (its root 600 K below, near the bracket's floor).
+// TheJRCWorkedExampleReachesItsCriticalTemperature: the unprotected beam of the JRC report EUR 26698 EN (2014),
+//     section 2.8.3.7, in the ISO 834 fire reaches 667 C in about 17 minutes, to half a minute.
 // TheReductionChangeIsTheLargestOfKyAndKE: reduction_change of EN 1993-1-2 Table 3.1, relative to the larger factor.
 // TheGaussPointsIntegrateACubic.
 // EveryKeyIsRangeChecked: each out-of-range value is refused, naming its key.
@@ -172,6 +174,32 @@ TEST(TowerThermal, TheSteadyAndImplicitTemperaturesMatchTheIndependentCalculatio
     // a very long step lands on the steady state, short of it by backward Euler's (tau / dt) (T_ss - T_old), about
     // 400 s / 1e10 s x 250 K = 1e-5 K for this angle (tau 450 s near ambient, 350 s at 250 C)
     EXPECT_NEAR(member_implicit_step(a, s, 26.85, 1.0e10, 26.85, 26.85, 5.0e4), 278.3874128640051, 1e-4);
+}
+
+TEST(TowerThermal, TheJRCWorkedExampleReachesItsCriticalTemperature)
+{
+    // Vassart et al. (2014), Eurocodes: Background & Applications. Structural Fire Design. Worked examples, JRC report
+    // EUR 26698 EN, doi:10.2788/85432, section 2.8.3.7: an unprotected steel beam with k_sh A_m/V = 0.706 x 186 =
+    // 131.3 1/m in the ISO 834 fire, theta_g = 20 + 345 log10(8 t + 1) (t in minutes), with emissivity 0.7, alpha_c =
+    // 25 W/(m^2 K) and steps of 3 s, reaches its critical temperature of 667 C in about 17 minutes with c_a varying
+    // with temperature (16 min 30 s with c_a = 600 J/(kg K)). The member here is that section factor: area 0.01 m^2,
+    // exchange perimeter 1.313 m; the gas is both its air and its surroundings, at the end of each step.
+    MemberSection beam;
+    beam.area = 0.01;
+    beam.perimeter = 1.313;
+    beam.width = 0.0;
+    TowerThermalSettings s;
+    s.emissivity = 0.7;
+    s.convection = 25.0;
+    auto gas = [] (double t) { return 20.0 + 345.0 * std::log10(8.0 * t / 60.0 + 1.0); };
+    double th = 20.0, t = 0.0;
+    while (th < 667.0 && t < 3600.0) {
+        const double tg = gas(t + 3.0);
+        th = member_implicit_step(beam, s, th, 3.0, tg, tg, 0.0);
+        t += 3.0;
+    }
+    // the report gives the minute: 17 minutes, so within half a minute of it
+    EXPECT_NEAR(t, 17.0 * 60.0, 30.0);
 }
 
 TEST(TowerThermal, TheReductionChangeIsTheLargestOfKyAndKE)

@@ -1,6 +1,6 @@
 /**
  * @file ERF_LineThermal.cpp
- * @brief The conductors' temperature under a fire (IEEE 738-2012 heat balance) and the sag it adds
+ * @brief The conductors' temperature under a fire (IEEE Std 738-2023 heat balance) and the sag it adds
  */
 #include "ERF_LineThermal.H"
 #include "ERF_ConductorLine.H"
@@ -95,31 +95,31 @@ bool in_range (double v, double lo, double hi) { return std::isfinite(v) && v >=
 AirFilm ieee738_air (double T_film, double elevation)
 {
     AirFilm a;
-    a.mu  = 1.458e-6 * std::pow(T_film + 273.0, 1.5) / (T_film + 383.4);                                  // eq 13a
-    a.rho = (1.293 - 1.525e-4 * elevation + 6.379e-9 * elevation * elevation) / (1.0 + 0.00367 * T_film); // eq 14a
-    a.k   = 2.424e-2 + 7.477e-5 * T_film - 4.407e-9 * T_film * T_film;                                    // eq 15a
+    a.mu  = 1.458e-6 * std::pow(T_film + 273.0, 1.5) / (T_film + 383.4);                                  // eq 13
+    a.rho = (1.293 - 1.525e-4 * elevation + 6.379e-9 * elevation * elevation) / (1.0 + 0.00367 * T_film); // eq 15
+    a.k   = 2.424e-2 + 7.477e-5 * T_film - 4.407e-9 * T_film * T_film;                                    // eq 17
     return a;
 }
 
 double ieee738_wind_angle_factor (double phi)
 {
-    return 1.194 - std::cos(phi) + 0.194 * std::cos(2.0 * phi) + 0.368 * std::sin(2.0 * phi);           // eq 4a
+    return 1.194 - std::cos(phi) + 0.194 * std::cos(2.0 * phi) + 0.368 * std::sin(2.0 * phi);           // eq 19
 }
 
 double ieee738_forced_convection (double D, double V, double phi, double T, double T_a, double elevation)
 {
     const AirFilm a = ieee738_air(0.5 * (T + T_a), elevation);
-    const double Re = D * a.rho * V / a.mu;                                                                   // eq 2c
+    const double Re = D * a.rho * V / a.mu;                                                                   // eq 11
     const double K = ieee738_wind_angle_factor(phi);
-    const double q1 = K * (1.01 + 1.35 * std::pow(Re, 0.52)) * a.k * (T - T_a);                               // eq 3a
-    const double q2 = K * 0.754 * std::pow(Re, 0.6) * a.k * (T - T_a);                                        // eq 3b
+    const double q1 = K * (1.01 + 1.35 * std::pow(Re, 0.52)) * a.k * (T - T_a);                               // eq 9
+    const double q2 = K * 0.754 * std::pow(Re, 0.6) * a.k * (T - T_a);                                        // eq 10
     return (std::abs(q1) >= std::abs(q2)) ? q1 : q2;
 }
 
 double ieee738_natural_convection (double D, double T, double T_a, double elevation)
 {
     const AirFilm a = ieee738_air(0.5 * (T + T_a), elevation);
-    return sign_of(T - T_a) * 3.645 * std::sqrt(a.rho) * std::pow(D, 0.75) * std::pow(std::abs(T - T_a), 1.25); // eq 5a
+    return sign_of(T - T_a) * 3.645 * std::sqrt(a.rho) * std::pow(D, 0.75) * std::pow(std::abs(T - T_a), 1.25); // eq 7
 }
 
 double ieee738_convection (double D, double V, double phi, double T, double T_a, double elevation)
@@ -132,7 +132,7 @@ double ieee738_convection (double D, double V, double phi, double T, double T_a,
 double ieee738_radiation (double D, double emissivity, double T, double T_s)
 {
     const double a = (T + 273.0) / 100.0, b = (T_s + 273.0) / 100.0;
-    return 17.8 * D * emissivity * (a * a * a * a - b * b * b * b);                                            // eq 7b
+    return 17.8 * D * emissivity * (a * a * a * a - b * b * b * b);                                            // eq 21
 }
 
 double LineThermalProps::resistance_at (double T) const

@@ -97,7 +97,7 @@ conductors.failure_stop      = false       # true or false. Stop the run (an abo
                                                 #   capacity, after capacities.csv and failures.dat are written.
                                                 #   true needs at least one capacity. Default: false
 conductors.thermal_model     = ieee738     # none or ieee738. The conductors' temperature: each span node follows
-                                                #   the IEEE 738-2012 heat balance with the fire's radiation and the air
+                                                #   the IEEE 738-2023 heat balance with the fire's radiation and the air
                                                 #   around it, and each span lengthens with its mean temperature
                                                 #   (conductor_temperature.dat). Default: none
 conductors.thermal.radiative_fraction = 0.3   # Real in (0, 1]. The fraction of the fire's heat release it radiates.

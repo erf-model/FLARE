@@ -133,8 +133,9 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           |                                                          | needed with a        |                          |
 |                                                           |                                                          | current              |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
-| **conductors.<line>.resistance_temperatures**             | the temperatures of the two resistance values (C)        | two increasing Reals | 25 75                    |
-|                                                           |                                                          | in [-50, 500]        |                          |
+| **conductors.<line>.resistance_temperatures**             | the temperatures of the two resistance values (C); for   | two increasing Reals | 25 75                    |
+|                                                           | conductors heated past 100 C give 25 200 (IEEE Std       | in [-50, 500]        |                          |
+|                                                           | 738-2023, 4.4.6)                                         |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.<line>.tower_type**                          | the suspension towers of the line are lattice towers of  | one of the tower     | none                     |
 |                                                           | this type, loaded by the wind on their members and by    | types; needs towers  |                          |

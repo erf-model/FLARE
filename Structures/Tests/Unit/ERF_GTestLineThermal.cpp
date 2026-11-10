@@ -1,11 +1,14 @@
 // Unit tests of the conductors' temperature under a fire (ERF_LineThermal.H).
 //
 // The pinned values come from Tests/test_files/Conductors_FireHeating/check_fire_heating.py, which writes
-// the IEEE 738-2012 terms out independently of the C++ (Python, no shared code).
+// the IEEE 738-2023 terms out independently of the C++ (Python, no shared code).
 //
 // TheIEEE738TermsMatchTheIndependentCalculation: the air's film properties, the wind angle factor, forced
-//     convection (the larger of eqs 3a and 3b), natural convection and radiation at D = 28.1 mm,
+//     convection (the larger of eqs 9 and 10), natural convection and radiation at D = 28.1 mm,
 //     V = 0.61 m/s across, T = 100 C, T_a = 40 C, to 1e-12.
+// TheTermsMatchIEEE7382023sSampleCalculations: the Drake conductor of IEEE Std 738-2023 4.6.1 to 4.6.3: the air's
+//     properties, natural and forced convection, radiation, solar heating, R(100 C), the 1025 A rating, 97.5 C at
+//     1000 A, and the first two 10 s steps after a step to 1200 A, to the standard's printed digits.
 // HotAirHeatsTheConductor: with the air hotter than the conductor the convection is negative (heat flows in).
 // TheSteadyAndImplicitTemperaturesMatchTheIndependentCalculation: the steady temperature with 1000 A, with
 //     the sun and with a fire, and backward-Euler steps of 0.5 s and 10 s, to 1e-9 K; with no heat source the
@@ -108,12 +111,51 @@ TEST(LineThermal, TheIEEE738TermsMatchTheIndependentCalculation)
     EXPECT_NEAR(ieee738_wind_angle_factor(0.0), 0.388, 1e-12);
     EXPECT_NEAR(ieee738_wind_angle_factor(0.25 * pi), 0.8548932188134524, 1e-12);
     EXPECT_NEAR(ieee738_wind_angle_factor(0.5 * pi), 1.0, 1e-12);
-    // forced: eq 3a (82.02 W/m) beats eq 3b (76.97 W/m) at Re = 863; natural 42.37 W/m
+    // forced: eq 9 (82.02 W/m) beats eq 10 (76.97 W/m) at Re = 863; natural 42.37 W/m
     EXPECT_NEAR(ieee738_forced_convection(D, 0.61, 0.5 * pi, 100.0, 40.0, 0.0), 82.02372268417102, 1e-10);
     EXPECT_NEAR(ieee738_natural_convection(D, 100.0, 40.0, 0.0), 42.370660576264946, 1e-10);
     EXPECT_NEAR(ieee738_convection(D, 0.61, 0.5 * pi, 100.0, 40.0, 0.0), 82.02372268417102, 1e-10);
     EXPECT_NEAR(ieee738_radiation(D, 0.5, 100.0, 40.0), 24.406167258312006, 1e-10);
     EXPECT_EQ(ieee738_convection(D, 0.61, 0.5 * pi, 40.0, 40.0, 0.0), 0.0);
+}
+
+TEST(LineThermal, TheTermsMatchIEEE7382023sSampleCalculations)
+{
+    // IEEE Std 738-2023, 4.6.1 to 4.6.3: a 795 kcmil 26/7 Drake ACSR conductor (D = 28.14 mm, R = 7.283e-5 and
+    // 8.688e-5 ohm/m at 25 and 75 C, emissivity and absorptivity 0.8) at 100 C, in air at 40 C at sea level with a
+    // wind of 0.61 m/s across it and the sun's flux on it of 1027 W/m^2 x sin 76.2 deg. The standard prints its
+    // values to the digits below and rounds its intermediate values (density 1.029, Reynolds number 865), so its
+    // forced convection is 0.02 to 0.03 W/m above the unrounded one; the tolerances are one unit of its last printed
+    // digit, or 0.05 W/m for the forced convection.
+    const double Dd = 0.02814;
+    const AirFilm a = ieee738_air(70.0, 0.0);
+    EXPECT_NEAR(a.rho, 1.029, 5e-4);
+    EXPECT_NEAR(a.mu, 2.043e-5, 5e-9);
+    EXPECT_NEAR(a.k, 0.02945, 5e-6);
+    EXPECT_NEAR(ieee738_natural_convection(Dd, 100.0, 40.0, 0.0), 42.42, 0.01);                // 4.6.1.3, q_cn
+    EXPECT_NEAR(ieee738_forced_convection(Dd, 0.61, 0.5 * pi, 100.0, 40.0, 0.0), 82.10, 0.05); // q_c1 (q_c2 77.06)
+    EXPECT_NEAR(ieee738_convection(Dd, 0.61, 0.5 * pi, 100.0, 40.0, 0.0), 82.10, 0.05);       // q_c = max
+    EXPECT_NEAR(ieee738_radiation(Dd, 0.8, 100.0, 40.0), 39.11, 0.01);                        // 4.6.1.4, q_r
+    LineThermalProps p;
+    p.diameter = Dd; p.absorptivity = 0.8; p.emissivity = 0.8; p.heat_capacity = 1310.0;      // 4.6.3: 1310 J/(m C)
+    p.resistance = {{7.283e-5, 8.688e-5}}; p.resistance_temperatures = {{25.0, 75.0}};
+    EXPECT_NEAR(p.resistance_at(100.0), 9.391e-5, 1e-8);                                      // 4.6.1.6 (9.3905e-5)
+    ThermalSettings st;
+    st.solar_flux = 1027.0 * std::sin(76.2 * pi / 180.0);
+    const double qs = p.absorptivity * Dd * st.solar_flux;
+    EXPECT_NEAR(qs, 22.45, 0.01);                                                             // 4.6.1.5, q_s
+    // 4.6.1.7: the steady-state rating at 100 C, 1025 A
+    const double q_loss = ieee738_convection(Dd, 0.61, 0.5 * pi, 100.0, 40.0, 0.0) + ieee738_radiation(Dd, 0.8, 100.0, 40.0);
+    EXPECT_NEAR(std::sqrt((q_loss - qs) / p.resistance_at(100.0)), 1025.0, 0.5);
+    // 4.6.2: 1000 A gives 97.5 C
+    p.current = 1000.0;
+    EXPECT_NEAR(steady_temperature(p, st, 40.0, 0.61, 0.5 * pi, 0.0), 97.5, 0.05);
+    // 4.6.3: a step from 1025 A to 1200 A heats the conductor by 0.28 C in the first 10 s and 0.27 C in the next
+    // (the standard's explicit steps; backward Euler differs by under 0.005 C a step here)
+    p.current = 1200.0;
+    const double T1 = implicit_step(p, st, 100.0, 10.0, 40.0, 40.0, 0.61, 0.5 * pi, 0.0);
+    EXPECT_NEAR(T1 - 100.0, 0.28, 0.01);
+    EXPECT_NEAR(implicit_step(p, st, T1, 10.0, 40.0, 40.0, 0.61, 0.5 * pi, 0.0) - T1, 0.27, 0.01);
 }
 
 TEST(LineThermal, HotAirHeatsTheConductor)

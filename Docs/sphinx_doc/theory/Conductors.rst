@@ -1815,8 +1815,8 @@ Heat balance
 ~~~~~~~~~~~~
 
 Every node :math:`n` of every span (insulator strings excluded) carries a
-temperature :math:`T_n` (°C). It follows the heat balance of IEEE 738-2012 per
-unit length of conductor,
+temperature :math:`T_n` (°C). It follows the heat balance of IEEE Std 738-2023
+(eq 3) per unit length of conductor,
 
 .. math::
    :label: lt-balance
@@ -1842,22 +1842,22 @@ would overstate the heating (by 873 W/m for a conductor at 100 °C in air at
 
    * - Term
      - Form (SI)
-     - IEEE 738-2012
+     - IEEE Std 738-2023
    * - :math:`q_J`
      - :math:`I^2 R(T)`, :math:`R` linear through the two given resistances
-     - eq 10
+     - eq 33
    * - :math:`q_s`
      - :math:`\alpha D E_s`, with :math:`E_s` the sun's flux normal to the conductor
-     - eq 8, with :math:`E_s` given
+     - eq 23, with :math:`E_s` given
    * - :math:`q_c`
      - the larger in magnitude of forced convection,
        :math:`K_\phi\,\max[(1.01 + 1.35 Re^{0.52}),\ 0.754 Re^{0.6}]\, k_f (T - T_a)`,
        and natural convection, :math:`3.645 \rho_f^{1/2} D^{3/4} |T - T_a|^{5/4}`
        with the sign of :math:`T - T_a`
-     - eqs 3a, 3b, 4a, 5a
+     - eqs 6, 7, 9, 10, 19
    * - :math:`q_r`
      - :math:`17.8\, D\, \varepsilon \left[ \left(\frac{T + 273}{100}\right)^4 - \left(\frac{T_s + 273}{100}\right)^4 \right]`
-     - eq 7b, with :math:`T_s` for :math:`T_a`
+     - eq 21, with :math:`T_s` for :math:`T_a`
 
 Here :math:`D` is the diameter (m), :math:`\alpha` the absorptivity and
 :math:`\varepsilon` the emissivity of the conductor's surface,
@@ -1865,7 +1865,11 @@ Here :math:`D` is the diameter (m), :math:`\alpha` the absorptivity and
 :math:`K_\phi = 1.194 - \cos\phi + 0.194\cos 2\phi + 0.368\sin 2\phi` the wind
 direction factor. The air's viscosity :math:`\mu_f`, density :math:`\rho_f`
 (at ``conductors.thermal.elevation``) and conductivity :math:`k_f` are taken at
-the film temperature :math:`(T + T_a)/2` (IEEE 738-2012 eqs 13a, 14a, 15a).
+the film temperature :math:`(T + T_a)/2` (IEEE Std 738-2023 eqs 12, 13, 15, 17).
+IEEE Std 738-2023 (4.4.6) interpolates the resistance between its values at
+25 and 75 °C up to 100 °C, and between 25 and 200 °C above it. A run whose
+conductors pass 100 °C under a fire should therefore give
+``resistance_temperatures = 25 200`` with the resistance at 200 °C.
 IEEE 738 states the convection correlations for a conductor hotter than the
 air. When the air is hotter, as inside a plume, the same correlations are used
 with the sign of :math:`T - T_a`, so heat flows into the conductor.
@@ -2013,8 +2017,9 @@ Limitations
 * The air's density in the convection terms comes from IEEE 738's elevation
   formula, not from ERF's sampled density.
 * Convection along the conductor at low wind uses the wind angle factor as
-  given (0.388 for a wind along the axis); IEEE 738 suggests taking the wind
-  across the conductor below 0.61 m/s.
+  given (0.388 for a wind along the axis). At low wind the convection is the
+  larger of the forced and natural values, as IEEE Std 738-2023 (eq 6)
+  recommends, not a combination of the two.
 * The air temperature uses the equation of state for dry air. Moisture
   changes it by well under 1 K.
 * The conductor is one temperature across its section: no radial gradient
@@ -2028,8 +2033,10 @@ Limitations
 * MoorDyn-C keeps each segment's volume proportional to its length, so a
   lengthened span gains mass in proportion (about 1 % at +500 K); the bundled
   stub keeps the mass.
-* The convection correlations are used outside the range IEEE 738 states them
-  for when the air is hotter than the conductor.
+* IEEE Std 738-2023 (Table 2) states the forced convection fits for air at 15
+  to 260 °C, conductors at 21 to 1004 °C and diameters of 0.01 to 150 mm. Plume
+  air hotter than 260 °C, or air colder than 15 °C, lies outside that range,
+  and so does air hotter than the conductor.
 * Insulator strings are not heated. The towers' steel is, with
   ``conductors.thermal.towers`` (see `Tower steel temperature under a fire`_).
 
@@ -2047,6 +2054,11 @@ Verification of the thermal model
        radiation at :math:`D` = 28.1 mm, :math:`V` = 0.61 m/s across,
        :math:`T` = 100 °C, :math:`T_a` = 40 °C, against an independent Python
        calculation (``check_fire_heating.py``), to :math:`10^{-12}`.
+   * - ``LineThermal.TheTermsMatchIEEE7382023sSampleCalculations``
+     - The Drake conductor of IEEE Std 738-2023 (4.6.1 to 4.6.3): the air's
+       properties, natural and forced convection, radiation, solar heating,
+       :math:`R` (100 °C), the 1025 A rating, 97.5 °C at 1000 A and the first two
+       10 s steps after a step to 1200 A, to the standard's printed digits.
    * - ``LineThermal.TheSteadyAndImplicitTemperaturesMatchTheIndependentCalculation``
      - Steady temperatures with 1000 A, with the sun and with a fire, and
        backward-Euler steps, to :math:`10^{-9}` K; without heat sources the
@@ -2087,8 +2099,10 @@ Verification of the thermal model
 References
 ~~~~~~~~~~
 
-* IEEE (2013). *IEEE Standard for Calculating the Current-Temperature
-  Relationship of Bare Overhead Conductors*, IEEE Std 738-2012. IEEE, New York.
+* IEEE (2023). *IEEE Standard for Calculating the Current-Temperature
+  Relationship of Bare Overhead Conductors*, IEEE Std 738-2023 (revision of
+  IEEE Std 738-2012). IEEE, New York. ISBN 978-1-5044-9820-3. The equation
+  numbers above are this edition's.
 * Modak, A. T. (1977). Thermal radiation from pool fires. *Combustion and
   Flame*, 29, 177-192.
 * Beyler, C. L. (2016). Fire hazard calculations for large, open hydrocarbon
@@ -2204,6 +2218,9 @@ design data as an angle (``member_file``), or the run stops.
 **Why EN 1993-1-2.** It is the standard method for the temperature of
 unprotected structural steel in a fire, and its specific heat and reduction
 factors are the ones the member checks already use (`Moving towers`_). Its
+heating method, its reduction factors (Table 3.1) and a worked example are
+reproduced in the open-access JRC report of Vassart et al. (2014), section 2.5.2
+and Table 2.4.1, against which the model is checked (see below). Its
 section factor :math:`P_{x,m}/A_m` (260 m\ :sup:`-1` for a 100 × 8 mm angle)
 sets how fast a member heats: thin bracing heats faster than the legs.
 
@@ -2346,6 +2363,11 @@ Verification of the towers' heating
      - :math:`c_a` at 20, 300, 600, 735 and 900 °C; :math:`H` at 300, 700, 800
        and 1100 °C against an independent numerical integral, to
        :math:`10^{-9}` relative, and across the peak against a Simpson sum.
+   * - ``TowerThermal.TheJRCWorkedExampleReachesItsCriticalTemperature``
+     - The unprotected beam of the JRC report (Vassart et al., 2014, section
+       2.8.3.7): :math:`k_{sh} A_m/V` = 131.3 m\ :sup:`-1` in the ISO 834 fire,
+       emissivity 0.7, :math:`\alpha_c` = 25 W/(m\ :sup:`2` K), 3 s steps, reaches
+       its critical temperature of 667 °C in about 17 minutes; here in 17 min 6 s.
    * - ``TowerThermal.TheSectionsAreTheAnglesTheTubesAndTheBoxes``
      - :math:`A`, :math:`P_x` and :math:`W` of an angle, solid and hollow tubes
        and a box; an arbitrary section without angle data is refused.
@@ -2388,8 +2410,13 @@ References
 * CEN (2002). *Eurocode 1: Actions on structures. Part 1-2: General actions.
   Actions on structures exposed to fire*, EN 1991-1-2:2002. European Committee
   for Standardization, Brussels.
-* Franssen, J.-M. and Vila Real, P. (2015). *Fire Design of Steel Structures*,
-  2nd ed. ECCS / Ernst & Sohn, Berlin.
+* Vassart, O., Zhao, B., Cajot, L. G., Robert, F., Meyer, U. and Frangi, A.
+  (2014). *Eurocodes: Background & Applications. Structural Fire Design. Worked
+  examples*. M. Poljanšek, B. Nikolova, L. Sousa, S. Dimova and A. Pinto (eds.),
+  JRC Science and Policy Report EUR 26698 EN. Publications Office of the European
+  Union, Luxembourg. doi:10.2788/85432. Open access (reproduction authorised
+  with acknowledgement):
+  https://eurocodes.jrc.ec.europa.eu/sites/default/files/2022-06/2012_11_WS_fire.pdf
 
 Restart
 -------

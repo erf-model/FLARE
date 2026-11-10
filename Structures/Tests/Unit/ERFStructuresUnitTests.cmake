@@ -80,7 +80,7 @@ function(erf_structures_unit_tests target)
     ${_erf_structures_tests_dir}/ERF_GTestTransformer.cpp
   )
   # Motivation: a conductor's temperature under a fire (conductors.thermal_model = ieee738) must use the
-  # IEEE 738-2012 terms as an independent Python calculation writes them out
+  # IEEE 738-2023 terms as an independent Python calculation writes them out
   # (Tests/test_files/Conductors_FireHeating/check_fire_heating.py), its point-source irradiance must give
   # the closed-form line integral over a long conductor, every new key must be range-checked, and the span's
   # length must follow its mean temperature in MoorDyn and come back from a checkpoint.
