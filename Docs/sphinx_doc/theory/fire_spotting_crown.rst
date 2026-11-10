@@ -207,7 +207,7 @@ restart.
 References
 ----------
 
-- Albini, F. A. (1983). Potential spotting distance from wind-driven surface fires. USDA Forest Service Research Paper INT-309.
+- Albini, F. A. (1983). Potential spotting distance from wind-driven surface fires. USDA Forest Service Research Paper INT-309. https://firedoc.nist.gov/article/zXczXYQBWEcjUZEYBfF9
 - Scott, J. H. (2006). An analytical model for estimating spotting distance from surface fires. In: Fuels Management: How to Measure Success, USDA Forest Service RMRS-P-41.
 - Van Wagner, C. E. (1977). Conditions for the start and spread of crown fire. Canadian Journal of Forest Research, 7(1), 23-34.
 - Cruz, M. G., Alexander, M. E. and Wakimoto, R. H. (2005). Development and testing of models for predicting crown fire rate of spread in conifer forest stands. Canadian Journal of Forest Research, 35(7), 1626-1639.

@@ -213,4 +213,4 @@ References
 
 - Cohen, J. D. (2004). Relating flame radiation to home ignition using modeling and experimental crown fires. Canadian Journal of Forest Research, 34, 1616-1626. doi:10.1139/x04-049
 - Masoudvaziri, N., Szasdi Bardales, F., Keskin, O. K., Sarreshtehdari, A., Sun, K., Elhami-Khorasani, N. (2021). Streamlined wildland-urban interface fire tracing (SWUIFT): Modeling wildfire spread in communities. Environmental Modelling & Software, 143, 105097. doi:10.1016/j.envsoft.2021.105097
-- Albini, F. A. (1983). Potential spotting distance from wind-driven surface fires. USDA Forest Service Research Paper INT-309.
+- Albini, F. A. (1983). Potential spotting distance from wind-driven surface fires. USDA Forest Service Research Paper INT-309. https://firedoc.nist.gov/article/zXczXYQBWEcjUZEYBfF9
