@@ -77,11 +77,9 @@ The runs are two boxes, so at most two ranks; each variant runs 2100 s.
    with the CSV; no footprint cell burns or loses fuel (a burning house is a
    heat source, not a burning fuel cell).
 
-The exposure columns are also printed against the threshold usually quoted
-for the ignition of wood by radiation, about 20 kW/m² (Cohen 2004), as a
-reading rather than a check: a fireline intensity per metre of front is not
-a flux on a wall, and the wall energy balance that would turn it into one is
-future work.
+The exposure columns are a reading rather than a check: a fireline
+intensity per metre of front is not a flux on a wall, and the wall energy
+balance that would turn it into one is future work.
 
 ## Reference results
 
@@ -154,9 +152,7 @@ side-by-side run.
 At the documented default thresholds (6 MJ/m², 50 brands, 1000 kW/m for
 60 s) no house ignited in 2100 s in the 2026-09 run (not re-measured). A
 short-grass fire does not reach those placeholders by radiation at the ground
-next to a wall, which is in line with the field finding that homes in grass
-fires ignite from embers and adjacent fuels rather than from the flame front
-(Cohen 2004); it says nothing about the thresholds' calibration. The fire
+next to a wall; that says nothing about the thresholds' calibration. The fire
 itself is unchanged by an ignition: no footprint cell burns or loses fuel in
 any variant.
 
@@ -270,4 +266,3 @@ carries its own Rothermel; the unit test is left as it is.
 - Rothermel, R. C. (1972). A mathematical model for predicting fire spread in wildland fuels. USDA Forest Service Research Paper INT-115.
 - Andrews, P. L. (2012). Modeling wind adjustment factor and midflame wind speed for Rothermel's surface fire spread model. RMRS-GTR-266.
 - Albini, F. A. (1983). Potential spotting distance from wind-driven surface fires. USDA Forest Service Research Paper INT-309.
-- Cohen, J. D. (2004). Relating flame radiation to home ignition using modeling and experimental crown fires. Canadian Journal of Forest Research, 34, 1616-1626. doi:10.1139/x04-049

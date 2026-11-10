@@ -108,11 +108,9 @@ CSVs and the logs, prints a table and fails on any of these:
    3.1 MJ/m² at a wall, peaks at 773 kW/m and drops at most 15 brands on a
    footprint.
 
-The exposure numbers are also reported against the threshold usually quoted
-for the ignition of wood by radiation, about 20 kW/m² (Cohen 2004), as a
-reading rather than a check: the model's fireline intensity per metre of front
-is not a flux on a wall, and the wall energy balance that would turn it into
-one is future work.
+The exposure numbers are a reading rather than a check: the model's
+fireline intensity per metre of front is not a flux on a wall, and the wall
+energy balance that would turn it into one is future work.
 
 .. figure:: ../figures/wui_spread.png
    :width: 100%
@@ -170,4 +168,3 @@ References
 - Rothermel, R. C. (1972). A mathematical model for predicting fire spread in wildland fuels. USDA Forest Service Research Paper INT-115.
 - Andrews, P. L. (2012). Modeling wind adjustment factor and midflame wind speed for Rothermel's surface fire spread model. USDA Forest Service General Technical Report RMRS-GTR-266.
 - Albini, F. A. (1983). Potential spotting distance from wind-driven surface fires. USDA Forest Service Research Paper INT-309.
-- Cohen, J. D. (2004). Relating flame radiation to home ignition using modeling and experimental crown fires. Canadian Journal of Forest Research, 34, 1616-1626. doi:10.1139/x04-049

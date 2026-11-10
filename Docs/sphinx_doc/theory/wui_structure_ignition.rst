@@ -44,12 +44,14 @@ The ignition time is the end of the step, the convention of the arrival time.
 The thresholds are **placeholders to be calibrated**, not measured constants:
 
 - ``heat_load_J_m2 = 6.0e6``: 20 kW/m² held for five minutes. Cohen (2004)
-  found that wood walls ignited only under radiant fluxes sustained for
-  minutes; a heat-load criterion folds flux and time into one number, which
-  the ignition of thick wood does not obey exactly.
-- ``ember_count = 50`` brands on the footprint: no source; SWUIFT
-  (Masoudvaziri et al. 2021) ignites structures from embers with a
-  probability per landed brand rather than a count.
+  estimates the piloted ignition of a wood wall from two criteria, a minimum
+  incident flux (13.1 kW/m²) and a minimum exposure in flux and duration; a
+  heat-load criterion folds flux and time into one number and has no minimum
+  flux.
+- ``ember_count = 50`` brands on the footprint: no source. SWUIFT
+  (Masoudvaziri et al. 2021) ignites a structure cell when enough firebrand
+  mass lands close together in one step (24 g within a 10 cm circle), where
+  earlier models drew the ignition at random for each landed brand.
 - ``intensity_kW_m = 1000`` for ``residence_s = 60``: a fireline intensity of
   1 MW/m corresponds to a Byram flame length of about 3.5 m, a wall height;
   the minute is a guess.
@@ -115,8 +117,9 @@ finite). It is written to ``fire_structure_rad_flux`` and added to the
 heat-load accumulator of every cell, which is how a burning house loads the
 wall bands of the houses around it. The radiant fraction default, 0.3, is a
 placeholder; the cutoff of 100 m is numerical. The point source is the simplest
-form: a view-factor model of a flame panel of the wall height, which Cohen
-(2004) used, would be the next step, and the flux is evaluated at the ground
+form: a view-factor model of a flame front facing the wall, as Cohen (2004)
+used for a crown-fire flame 20 m high and 50 m wide, would be the next step, and
+the flux is evaluated at the ground
 rather than on a vertical wall. Nothing blocks the radiation, so a house
 shadows nothing.
 
