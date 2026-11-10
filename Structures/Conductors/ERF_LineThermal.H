@@ -17,7 +17,7 @@
  * The conductor radiates to surroundings at the air temperature its node had at the first step, not to
  * the plume (hot air is a poor emitter: treating it as a black enclosure would overstate the heating).
  * The fire radiates from every burning fire cell as a point source of chi_r q'' dA at
- * conductors.thermal.source_height above the ground (the point-source model of Modak 1977). The
+ * conductors.thermal.source_height above the ground, radiating equally in every direction. The
  * balance is stepped implicitly (backward Euler) with the anchor level's step.
  *
  * Each span's unstretched length follows the mean temperature of its conductor,

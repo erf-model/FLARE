@@ -7,11 +7,13 @@
  *
  * conductors.thermal.towers = true (with conductors.thermal_model = ieee738) gives every member of every
  * tower that bends as a frame model (frame_file or frame_panels) one temperature theta [C], which follows
- * the lumped heat balance of unprotected steel in EN 1993-1-2 (section 4.2.5.1) per unit length,
+ * the lumped heat balance of unprotected steel of EN 1993-1-2 (relation 4.25 as the open-access JRC report
+ * EUR 26698 EN, doi:10.2788/85432, section 2.5.2.2, gives it) per unit length,
  *
  *   rho_a A dH/dt = P_x [alpha_c (T_a - theta) + eps sigma (T_s^4 - theta^4)] + eps W E          [W/m]
  *
- * where H(theta) is the steel's enthalpy from its specific heat c_a(theta) (EN 1993-1-2 eqs 3.2a-d),
+ * where H(theta) is the steel's enthalpy from its specific heat c_a(theta) (EN 1993-1-2 section 3.4.1.2, plotted in
+ * the JRC report's Fig. 2.4.7),
  * rho_a = 7850 kg/m^3, A the member's area, P_x the perimeter that exchanges heat with the air (the box
  * perimeter of EN 1993-1-2, k_sh times the section's perimeter), alpha_c the convection coefficient, eps
  * the steel's emissivity, T_a ERF's air temperature along the member, T_s the air temperature the member
@@ -39,11 +41,11 @@ namespace erf_towers { class FrameTower; struct FrameInputs; struct MemberDesign
 
 namespace erf_conductors {
 
-/** The density of structural steel [kg/m^3], EN 1993-1-2 3.2.2. */
+/** The density of structural steel [kg/m^3] (the JRC report EUR 26698 EN, Fig. 2.4.7). */
 inline constexpr double steel_density = 7850.0;
 
 /**
- * The specific heat of carbon steel c_a [J/(kg K)] at theta [C], EN 1993-1-2 eqs 3.2a to 3.2d: a cubic up to
+ * The specific heat of carbon steel c_a [J/(kg K)] at theta [C], EN 1993-1-2 section 3.4.1.2: a cubic up to
  * 600 C, the peak of 5000 at 735 C, 650 from 900 C. Below 20 C, the value at 20 C; above 1200 C, 650.
  */
 double steel_specific_heat (double theta);
@@ -71,8 +73,8 @@ bool member_section (const erf_towers::FrameInputs& in, const std::vector<erf_to
 /** The settings of the towers' heating: conductors.thermal.tower_* */
 struct TowerThermalSettings
 {
-    double emissivity{0.7};            //!< eps_m of the steel [-] (EN 1993-1-2 2.2(2)); also its absorptivity
-    double convection{25.0};           //!< alpha_c [W/(m^2 K)] (EN 1991-1-2 3.2.1(2), the standard fire's)
+    double emissivity{0.7};            //!< eps_m of the steel [-] (JRC EUR 26698 EN, 2.5.2.2); also its absorptivity
+    double convection{25.0};           //!< alpha_c [W/(m^2 K)] (the standard fire's; JRC EUR 26698 EN, 2.5.2.2)
     double reduction_tolerance{0.01};  //!< rebuild a frame when a member's k_y or k_E moves by more than this fraction [-]
 };
 

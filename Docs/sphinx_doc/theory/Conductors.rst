@@ -1894,8 +1894,9 @@ ray from the source and the conductor's axis. The absorbed heat is
    q_{f,n} = \alpha D E_n , \qquad
    E_n = \sum_j \frac{\chi_r Q_j \sin\psi_{nj}}{4 \pi \max(R_{nj}^2,\ \Delta A/\pi)} ,
 
-where :math:`R_{nj}` is the distance from the source to the node. This is the
-point-source model of fire radiation (Modak, 1977; Beyler, 2016). The floor
+where :math:`R_{nj}` is the distance from the source to the node. Each source
+radiates equally in every direction, so its flux falls with the square of the
+distance: :math:`\chi_r Q_j` spread over a sphere of radius :math:`R_{nj}`. The floor
 :math:`\Delta A/\pi` is the squared radius of a disc of one fire cell's area. It
 stops the sum from growing without bound when a node comes within a cell of a
 source, where the point-source model does not hold anyway. Sources farther
@@ -2103,11 +2104,6 @@ References
   Relationship of Bare Overhead Conductors*, IEEE Std 738-2023 (revision of
   IEEE Std 738-2012). IEEE, New York. ISBN 978-1-5044-9820-3. The equation
   numbers above are this edition's.
-* Modak, A. T. (1977). Thermal radiation from pool fires. *Combustion and
-  Flame*, 29, 177-192.
-* Beyler, C. L. (2016). Fire hazard calculations for large, open hydrocarbon
-  fires. In *SFPE Handbook of Fire Protection Engineering*, 5th ed.
-  Springer, New York.
 
 Tower steel temperature under a fire
 ------------------------------------
@@ -2129,8 +2125,9 @@ Heat balance of a member
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 Each frame member :math:`m` carries one temperature :math:`\theta_m` (°C). It
-follows the lumped heat balance of unprotected steel in EN 1993-1-2
-(section 4.2.5.1), per unit length of member,
+follows the lumped heat balance of unprotected steel of EN 1993-1-2 (its
+relation 4.25, as the JRC report of Vassart et al. (2014), section 2.5.2.2,
+gives it), per unit length of member,
 
 .. math::
    :label: tt-balance
@@ -2145,16 +2142,16 @@ where :math:`\rho_a` = 7850 kg/m\ :sup:`3` is the steel's density,
 enthalpy, :math:`P_{x,m}` (m) the perimeter that exchanges heat with the air,
 :math:`\alpha_c` (W/(m\ :sup:`2` K)) the convection coefficient
 (``conductors.thermal.tower_convection``), :math:`\varepsilon` the steel's
-emissivity (``conductors.thermal.tower_emissivity``, also its absorptivity, as
-in EN 1993-1-2), :math:`\sigma` the Stefan-Boltzmann constant, :math:`W_m` (m)
+emissivity (``conductors.thermal.tower_emissivity``, 0.7 by default, also its
+absorptivity; the JRC report, section 2.5.2.2), :math:`\sigma` the Stefan-Boltzmann constant, :math:`W_m` (m)
 the width that intercepts the fire's radiation and :math:`E_m` (W/m\ :sup:`2`)
 the fire's irradiance. The fourth powers are of absolute temperatures.
 :math:`T_{a,m}` is ERF's air temperature along the member and
 :math:`T_{s,m}` the temperature of the surroundings it radiates to: its air
 temperature at the first step, held fixed, as for the conductors.
 
-The enthalpy is the integral of the specific heat of carbon steel,
-EN 1993-1-2 eqs 3.2a to 3.2d,
+The enthalpy is the integral of the specific heat of carbon steel of
+EN 1993-1-2 (its section 3.4.1.2, which the JRC report plots in Fig. 2.4.7),
 
 .. math::
    :label: tt-enthalpy
@@ -2333,13 +2330,17 @@ Limitations
   stands on a flat footing at the height of the tower's centre, so on a slope
   part of a leg may lie below the terrain; such a point takes the air at the
   terrain, and its irradiance is taken where it stands.
-* :math:`\alpha_c` is a constant (EN 1991-1-2's 25 W/(m\ :sup:`2` K) for the
-  standard fire by default). It does not follow the wind. For a member heated
+* :math:`\alpha_c` is a constant (25 W/(m\ :sup:`2` K) by default, the value
+  for the standard fire; the JRC report, section 2.5.2.2). It does not follow the wind. For a member heated
   by the fire's radiation in cooler air it overstates the convective cooling
   in calm air, which gives cooler steel (see the hybrid paragraph above).
-* Galvanised steel has a lower emissivity than bare steel below about 500 °C
-  (0.35 in the 2024 revision of EN 1993-1-2); set ``tower_emissivity``
-  accordingly.
+* The specific heat's piecewise formulas have not been checked against the text
+  of EN 1993-1-2, which we do not have; the JRC report plots the curve (Fig.
+  2.4.7, its peak of 5000 J/(kg K) near 735 °C), and its worked example with the
+  varying specific heat (667 °C in about 17 minutes) agrees with the model to
+  6 s.
+* The default emissivity is the JRC report's 0.7 for steel; a galvanised or
+  weathered surface may differ. Set ``tower_emissivity`` for the surface.
 * The point-source model's limits (see `Conductor temperature under a fire`_)
   apply; flames that engulf a member heat it far faster than
   :eq:`lt-fire` gives. Near the fire the irradiance depends on the fire's cell
@@ -2404,12 +2405,6 @@ Verification of the towers' heating
 References
 ~~~~~~~~~~
 
-* CEN (2005). *Eurocode 3: Design of steel structures. Part 1-2: General
-  rules. Structural fire design*, EN 1993-1-2:2005. European Committee for
-  Standardization, Brussels.
-* CEN (2002). *Eurocode 1: Actions on structures. Part 1-2: General actions.
-  Actions on structures exposed to fire*, EN 1991-1-2:2002. European Committee
-  for Standardization, Brussels.
 * Vassart, O., Zhao, B., Cajot, L. G., Robert, F., Meyer, U. and Frangi, A.
   (2014). *Eurocodes: Background & Applications. Structural Fire Design. Worked
   examples*. M. Poljanšek, B. Nikolova, L. Sousa, S. Dimova and A. Pinto (eds.),

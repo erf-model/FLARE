@@ -39,7 +39,7 @@ constexpr double theta_ceiling = 5000.0;
 
 bool in_range (double x, double lo, double hi) { return std::isfinite(x) && x >= lo && x <= hi; }
 
-// the antiderivatives of the four pieces of c_a (EN 1993-1-2 eqs 3.2a to 3.2d)
+// the antiderivatives of the four pieces of c_a (EN 1993-1-2 section 3.4.1.2)
 double F1 (double t) { return 425.0 * t + 0.5 * 7.73e-1 * t * t - 1.69e-3 / 3.0 * t * t * t + 2.22e-6 / 4.0 * t * t * t * t; }
 double F2 (double t) { return 666.0 * t - 13002.0 * std::log(738.0 - t); }
 double F3 (double t) { return 545.0 * t + 17820.0 * std::log(t - 731.0); }

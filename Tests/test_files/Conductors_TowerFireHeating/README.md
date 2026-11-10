@@ -34,7 +34,7 @@ Conductors_FireHeating; the towers' heating needs it.
   2. the air temperature there, T = theta - g z / c_p, and the fire's irradiance from the fire cells
      whose centres lie in the disc, as Gauss means;
   3. every member's temperature, stepped with backward Euler in the steel's enthalpy, which the script
-     integrates numerically from EN 1993-1-2's specific heat (eqs 3.2a-d);
+     integrates numerically from EN 1993-1-2's specific heat (section 3.4.1.2);
   4. the frame's rebuilds, by the rule of the theory section with EN 1993-1-2's Table 3.1.
 
   Every member's temperature in `tower_S1_t1_member_temperature.dat` must match to 1e-3 K at every
@@ -45,8 +45,10 @@ Conductors_FireHeating; the towers' heating needs it.
 
 ## Data and acknowledgements
 
-No external data. The steel's properties are EN 1993-1-2's (CEN, 2005); the tower's dimensions are
-the generic ones of Conductors_GeneratedTowers.
+No external data. The steel's heating method and reduction factors are those of EN 1993-1-2 as the
+open-access JRC report of Vassart et al. (2014), EUR 26698 EN, doi:10.2788/85432, reproduces them (with
+thanks to the JRC and the authors); the tower's dimensions are the generic ones of
+Conductors_GeneratedTowers.
 
 ## How to run
 

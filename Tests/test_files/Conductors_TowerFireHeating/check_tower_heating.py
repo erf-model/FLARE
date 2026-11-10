@@ -10,7 +10,7 @@ SubDyn file, and frame_<tower>_members.dat, the members' angles), with no code s
    and the fire's irradiance there from the fire cells inside the prescribed heat disc (point sources of
    chi_r q'' dA at the source height within the cutoff, projected on the member's axis), both as Gauss means;
 3. each member's temperature from the air temperature at the first step, stepped with backward Euler in the
-   steel's enthalpy (EN 1993-1-2 eqs 3.2a-d, integrated here numerically) against convection, radiation to the
+   steel's enthalpy (EN 1993-1-2 section 3.4.1.2, integrated here numerically) against convection, radiation to the
    first step's air and the absorbed fire radiation, for an equal-leg angle b x t: area t (2b - t), exchange
    perimeter 4b, intercepted width ((2 + sqrt 2) b + (2 - sqrt 2) t) / pi (the hull of the outline);
 4. when the frame is rebuilt: whenever a member's EN 1993-1-2 k_y or k_E (Table 3.1) has moved by more than the
@@ -30,7 +30,7 @@ RHO_STEEL = 7850.0
 
 
 def c_steel(th):
-    """EN 1993-1-2 eqs 3.2a-d [J/(kg K)], the 20 C value below 20 C."""
+    """EN 1993-1-2 section 3.4.1.2 [J/(kg K)], the 20 C value below 20 C."""
     th = max(th, 20.0)
     if th < 600.0:
         return 425.0 + 0.773 * th - 1.69e-3 * th ** 2 + 2.22e-6 * th ** 3

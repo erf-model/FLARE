@@ -305,10 +305,10 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           |                                                          | other than 20        |                          |
 |                                                           | under a fire)                                            |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
-| **conductors.thermal.tower_emissivity**                   | the steel's emissivity, also its absorptivity of the     | Real in (0, 1]       | 0.7 (EN 1993-1-2 2.2)    |
+| **conductors.thermal.tower_emissivity**                   | the steel's emissivity, also its absorptivity of the     | Real in (0, 1]       | 0.7                      |
 |                                                           | fire's radiation                                         |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
-| **conductors.thermal.tower_convection**                   | the convection coefficient between the members and the   | Real in [0, 200]     | 25 (EN 1991-1-2 3.2.1)   |
+| **conductors.thermal.tower_convection**                   | the convection coefficient between the members and the   | Real in [0, 200]     | 25                       |
 |                                                           | air (W/(m^2 K))                                          |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.thermal.tower_reduction_tolerance**          | rebuild a tower's frame when any member's k_y or k_E     | Real in (0, 0.2]     | 0.01                     |
