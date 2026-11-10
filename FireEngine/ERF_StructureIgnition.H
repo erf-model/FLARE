@@ -29,9 +29,10 @@
 // References:
 //   Cohen, J. D. (2004). Relating flame radiation to home ignition using
 //     modeling and experimental crown fires. Can. J. For. Res. 34, 1616-1626.
-//   Babrauskas, V. (2003). Ignition Handbook. Fire Science Publishers.
+//     doi:10.1139/x04-049
 //   Masoudvaziri, N., et al. (2021). Streamlined wildland-urban interface fire
 //     tracing (SWUIFT). Environmental Modelling & Software 143, 105097.
+//     doi:10.1016/j.envsoft.2021.105097
 
 #ifndef ERF_STRUCTURE_IGNITION_H
 #define ERF_STRUCTURE_IGNITION_H

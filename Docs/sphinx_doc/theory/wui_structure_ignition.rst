@@ -43,11 +43,10 @@ The ignition time is the end of the step, the convention of the arrival time.
 
 The thresholds are **placeholders to be calibrated**, not measured constants:
 
-- ``heat_load_J_m2 = 6.0e6``: 20 kW/m² held for five minutes. Babrauskas
-  (2003) gives about 12.5 kW/m² as the critical flux for the piloted ignition
-  of wood, and Cohen (2004) found that wood walls ignited only under fluxes of
-  that order sustained for minutes; a heat-load criterion folds flux and time
-  into one number, which the ignition of thick wood does not obey exactly.
+- ``heat_load_J_m2 = 6.0e6``: 20 kW/m² held for five minutes. Cohen (2004)
+  found that wood walls ignited only under radiant fluxes sustained for
+  minutes; a heat-load criterion folds flux and time into one number, which
+  the ignition of thick wood does not obey exactly.
 - ``ember_count = 50`` brands on the footprint: no source; SWUIFT
   (Masoudvaziri et al. 2021) ignites structures from embers with a
   probability per landed brand rather than a count.
@@ -209,7 +208,6 @@ Limitations
 References
 ----------
 
-- Babrauskas, V. (2003). Ignition Handbook. Fire Science Publishers, Issaquah.
-- Cohen, J. D. (2004). Relating flame radiation to home ignition using modeling and experimental crown fires. Canadian Journal of Forest Research, 34, 1616-1626.
-- Masoudvaziri, N., Szasdi Bardales, F., Keskin, O. K., Sarreshtehdari, A., Sun, K., Elhami-Khorasani, N. (2021). Streamlined wildland-urban interface fire tracing (SWUIFT): Modeling wildfire spread in communities. Environmental Modelling & Software, 143, 105097.
+- Cohen, J. D. (2004). Relating flame radiation to home ignition using modeling and experimental crown fires. Canadian Journal of Forest Research, 34, 1616-1626. doi:10.1139/x04-049
+- Masoudvaziri, N., Szasdi Bardales, F., Keskin, O. K., Sarreshtehdari, A., Sun, K., Elhami-Khorasani, N. (2021). Streamlined wildland-urban interface fire tracing (SWUIFT): Modeling wildfire spread in communities. Environmental Modelling & Software, 143, 105097. doi:10.1016/j.envsoft.2021.105097
 - Albini, F. A. (1983). Potential spotting distance from wind-driven surface fires. USDA Forest Service Research Paper INT-309.
