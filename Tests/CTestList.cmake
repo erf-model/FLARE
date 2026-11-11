@@ -6045,6 +6045,8 @@ if(ERF_ENABLE_STRUCTURES)
   include(${PROJECT_SOURCE_DIR}/Structures/Tests/ERFStructuresTests.cmake)
   # the fragility ensemble driver's own tests (Python only)
   include(${PROJECT_SOURCE_DIR}/Structures/Tools/fragility_ensemble/FragilityEnsembleTests.cmake)
+  # the fragility fit's own tests (Python only)
+  include(${PROJECT_SOURCE_DIR}/Structures/Tools/fragility_fit/FragilityFitTests.cmake)
 endif()
 
 # The structure coupling (erf.structures.model, Source/MovingBodies/Coupling) with the

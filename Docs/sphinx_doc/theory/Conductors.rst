@@ -1946,6 +1946,272 @@ hand: four members on ``Conductors_TwoLevel``, whose recorded wind equals the
 planned stripe within 0.01 % and the planned direction within 0.001°, and an
 oblique wind through two inflow faces on ``Conductors_RandomGusts``.
 
+Fragility curves from an ensemble
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A fragility curve gives the probability that a component's demand exceeds its
+capacity as a function of the wind speed. This subsection describes how
+``Structures/Tools/fragility_fit/fragility_fit.py`` (Python, standard library
+only) fits such curves to the table an ensemble gathers
+(`An ensemble of runs for fragility curves`_). The fit is the multiple stripes
+analysis of Baker (2015). It changes no model and reads no run directory, only
+``demand_table_all.csv``.
+
+**Data.** Member :math:`i` of the ensemble gives, for component :math:`c`,
+the wind :math:`x_i` recorded at the component's intensity point (m/s) and
+the peak ratio :math:`r_{i}` of demand to nominal capacity
+(Eq. :eq:`cap-peak`). The wind is the point's largest averaged wind of the run
+(``max_speed``, Eq. :eq:`im-max`) by default; ``intensity`` selects instead
+the wind at the peak demand (``peak_speed``, Eq. :eq:`im-kept`) or the
+member's nominal ``stripe``. A member that recorded no such wind is left out
+of that component's curve and named, and so is a row without a peak ratio (a
+component its run never recorded). The plan's keys and their ranges are in
+the tool's ``README.md``.
+
+**Outcome of a member.** With the nominal capacity, a member's outcome is the
+model's own rule, exceedance when the demand is above the capacity:
+
+.. math::
+   :label: frag-outcome
+
+   y_i = 1 \ \text{if } r_i > 1 , \qquad y_i = 0 \ \text{otherwise}.
+
+A component kind may instead be given a capacity that is lognormal about its
+nominal value :math:`C_n`, with mean :math:`m \, C_n` (``mean_factor``,
+1 when left out) and coefficient of variation :math:`\delta` (``cov``). Then
+:math:`\ln (C / C_n)` is normal with standard deviation :math:`\zeta` and
+mean :math:`\ln m - \zeta^2 / 2`, and the outcome is the probability that the
+capacity lies below the peak demand,
+
+.. math::
+   :label: frag-capacity
+
+   y_i = \Phi\!\left( \frac{\ln r_i - \ln m + \zeta^2 / 2}{\zeta} \right) ,
+   \qquad \zeta^2 = \ln \left( 1 + \delta^2 \right) ,
+
+where :math:`\Phi` is the standard normal distribution function. The tool
+has no default for :math:`m` and :math:`\delta`: they are the user's, with
+their source. Two published examples: for the yield strength of tower steel,
+Liu and Yan (2022, their Table 2) and Zhu et al. (2024, their Table 3) use a
+lognormal distribution with a coefficient of variation of 0.07, the standard
+(nominal) strength being its 0.05 quantile in the former; for the strength of
+a conductor and of an insulator, Mazaheri and Alipour (2025) use lognormal
+distributions with a coefficient of variation of 0.1 and do not state the
+ratio of mean to nominal. None of the sources read for this tool gives
+measured statistics for conductor, insulator, hardware or footing capacity
+against a rated value.
+
+**Fragility function and fit.** The curve is the lognormal distribution
+function (Baker 2015, Eq. 1)
+
+.. math::
+   :label: frag-function
+
+   P(\text{exceedance} \mid V = x) = \Phi\!\left( \frac{\ln (x / \theta)}{\beta} \right) ,
+
+with median :math:`\theta` (m/s) and dispersion :math:`\beta`, the standard
+deviation of the logarithm of the wind speed at which the component exceeds.
+The estimates :math:`\hat\theta` and :math:`\hat\beta` maximise the
+likelihood of the members' outcomes (Baker 2015, Eq. 11, with one observation
+per member and its recorded wind),
+
+.. math::
+   :label: frag-likelihood
+
+   \ln L(\theta, \beta) = \sum_i \left[ \, y_i \ln p_i + (1 - y_i) \ln (1 - p_i) \, \right] ,
+   \qquad p_i = \Phi\!\left( \frac{\ln (x_i / \theta)}{\beta} \right) .
+
+With the outcomes of Eq. :eq:`frag-outcome` this is the binomial likelihood
+of the paper. With those of Eq. :eq:`frag-capacity` it is the limit of that
+likelihood, per draw, when the capacity is drawn many times for every member.
+Members with the same wind add up to the counts :math:`z_j` of :math:`n_j`
+of the paper's stripes. The tool maximises Eq. :eq:`frag-likelihood` as the
+probit regression :math:`\Phi(a + b \ln x)` the paper names as its
+equivalent (:math:`\beta = 1/b`, :math:`\theta = e^{-a/b}`), by Fisher
+scoring with step halving.
+
+**Why maximum likelihood.** The observed fraction at a wind speed has a
+variance that changes with the probability, so a least-squares fit of the
+fractions weighs the stripes wrongly and gives biased parameters (Baker
+2015). The likelihood also needs no repeated observations at one wind
+speed, so every member enters with the wind it recorded, which the terrain
+and the lines' surroundings make differ from the nominal stripe.
+
+**Outcomes without a fit.** Equation :eq:`frag-likelihood` has no maximum
+for some data, and for other data its maximum is of no use. The tool then
+reports why in place of the two parameters:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - ``status``
+     - Meaning
+   * - ``fitted``
+     - :math:`\hat\theta` and :math:`\hat\beta` are given.
+   * - ``no_exceedance``
+     - The outcomes add up to less than :math:`10^{-6}` exceedances.
+       ``bracket_low`` is the largest wind of the data.
+   * - ``all_exceed``
+     - The outcomes add up to all but less than :math:`10^{-6}` members.
+       ``bracket_high`` is the smallest wind of the data.
+   * - ``separated``
+     - No wind with a member that does not exceed lies above a wind with one
+       that does. The likelihood then grows as :math:`\beta \to 0` and has
+       no maximum. ``bracket_low`` is the largest wind at which no member
+       exceeds and ``bracket_high`` the smallest at which all do; one of
+       them is empty when the data have no such wind.
+   * - ``one_intensity``
+     - All members recorded one wind speed: one fraction cannot give two
+       parameters.
+   * - ``not_increasing``
+     - The best curve does not rise with the wind (the same fraction at
+       every wind, or a falling one).
+   * - ``flat``
+     - A best curve exists, but it rises by less than 0.05 between the
+       smallest and the largest wind of the data: the data do not show the
+       rise, and the median would be an extrapolation.
+   * - ``not_converged``
+     - The search did not reach a point where the likelihood's slope
+       vanishes.
+   * - ``no_intensity``
+     - No member recorded the chosen wind.
+
+The brackets say where the data change; they are not bounds on the median.
+With two members at the largest wind and none exceeding, a median equal to
+that wind would give this outcome one time in four.
+
+``separated`` is the expected result for a component with a nominal capacity
+in a set of RANS runs: the flow is the same in every member of a stripe, so
+the demand rises with the stripe and crosses the capacity once. A dispersion
+needs something that varies between members at one wind speed: gust seeds
+(``conductors.gust_type = random``), a capacity distribution, or resolved
+turbulence. With a capacity distribution the outcomes are never exactly 0 or
+1, so ``separated`` arises only for the kinds left at their nominal capacity.
+
+**Groups.** A group is a set of components (a line, a tower, the network),
+named in the plan by a regular expression searched in the component names, a
+list of kinds, or both. A member exceeds for the group when any of its
+components does. With capacity distributions the capacities of the components
+are taken as independent given the demands of the member's run, so
+
+.. math::
+   :label: frag-series
+
+   y_i^{g} = 1 - \prod_{c \in g} \left( 1 - y_{i,c} \right) .
+
+This is the form of the series rule Panteli et al. (2017, Eq. 4) use for
+towers that fail independently of one another; here it is applied inside one
+member, whose demands come from one run and are not taken as independent.
+Every member must hold every component of the group, or the tool stops. A
+group's components stand at different points, so the group's curve is fitted
+against the member's nominal stripe; its median is therefore a nominal wind
+speed and is not on the same scale as a component's, which is a recorded one.
+
+**Spread of the estimates.** Baker (2015) assesses a way of collecting data
+by simulating outcomes from an assumed fragility function, estimating the
+function from them, and repeating this; the paper reports the bias and the
+standard deviation of the estimates. The tool does the same with the fitted
+function in place of an assumed one: it simulates an outcome for every member
+from Eq. :eq:`frag-function` with :math:`\hat\theta` and :math:`\hat\beta`
+at the member's wind, fits the simulated set, and repeats this ``resamples``
+times (1000 by default). It reports the standard deviation of the two
+estimates and, which the paper does not propose, their central interval of
+probability ``confidence`` (0.9). Each curve has its own random sequence,
+made from ``seed`` and the curve's name, so a curve's spread does not depend
+on the other curves. Simulated sets without a fit are left out, the number
+used is reported, and a note is printed when it is below 90 %: the spread
+then describes only the sets that could be fitted.
+
+The spread says how well this number of members at these wind speeds
+determines the curve if the curve is right; it holds no model error. It is
+given only when every outcome is 0 or 1. Outcomes that are probabilities
+vary less between members than simulated 0 and 1 outcomes do, so the same
+procedure would overstate their spread; those curves are reported without
+one.
+
+**Outputs.** ``fragility_curves.csv`` has one row per component and per
+group (and per direction with ``by_direction``): the wind the curve was
+fitted against, the number of members, the sum of the outcomes, the status, :math:`\hat\theta`, :math:`\hat\beta`,
+their intervals and standard deviations, the bracket, and the log-likelihood.
+``fragility_points.csv`` has one row per curve and stripe for a plot: the
+members, their mean wind, the sum and fraction of outcomes, and the fitted
+probability at that mean wind.
+
+**Limits.**
+
+* Directions are pooled unless ``by_direction`` is set. A pooled curve is a
+  lognormal fit to the mixture of the directions, each weighted by its number
+  of members, and its dispersion then holds the difference between the
+  directions as well as the scatter within one. The tool does not weigh directions by a
+  wind rose; Zhu et al. (2024, Eq. 12) integrate a fragility per direction
+  over the joint distribution of speed and direction.
+* The recorded wind of a RANS run holds no gust, while the demand of a run
+  with a gust model does (`Wind intensity beside the peak demand`_). The
+  fitted median is then a mean wind speed.
+* A lognormal capacity acts on the peak ratio of a run made with the nominal
+  capacity. It is not right for a run in which a failure changes the loads on
+  the other components (a released conductor).
+* With a capacity distribution the fit estimates the fragility that includes
+  the capacity's scatter. It is exact when that fragility is lognormal in the
+  wind speed and the nearest lognormal function otherwise.
+* Capacities of different components are independent in Eq.
+  :eq:`frag-series`. Capacities that vary together (a common material lot, a
+  common foundation soil) make a group less likely to exceed than the
+  equation gives, so the group's curve is an upper bound on the probability.
+* A lognormal function is assumed. The tool gives no test of that
+  assumption beyond the points in ``fragility_points.csv``.
+* No spread is given for curves fitted to probabilities. A spread from
+  resampling the members would need its own source and is not in the tool.
+
+**Tests.** ``FragilityFit_Published`` reproduces numbers printed in Baker
+(2015): with a true :math:`\theta = 1` and :math:`\beta = 0.4`, 40
+observations at each of three intensities 0.6, 1 and 1.5 give a standard
+deviation of :math:`\hat\theta` of 0.056, and 20 give 0.078 (the paper's
+p. 589; this tool gives 0.054 and 0.079 from 20 000 simulated sets, within
+the sampling error of the paper's own simulation); 45 at each of 0.4, 0.8
+and 1.2 give coefficients of variation of 0.06 and 0.20 (its Table 3; this
+tool gives 0.057 and 0.19). Two columns of
+that table are not reproduced. For 30 observations per stripe the paper
+prints 0.08 and 0.26, and this tool and an independent estimator both give
+0.070 and 0.23. For two stripes the paper prints 0.07 and 0.40; about one
+simulated set in seven has no collapse at the lower stripe and therefore no
+maximum, this tool leaves those sets out, and the paper does not say how it
+treated them. ``FragilityFit_ByHand`` fits two stripes whose answer follows
+from :math:`\Phi(0)` and :math:`\Phi(1)`, compares the optimum with a grid
+search of the likelihood that shares no code with the optimiser (also for a
+shallow curve that needs shortened steps), and checks the statuses of the
+table above except ``not_converged``, which no test reaches, the tail of
+:math:`\ln \Phi`, winds a hundred-thousandth apart, and Eq.
+:eq:`frag-capacity`. ``FragilityFit_Table`` runs two stored tables through
+the command (a separated conductor, a fitted hardware item, groups by Eq.
+:eq:`frag-series`, directions, a spread that does not depend on the order of
+the rows), and ``FragilityFit_Refused`` gives every plan key a value out of
+range and the tool tables it cannot use. The tool's README records the fit of
+one ensemble that was run.
+
+**References.**
+
+* Baker, J. W. (2015). Efficient analytical fragility function fitting using
+  dynamic structural analysis. *Earthquake Spectra* 31(1), 579–599.
+  doi:10.1193/021113EQS025M.
+* Liu, C., and Yan, Z. (2022). Fragility analysis of wind-induced collapse
+  of a transmission tower considering corrosion. *Buildings* 12, 1500.
+  doi:10.3390/buildings12101500. Open access (CC BY 4.0).
+* Mazaheri, P., and Alipour, A. (2025). Fragility functions for weather
+  events to enhance resiliency of transmission lines: from experiments to
+  statistics. *Electrical Transmission and Substation Structures 2025*,
+  443–451. American Society of Civil Engineers.
+* Panteli, M., Pickering, C., Wilkinson, S., Dawson, R., and Mancarella, P.
+  (2017). Power system resilience to extreme weather: fragility modeling,
+  probabilistic impact assessment, and adaptation measures. *IEEE
+  Transactions on Power Systems* 32(5), 3747–3757.
+  doi:10.1109/TPWRS.2016.2641463. Creative Commons Attribution 3.0.
+* Zhu, C., Yang, Q., Huang, G., Zhang, X., and Wang, D. (2024). Fragility
+  analysis and wind directionality-based failure probability evaluation of
+  transmission tower under strong winds. *Journal of Wind Engineering and
+  Industrial Aerodynamics* 246, 105668. doi:10.1016/j.jweia.2024.105668.
+
 Ground contact
 --------------
 
