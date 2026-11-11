@@ -671,6 +671,15 @@ ConductorInputs ConductorInputs::read ()
     pp.queryarr("lines", names);
     pp.queryarr("transformers", tnames);
     pp.queryarr("tower_types", ttypes);
+    // a name is a file name's stem and a field of the comma-separated tables
+    for (const auto* list : {&names, &tnames, &ttypes}) {
+        for (const std::string& n : *list) {
+            if (n.find(',') != std::string::npos) {
+                Abort(std::string("conductors.") + (list == &names ? "lines" : list == &tnames ? "transformers" : "tower_types") +
+                      ": the name '" + n + "' holds a comma; names are separated by spaces and hold none");
+            }
+        }
+    }
     in.active = !names.empty();
     if (!in.active) {
         if (!tnames.empty()) { Abort("conductors.transformers needs lines ending on them (conductors.lines)"); }

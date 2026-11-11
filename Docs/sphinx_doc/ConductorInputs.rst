@@ -502,12 +502,13 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 | **conductors.<type>.allowable_uplift**                    | a footing's pull-out capacity (N): flagged in towers.dat | Real >= 0 (0: not    | 0                        |
 |                                                           | above it, and the capacity of each tower's footing       | checked)             |                          |
 |                                                           | uplift after every coupling step (capacities.csv,        |                      |                          |
-|                                                           | failures.dat; a capacity for failure_stop)               |                      |                          |
+|                                                           | failures.dat; a capacity for failure_stop and            |                      |                          |
+|                                                           | tower_failure)                                           |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.<type>.allowable_compression**               | a footing's bearing capacity (N): flagged above it, and  | Real >= 0 (0: not    | 0                        |
 |                                                           | the capacity of each tower's footing compression after   | checked)             |                          |
 |                                                           | every coupling step (capacities.csv, failures.dat; a     |                      |                          |
-|                                                           | capacity for failure_stop)                               |                      |                          |
+|                                                           | capacity for failure_stop and tower_failure)             |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.<type>.frequency**                           | the tower's first bending frequency on a rigid           | Real >= 0; > 0 needs | 0                        |
 |                                                           | foundation (Hz): the tower sways in that mode under its  | weight > 0; not with |                          |
@@ -549,7 +550,7 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           | checked against its strength (ASCE 10-15) every step     |                      |                          |
 |                                                           | and, as a capacity, after every coupling step            |                      |                          |
 |                                                           | (capacities.csv, failures.dat; a capacity for            |                      |                          |
-|                                                           | failure_stop)                                            |                      |                          |
+|                                                           | failure_stop and tower_failure)                          |                      |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.<type>.frame_panels**                        | generate the tower's frame from this type's dimensions,  | Integer in [0, 200], | 0: none                  |
 |                                                           | with this many panels of the shaft below the cross-arm:  | and a frame of at    |                          |

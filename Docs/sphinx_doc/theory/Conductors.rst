@@ -1207,8 +1207,11 @@ This section describes how the model compares the load on each structural
 component of the lines and towers with that component's capacity, and how it
 records the first time a capacity is exceeded. It is the first stage of the
 line-failure work: it identifies which component is critical, when, and by
-how much. The structure itself is not changed when a capacity is exceeded. No
-conductor breaks and no tower is released; later stages model those events.
+how much. By default the structure is not changed when a capacity is
+exceeded. With ``conductors.failure_break`` the line lets go at the component,
+and with ``conductors.tower_failure = release`` a tower over a footing's or
+member's capacity lets go of its lines (`Release of a line at a capacity
+exceedance`_).
 The implementation is ``Structures/Conductors/ERF_Capacities.{H,cpp}``
 (class ``CapacityMonitor``), called from ``Conductors``.
 
@@ -1265,7 +1268,8 @@ and existing logs are unchanged, and it writes ``capacities.csv`` and
      - Demand :math:`D_c`
      - Capacity :math:`C_c` (input)
    * - conductor (one per span)
-     - largest segment tension in the span, :math:`\max_s T_s`
+     - largest tension in the span, :math:`\max_s T_s`, over its nodes and
+       its two ends
      - rated breaking strength, ``conductors.<line>.rated_breaking_strength``
    * - insulator (one per string)
      - tension at the top of the string, :math:`T_{\mathrm{top}}`
@@ -1372,6 +1376,11 @@ end of the step and by the members' drag held over the step. ``towers.dat``
 reports the same tower at the step's start, so its values can differ from the
 check by the change of the lines' pull over one step.
 
+With ``conductors.capacity_check_interval`` the lines on fixed supports and
+the standing towers are also checked inside the step (`Checks inside a
+step`_), and with ``conductors.capacity_check_start`` no check is made before
+that time (`When the checks start`_).
+
 The lines step only on their anchor level, so the check does too. With
 subcycling, a line on a refined anchor level is checked at every step of that
 level. If the refinement ratio in time is :math:`r_t`, that is
@@ -1397,7 +1406,8 @@ Assumptions and limitations
   0.9 % and 3.4 % of the fluctuating part, :math:`1 - \cos(\pi/N)`. The
   axial elastic mode (about 7 Hz) and impulsive loads, such as a release or
   ice shedding, are shorter than one step and are missed. A smaller ERF step
-  samples more often.
+  samples more often, and so does ``conductors.capacity_check_interval``
+  (`Checks inside a step`_).
 * **Axial loads only.** Conductor, insulator and hardware demands are force
   magnitudes. Bending, torsion and fatigue of the hardware and the conductor
   at the clamp are not checked. Member checks are the axial checks of
@@ -1405,7 +1415,9 @@ Assumptions and limitations
 * **Rigid-cap footings.** Eq. :eq:`cap-legs` assumes a rigid cap on four
   identical legs. Foundation stiffness and soil-structure interaction enter
   only through the tower models, not the split.
-* **No failure response.** An exceedance does not change the structure. With
+* **Failure response.** By default an exceedance does not change the
+  structure; ``conductors.failure_break`` and ``conductors.tower_failure``
+  make the line let go (`Release of a line at a capacity exceedance`_). With
   ``conductors.failure_stop = true`` the run stops instead, with an abort after
   ``failures.dat`` and ``capacities.csv`` are written. The step's other logs,
   plotfile and checkpoint are not written; the last periodic checkpoint
@@ -1432,8 +1444,12 @@ tower can have dozens of members over their strength at once). Component names a
 
 A checkpoint stores every component's record (17 significant digits) under
 ``<chk>/conductors/capacities``. A restart continues the peaks and keeps the
-first exceedances, which are not reported again. ``failures.dat`` drops the
-rows written after the checkpoint. A component whose capacity is first given
+first exceedances, which are not reported again. ``failures.dat`` is written
+again from the checkpoint's records, so it holds the first exceedances up to
+the checkpoint, also in a new diagnostics directory. A restart without any
+capacity removes ``capacities.csv`` of the run being restarted, as a run from
+the start without capacities removes ``failures.dat`` and ``capacities.csv``
+of an earlier run in the same directory. A component whose capacity is first given
 on the restart starts there. A checkpoint record for a component no longer
 monitored is dropped with a message. A capacity changed on the restart keeps
 the component's record from before it: the earlier peak ratio and first
@@ -1627,9 +1643,8 @@ m\ :sup:`2`/s\ :sup:`2`; a field that does not exist is empty (:math:`k`
 without the k-equation RANS, the first exceedance of a component that never
 exceeded, the wind of a component never recorded, the largest of a run
 shorter than :math:`T`). Both files are rewritten at the first step, every
-``diagnostics_int`` steps, at each first exceedance and on a restart; as with
-``capacities.csv``, steps after the last multiple of ``diagnostics_int`` are
-not in the files a run leaves.
+``diagnostics_int`` steps, at each first exceedance, at each checkpoint and on
+a restart, as ``capacities.csv`` is.
 Point names are ``<line>`` or ``<line>_span<k>``, ``<line>_end_a``,
 ``<line>_tower<j>``, ``<line>_end_b`` and ``tower_<tower>``. A tower
 attachment's point and its tower's point stand at nearly the same place and
@@ -2328,7 +2343,10 @@ The seafloor
 Each line's seafloor file, ``<diagnostics_dir>/<line>.seafloor.txt``, holds
 the anchor level's terrain nodes under the line and one span length around it
 (plus the string length when the line hangs from strings), clipped to the
-domain. That is the farthest a span can swing after letting go of one end. MoorDyn interpolates bilinearly between
+domain. That is the farthest a span can swing after letting go of one end.
+With ``conductors.failure_break`` the margin is the sum of the line's span
+lengths, since several releases can leave more than one span hanging from one
+support as a single conductor. MoorDyn interpolates bilinearly between
 the nodes, as the model measures the terrain under a node, so Eq.
 :eq:`gc-seafloor` holds node for node. The grid is the smallest range of
 nodes that covers the line and that margin. A grid of more than
@@ -2658,7 +2676,7 @@ sinks at most
 where :math:`\omega_g` is the contact's frequency of Eq. :eq:`gc-freq` and
 :math:`e` is Euler's number: 39 mm at 24 m/s, the speed after a 30 m fall
 without drag, and 34 mm at the 21 m/s the conductor above reaches in air
-(:math:`\omega_g` = 228 rad/s; 34.0 to 34.5 mm in MoorDyn-C runs of a
+(:math:`\omega_g` = 227.6 rad/s; 34.0 to 34.5 mm in MoorDyn-C runs of a
 conductor dropped flat). That is more than
 the 14 mm the seafloor is raised by, so the node's axis passes below the
 terrain. A node below the terrain is on no grid. For sampling the wind and the
@@ -2822,7 +2840,12 @@ with a time :math:`t < t_s` is not made:
 .. math::
    :label: cs-start
 
-   \text{checked at } t \iff t \ge t_s .
+   \text{checked at } t \iff t \ge t_s \, (1 - \delta) .
+
+The slack :math:`\delta = 10^{-9}` (four units of the last place in single
+precision; taken of 1 s when :math:`t_s < 1` s) covers the roundoff of a time
+that is a sum of steps: ten steps of 0.1 s end at 0.9999999999999999 s, and
+the check stamped there is the one meant by :math:`t_s = 1` s.
 
 Before :math:`t_s` nothing is recorded: no demand, no peak, no exceedance,
 no release and no tower failure, and the components' demand and peak fields
@@ -2896,8 +2919,8 @@ the released conductor falls and swings. Whether the next tower fails depends
 on its own capacity and on that dynamic load (`Checks inside a step`_).
 
 The transfer is smaller where the released conductor reaches the ground,
-which then carries part of it. With spans of 300, 400 and 200 m on 30 m
-towers the 700 m span lies on the ground at rest and tower 2 carries 1.11
+which then carries part of it. With spans of 300, 400 and 200 m (unstretched
+lengths 301.5, 402 and 201 m) on 30 m towers, the dead ends 30 m up, the 700 m span lies on the ground at rest and tower 2 carries 1.11
 times its load before, against 1.47 times clear of the ground.
 
 .. list-table::
@@ -2928,6 +2951,187 @@ under ``<chk>/conductors/tower_failures``; a restart does not fail them
 again. A component already over its capacity in a checkpoint does not fail
 its tower when a restart first sets the option; the restart names it.
 
+State at rest after a release
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+After a span has let go, the rest of its section comes to a new state at
+rest. On a line with insulator strings the string beside the lost span is no
+longer pulled from both sides: it leans into the span that stays, that span
+slackens, and its tension falls to a residual value. The tower then carries
+that residual tension along the line, a load it does not see while the line is
+whole. This state follows from the balance of forces alone, and
+``Structures/Tools/broken_wire/broken_wire.py`` computes it without ERF or
+MoorDyn, as the reference the model is compared with (`Verification of the
+release`_). The section lies in one vertical plane, :math:`x` along the line
+and :math:`z` up, in still air.
+
+**One cable.** Every span and every string is a heavy elastic cable of
+unstretched length :math:`L` (m), weight :math:`w` (N per unstretched metre,
+net of buoyancy) and axial stiffness :math:`EA` (N). Let :math:`s` (m) be the
+unstretched arc length from the cable's end :math:`a`, and
+:math:`(H, V_a)` (N) the tension there as a vector pointing into the cable.
+The piece between :math:`a` and :math:`s` is held by the tensions at its two
+ends and by its weight :math:`w s`, so the tension vector and its size at
+:math:`s` are
+
+.. math::
+   :label: bw-tension
+
+   \mathbf{T}(s) = \left( H ,\; V_a + w s \right) , \qquad
+   T(s) = \sqrt{H^2 + (V_a + w s)^2} .
+
+The cable lies along its tension and each of its elements is stretched by the
+factor :math:`1 + T / EA`:
+
+.. math::
+   :label: bw-shape
+
+   \frac{dx}{ds} = H \left( \frac{1}{T} + \frac{1}{EA} \right) , \qquad
+   \frac{dz}{ds} = (V_a + w s) \left( \frac{1}{T} + \frac{1}{EA} \right) .
+
+Integrated over the cable, with :math:`V_b = V_a + w L`, the end :math:`b`
+lies at
+
+.. math::
+   :label: bw-reach
+
+   \Delta x = \frac{H L}{EA} + \frac{H}{w} \left[ \sinh^{-1} \frac{V_b}{|H|} - \sinh^{-1} \frac{V_a}{|H|} \right] , \qquad
+   \Delta z = \frac{V_a L + \tfrac{1}{2} w L^2}{EA} + \frac{T(L) - T(0)}{w}
+
+from the end :math:`a`. For a level span, :math:`V_a = -wL/2`, these are the
+elastic catenary of `Verification`_. Given the two ends, Eq. :eq:`bw-reach`
+is solved for :math:`(H, V_a)` by Newton's method. The cable pulls on what
+holds its end :math:`a` with :math:`(H, V_a)` and on what holds its end
+:math:`b` with :math:`-(H, V_b)`.
+
+**The strings' feet.** The dead ends and the cross-arms are fixed. The lower
+end of each string, where the spans either side meet, is free, and at rest
+the pulls :math:`\mathbf{F}_c` (N) of the cables that end there add up to zero:
+
+.. math::
+   :label: bw-balance
+
+   \sum_{c \,\in\, \text{foot } j} \mathbf{F}_c \;+\; \mathbf{P}_j = 0 ,
+   \qquad j = 1 \dots N - 1 ,
+
+where :math:`\mathbf{P}_j` (N) is a load hung on the foot (below). The two
+coordinates of every foot are the unknowns. They are found by Newton's method
+from the whole section's state, the pull of the element that lets go being
+taken away in steps.
+
+**What a release changes.** A span released at one end no longer joins its two
+attachments. It hangs from the one it is still on and loads it with the
+weight of its hanging length, straight down, since the ground has no
+friction. Let :math:`h_r` (m) be the height of that attachment above the
+level the conductor's axis rests at on the ground, half a diameter above the
+ground. The hanging unstretched length :math:`l_h` (m) is the whole span if it
+hangs clear, and otherwise stretches under its own weight to reach the
+ground:
+
+.. math::
+   :label: bw-hang
+
+   \mathbf{P} = (0, \, -w \, l_h) , \qquad
+   l_h \left( 1 + \frac{w \, l_h}{2 \, EA} \right) = h_r \quad \text{if } L \left( 1 + \frac{w L}{2 EA} \right) > h_r , \qquad l_h = L \text{ otherwise.}
+
+Where the attachment is a fixed point :math:`h` above the ground,
+:math:`h_r = h - d/2`, and this is Eq. :eq:`br-rest` less the stretch
+(0.24 mm of 30 m). A string
+released from its cross-arm (`Tower failure`_) leaves its foot without a
+support: the foot carries the string's weight, :math:`\mathbf{P} = (0, -W_i)`,
+and the two spans meeting there hang as one.
+
+**The lumped chain.** MoorDyn integrates a chain of :math:`n` straight links of
+unstretched length :math:`l = L / n`, with the weight :math:`w l` at every
+inner node and half of it at each end. Link :math:`i` then carries
+
+.. math::
+   :label: bw-lumped
+
+   \mathbf{T}_i = \left( H ,\; V_a + w \, l \, (i - 1) \right) , \qquad i = 1 \dots n ,
+
+lies along it with the length :math:`l \, (1 + T_i / EA)`, and the chain pulls
+on its supports with :math:`(H, V_a - w l / 2)` and
+:math:`-(H, V_a + w L - w l / 2)`. With ``segments`` the tool solves this
+chain in place of Eqs. :eq:`bw-tension` to :eq:`bw-reach`, the strings in two
+links as ERF writes them, so that MoorDyn's state at rest can be compared
+link for link and the effect of the links' length read from the difference
+between the two. A released span in links loads its support with the nodes
+that hang clear of the ground, :math:`w \, l` each, and with the held end's own
+node, :math:`w \, l / 2`. That load changes by a whole node's weight as a node
+reaches the ground, so for a foot height at which a node just touches, the
+chain as the tool treats it has no state at rest and the tool reports none;
+MoorDyn's ground is a spring and carries such a node in part.
+
+**Assumptions.** Still air; one vertical plane; fixed dead ends and
+cross-arms (towers that do not bend); the strings' feet without mass; a
+ground without friction, so that a fallen length pulls on nothing; a string
+that stays in tension; every conductor still held at both ends, or left
+without its string, clear of the ground (the tool stops, saying so, where one
+would lie on it). The tool reports the state at rest only: the loads
+while the released span falls are larger (`Verification of the release`_).
+
+**Comparison with MoorDyn-C.** The unit tests ``BrokenWire.*`` release a span
+or a string of a conductor line in still air and compare the towers' and the
+dead end's pulls with the tool's for the same chain of 20 links per span. In
+still air the section keeps swaying about its state at rest for minutes,
+because the air's drag falls with the square of the speed, so the pulls
+compared are means over 60 s. They agree within 1 N in 13 500 N for the whole
+section and within 0.3 N after a release; the tests require
+:math:`3 \times 10^{-4}` of the largest pull. ``Structures/Exec/BrokenWire``
+makes the same comparison through ERF, the release made by a capacity
+(``conductors.failure_break``):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 16 16 17 17
+
+   * - Section, span 1 released
+     - Span 2 keeps, model
+     - Force balance
+     - Tower 1 along the line, model (N)
+     - Force balance (N)
+   * - 3 spans of 300 m, 2.5 m strings, at tower 1
+     - 70.7 %
+     - 70.6 %
+     - 9344.9
+     - 9342.8
+   * - 3 spans of 300 m, 4 m strings, at tower 1
+     - 62.5 %
+     - 62.4 %
+     - 8260.0
+     - 8258.0
+   * - 300, 500 and 100 m, 2.5 m strings, at tower 1
+     - 87.0 %
+     - 87.0 %
+     - 11748.3
+     - 11746.9
+   * - 3 spans of 300 m, 2.5 m strings, at its dead end
+     - 71.2 %
+     - 71.2 %
+     - 9413.5
+     - 9411.6
+
+Every tower pull of these four runs, along the line and vertical, is within
+0.02 % of tower 1's largest pull (means over the last 240 s of 600 s; MoorDyn-C
+2.7.1). The longer the strings and the more equal the spans, the more tension
+is lost.
+
+**Loads while the span falls.** The same case records the largest loads after
+the release, sampled every 0.01 s (`Checks inside a step`_). With a middle
+span of 0.5 to 2 times the outer spans of 300 m they were 3.3 to 4.4 times the
+loads at rest after the release in the strings and at the dead end, and 2.4
+to 4.0 times in the towers' legs. On eight spans of 300 m, with every tower
+letting go of its lines when a leg passes its bearing capacity
+(``conductors.tower_failure = release``), all seven towers failed for
+capacities up to 5 times the legs' load before the release, two or three at 8
+times, none or one at 12 times and none from 16 times on; where two numbers
+are given the larger is with checks every 0.01 s. These are single runs of
+rigid towers that stay standing, with no structural damping beyond MoorDyn's:
+a fall amplifies roundoff ("Sensitivity of a fall" above), and a tower that
+yields would take up part of the load. They are measured, not compared with
+a design guide's load factors, to which we had no access.
+
 Outputs and restart
 ~~~~~~~~~~~~~~~~~~~
 
@@ -2944,8 +3148,13 @@ release and fits only a system with the same releases. On a restart each line
 therefore makes its releases again, in order, before it loads its state. This
 is done whether or not the restart sets ``failure_break``; without it no
 further release is made. A restart from a checkpoint that holds releases
-needs ``ground_contact = true`` and is refused without it. Rows of ``breaks.dat`` after the checkpoint's time
-are dropped, as for the other logs.
+needs ``ground_contact = true`` and is refused without it. On a restart ``breaks.dat`` and ``tower_failures.dat`` are
+written again from the checkpoint's records, so they hold the releases and
+failed towers up to the checkpoint, also in a new diagnostics directory, and
+only their headers when an option is first set at the restart. A run from the
+start without ``failure_break`` removes ``breaks.dat`` of an earlier run in
+the same directory, and one without ``tower_failure = release`` removes
+``tower_failures.dat``.
 
 Verification of the release
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -3724,7 +3933,7 @@ statistics of every span, of each line's strings, of every pair of lines,
 transformer and tower, the gusts' per-span means (started afresh when the
 checkpoint has none), the random gusts' processes (drawn afresh at the
 restart's first step when the checkpoint has none, or other ones: another
-number, or lines taking each other's gusts differently), each moving tower's sway, the capacity records (see `Component capacities and first failure`_), the conductors' temperatures (see `Conductor temperature under a fire`_), the towers' member temperatures (see `Tower steel temperature under a fire`_), the step count and the time.
+number, or lines taking each other's gusts differently), each moving tower's sway, the capacity records (see `Component capacities and first failure`_), the intensity records (see `Wind intensity beside the peak demand`_), the spans' ground-contact records (see `Ground contact`_), the releases of the lines in order and the failed towers (see `Release of a line at a capacity exceedance`_), the conductors' temperatures (see `Conductor temperature under a fire`_), the towers' member temperatures (see `Tower steel temperature under a fire`_), the step count and the time.
 On a restart the line is created from the same inputs, initialised without the initial-shape solve and given that state, so
 it continues blown out exactly where the checkpoint left it, on MoorDyn's
 clock; the statistics go on accumulating, and the diagnostics continue on the
@@ -3734,7 +3943,9 @@ the restart shows the source of the checkpointed step. The span and string
 logs, ``<output_root>_nodes.dat``, ``total_load.dat``, ``separation.dat``,
 ``transformers.dat`` and ``coupling.dat`` are appended to after the rows a run wrote beyond the
 checkpoint time are dropped, so a run that went on past its last checkpoint
-and is restarted from it leaves no duplicated stretch; ``towers.dat``,
+and is restarted from it leaves no duplicated stretch; ``failures.dat``,
+``breaks.dat`` and ``tower_failures.dat`` are written again from the
+checkpoint's records; ``towers.dat``,
 ``gust_series.dat`` and the frame towers' ``tower_<tower>_frame.dat``, whose rows
 carry the time a step starts at, lose the row at
 the checkpoint time as well, since the restarted run writes it again.
@@ -3747,7 +3958,9 @@ naming the statistics set or the tower, when a pair's, transformer's or
 tower's statistics or a moving tower's sway is missing or has another number
 of quantities, when the checkpoint holds tower sway and no tower type moves
 (a ``frequency`` or a frame), or the other way round, or when ``surface_offset`` differs
-from the one the checkpoint records, the frame MoorDyn's saved state is in.
+from the one the checkpoint records, the frame MoorDyn's saved state is in,
+or when the checkpoint holds releases of the lines and ``ground_contact`` is
+false, or a failed tower the run does not have.
 The line nodes restart where the checkpoint left them, so a line's attachment
 points, unstretched lengths and strings' length must be those it was built
 with: a restart that moves an end or a tower, or changes a length, a stringing

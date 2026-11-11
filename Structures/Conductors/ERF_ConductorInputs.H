@@ -12,6 +12,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -450,6 +451,18 @@ struct ConductorInputs
     static constexpr int max_capacity_checks = 100000;  //!< the most capacity checks in one step of the lines' level
     std::string tower_failure{"none"};                  //!< none or release: a tower over a footing's or member's capacity lets go of its lines
     bool tower_release_on () const { return tower_failure == "release"; }
+    /**
+     * The time from which a check is made: capacity_check_start less the roundoff of a time that is
+     * a sum of steps (1e-9 of it, or four units of Real's last place in single precision), so that
+     * a check stamped at the start time itself is made. 0 when capacity_check_start is 0.
+     */
+    double check_start_time () const
+    {
+        const double start = static_cast<double>(capacity_check_start);
+        if (!(start > 0.0)) { return 0.0; }
+        const double slack = std::max(1.0e-9, 4.0 * static_cast<double>(std::numeric_limits<amrex::Real>::epsilon()));
+        return start - slack * std::max(1.0, start);
+    }
     std::string intensity_measure{"none"};              //!< none or wind: the wind beside each component's peak demand
     amrex::Real intensity_height{10.0};                 //!< the height above the ground the wind is taken at (m)
     amrex::Real intensity_averaging_time{3.0};          //!< the time the wind is averaged over (s); 0: the last sample

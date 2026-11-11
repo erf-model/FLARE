@@ -131,7 +131,7 @@ void ConductorLine::make_release (const Release& r)
     unsigned point = 0, line = 0;
     if (r.kind == Release::Kind::SpanEnd) {
         if (r.index < 0 || r.index >= num_spans() || (r.end != 0 && r.end != 1)) {
-            Abort("conductors." + m_in.name + ": no span " + std::to_string(r.index) + " with an end " + std::to_string(r.end) + " to release");
+            Abort("conductors." + m_in.name + ": no span " + std::to_string(r.index + 1) + " with an end " + (r.end == 0 ? "a" : r.end == 1 ? "b" : std::to_string(r.end)) + " to release");
         }
         if (!span_end_attached(r.index, r.end)) {
             Abort("conductors." + m_in.name + ": span " + std::to_string(r.index + 1) + " was already released at its end " +
@@ -141,7 +141,7 @@ void ConductorLine::make_release (const Release& r)
         line = static_cast<unsigned>(r.index) + 1;
     } else {
         if (r.index < 0 || r.index >= num_insulators()) {
-            Abort("conductors." + m_in.name + ": no insulator string " + std::to_string(r.index) + " to release");
+            Abort("conductors." + m_in.name + ": no insulator string " + std::to_string(r.index + 1) + " to release");
         }
         if (!string_attached(r.index)) {
             Abort("conductors." + m_in.name + ": insulator string " + std::to_string(r.index + 1) + " was already released");
@@ -467,7 +467,10 @@ Real ConductorLine::tension_b (int k) const
 Real ConductorLine::max_tension (int k) const
 {
     check_span(k);
-    return static_cast<Real>(m_sys->line_max_tension(static_cast<unsigned>(k) + 1));
+    // MoorDyn-C's largest node tension leaves out the line's last node (its loop ends before it): the tension
+    // at end b is taken with it, so that a span whose tension is largest at end b is seen
+    const unsigned l = static_cast<unsigned>(k) + 1;
+    return static_cast<Real>(std::max(m_sys->line_max_tension(l), m_sys->line_end_tension(l)));
 }
 
 std::array<Real,3> ConductorLine::end_force (int end) const

@@ -98,8 +98,10 @@ CapacityMonitor::first_failure () const
 void
 CapacityMonitor::order_by_first_time (std::vector<std::size_t>& ids) const
 {
-    std::stable_sort(ids.begin(), ids.end(), [&] (std::size_t a, std::size_t b) {
-        return m_c.at(a).first_time < m_c.at(b).first_time;
+    // (at one time: in the order they were added, which is capacities.csv's)
+    std::sort(ids.begin(), ids.end(), [&] (std::size_t a, std::size_t b) {
+        const double ta = m_c.at(a).first_time, tb = m_c.at(b).first_time;
+        return ta < tb || (ta == tb && a < b);
     });
 }
 

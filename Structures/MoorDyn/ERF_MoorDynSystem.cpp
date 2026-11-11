@@ -390,12 +390,14 @@ unsigned MoorDynSystem::break_line (unsigned p, unsigned l)
         amrex::Abort("MoorDyn_BreakLine: line " + std::to_string(l) + " does not end on point " + std::to_string(p) +
                      " of the system from '" + m_file + "'");
     }
-    // the state is larger by the new point: the size of an earlier serialize() no longer applies
-    m_serial_words = 0;
     // MoorDyn-C 2.7.1 adds the new point to its kinematics points but reports the old count until they are set up again
     std::string err;
     const unsigned n = external_kinematics_init(err);
     if (n == 0) { amrex::Abort("MoorDyn_BreakLine: " + err); }
+    // the size a state of the system has from now on: deserialize() refuses one taken before the release
+    std::size_t bytes = 0;
+    check(MoorDyn_Serialize(m_sys, &bytes, nullptr), "MoorDyn_Serialize");
+    m_serial_words = (bytes + sizeof(std::uint64_t) - 1) / sizeof(std::uint64_t);
     return n;
 }
 
