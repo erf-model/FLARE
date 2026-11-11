@@ -1,0 +1,2 @@
+kind,component,peak_ratio,peak_demand,peak_capacity,peak_time,point,peak_speed,peak_direction,peak_k,peak_wind_time,max_speed,max_direction,max_k,max_time,exceeded,first_time,first_demand,first_capacity,first_speed,first_direction,first_k,first_wind_time
+conductor,S1,0.93,46500,50000,1.5,S1,30.4,0.5,,1.5,,,,,0,,,,,,,

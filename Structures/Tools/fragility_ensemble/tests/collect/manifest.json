@@ -1,0 +1,87 @@
+{
+ "tool": "fragility_ensemble",
+ "format": 1,
+ "base_deck": "span.i",
+ "deck": "span.i",
+ "diagnostics_dir": "conductors",
+ "wind": {
+  "mode": "prescribed",
+  "base_speed": 20.0,
+  "base_direction": 0.0
+ },
+ "support_files": [],
+ "members": [
+  {
+   "member": "m001_s20_d0_seed1",
+   "stripe": 20.0,
+   "nominal_direction": 0.0,
+   "seed": 1,
+   "directory": "members/m001_s20_d0_seed1",
+   "scale": 1.0,
+   "rotation": 0.0,
+   "inputs": {
+    "conductors.gust_seed": "1"
+   }
+  },
+  {
+   "member": "m002_s20_d0_seed2",
+   "stripe": 20.0,
+   "nominal_direction": 0.0,
+   "seed": 2,
+   "directory": "members/m002_s20_d0_seed2",
+   "scale": 1.0,
+   "rotation": 0.0,
+   "inputs": {
+    "conductors.gust_seed": "2"
+   }
+  },
+  {
+   "member": "m003_s30_d0_seed1",
+   "stripe": 30.0,
+   "nominal_direction": 0.0,
+   "seed": 1,
+   "directory": "members/m003_s30_d0_seed1",
+   "scale": 1.5,
+   "rotation": 0.0,
+   "inputs": {
+    "conductors.gust_seed": "1"
+   }
+  },
+  {
+   "member": "m004_s30_d0_seed2",
+   "stripe": 30.0,
+   "nominal_direction": 0.0,
+   "seed": 2,
+   "directory": "members/m004_s30_d0_seed2",
+   "scale": 1.5,
+   "rotation": 0.0,
+   "inputs": {
+    "conductors.gust_seed": "2"
+   }
+  },
+  {
+   "member": "m005_s40_d0_seed1",
+   "stripe": 40.0,
+   "nominal_direction": 0.0,
+   "seed": 1,
+   "directory": "members/m005_s40_d0_seed1",
+   "scale": 2.0,
+   "rotation": 0.0,
+   "inputs": {
+    "conductors.gust_seed": "1"
+   }
+  },
+  {
+   "member": "m006_s40_d0_seed2",
+   "stripe": 40.0,
+   "nominal_direction": 0.0,
+   "seed": 2,
+   "directory": "members/m006_s40_d0_seed2",
+   "scale": 2.0,
+   "rotation": 0.0,
+   "inputs": {
+    "conductors.gust_seed": "2"
+   }
+  }
+ ]
+}

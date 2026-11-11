@@ -1,0 +1,2 @@
+point,x,y,z,height,speed,direction,k,time,max_speed,max_direction,max_k,max_time
+S1,450,500,10,10,40.4,0.5,,10,41.2,0.4,,8

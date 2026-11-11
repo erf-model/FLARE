@@ -1755,6 +1755,197 @@ Verification of the intensity record
        refined patch, and a line named like another's attachment each stop
        the run with the input's name.
 
+An ensemble of runs for fragility curves
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A fragility curve needs many pairs of wind intensity and peak demand: runs at
+several wind speeds (stripes), wind directions and, with random gusts, several
+gust series. ``Structures/Tools/fragility_ensemble/fragility_ensemble.py``
+(Python, standard library only) writes, runs and gathers such a set from one
+base deck and a plan. It changes no model: every member is an ordinary run
+with ``conductors.intensity_measure = wind``. The fitting of curves to the
+gathered tables is a later step and is not part of the script.
+
+**Members.** The plan (a JSON file) lists ``speeds`` (m/s), optionally
+``directions`` (degrees, the convention of Eq. :eq:`im-direction`) and
+``seeds``, and the members are all their combinations. Each member gets its
+own directory with a deck that differs from the base deck only in the inputs
+the manifest (``manifest.json``) lists for it. The base deck's ``FILE``
+includes are written into the member's deck. The script reads one
+``key = value`` per line and stops on any other line.
+
+**The wind of a member.** Let :math:`(u, v, w)(z)` be the base deck's wind
+profile and :math:`S_b` and :math:`\theta_b` its horizontal speed and
+direction at the reference height :math:`z_r` (``reference_height``, 10 m by
+default), found by linear interpolation between the profile's rows, as ERF
+reads the file. Between a first row without wind (the ground of a
+logarithmic profile) and the next row a straight line is not the profile, so
+the script stops when :math:`z_r` lies there. :math:`z_r` is independent of
+``conductors.intensity_height``. A member
+with stripe :math:`S` and direction :math:`\theta` takes, at every height,
+
+.. math::
+   :label: ens-wind
+
+   \begin{pmatrix} u' \\ v' \end{pmatrix} = \frac{S}{S_b}
+   \begin{pmatrix} \cos\Delta & -\sin\Delta \\ \sin\Delta & \cos\Delta \end{pmatrix}
+   \begin{pmatrix} u \\ v \end{pmatrix} , \qquad
+   w' = \frac{S}{S_b} \, w , \qquad \Delta = \theta - \theta_b ,
+
+so the profile keeps its shape and its turning with height, and reads
+:math:`S` towards :math:`\theta` at :math:`z_r`. For a logarithmic profile
+this is the same roughness length with the friction velocity multiplied by
+:math:`S / S_b`. Without ``directions`` the base direction is kept
+(:math:`\Delta = 0`). The stripe is a nominal value that orders the runs; the
+intensity of a fragility analysis is the wind each run records at its
+intensity points, which the terrain and the lines' surroundings change. The
+largest wind of the scaled profile, at any height, must stay within 150 m/s;
+it is written to the manifest as ``max_wind``.
+
+The script applies Eq. :eq:`ens-wind` to the files the base deck takes its
+wind from:
+
+* with ``erf.init_type = input_sounding``, to the sounding
+  (``erf.input_sounding_file``) and, when a face is an ``Inflow`` with a
+  ``dirichlet_file``, to that profile, which is then the one :math:`S_b` and
+  :math:`\theta_b` are read from;
+* with ``conductors.prescribed_velocity``, to that velocity in the deck
+  (there is no profile and no reference height; the flow is not changed).
+
+The script stops, with the input's name, on a base deck that sets or drives
+its wind in a way it does not scale: a constant ``<face>.velocity``,
+``<face>.inflow_profile``, boundary planes, another ``erf.init_type``, a
+restart (``amr.restart``), ``erf.abl_pressure_grad`` or ``erf.abl_geo_wind``.
+Other inputs that hold a wind speed are left as they are, among them
+``conductors.asce74_wind`` and the event gust's inputs.
+
+**Boundaries.** In a direction that is not periodic, the face the member's
+wind enters becomes the ``Inflow`` and the face it leaves the ``Outflow``,
+each with the inputs the base deck gives its own inflow and outflow face
+(the profile file, the inflow :math:`k`). A wind along a pair of faces
+(:math:`|\cos|` or :math:`|\sin|` of :math:`\theta` below
+:math:`10^{-12}`) makes both of them side faces, with the type of the base
+deck's side faces or the plan's ``side_type``. An oblique wind therefore
+enters through two faces and leaves through two; ERF keeps one inflow profile
+per level, which both faces read. A lateral face of another type (``Open``,
+for one) stops the script. An inflow turbulent kinetic
+energy ``<face>.KE`` is multiplied by :math:`(S / S_b)^2`, which keeps the
+inflow's turbulence intensity. ERF uses ``<face>.KE`` only together with
+``<face>.density``; without it the inflow :math:`k` is zero-gradient and
+follows the interior, and the script says so. Periodic directions need no
+change, and a base deck without an inflow face cannot take a wind through its
+walls: the script stops.
+
+**Seeds.** A seed is ``conductors.gust_seed``, so ``seeds`` needs
+``conductors.gust_type = random`` (`Gusts from the RANS turbulence`_). Members
+that differ only in the seed share one flow and differ in the gusts the lines
+and towers take.
+
+**Other inputs.** ``inputs`` in the plan sets deck inputs for every member (a
+capacity, a gust type, an averaging time), and a stripe may carry its own
+(``{"speed": 40, "inputs": {"erf.fixed_dt": 0.4}}``). The time step, the
+run's length and the averaging time are not changed by the script. A faster
+stripe raises the advective Courant number with the wind aloft, not with the
+wind at :math:`z_r`, and an oblique wind raises it again (by up to
+:math:`\sqrt 2` on square cells), so the base deck's step must suit the
+fastest member, or the fast stripes carry their own step. For each member the
+manifest holds ``courant``, the largest :math:`(|u'|/\Delta x + |v'|/\Delta y)
+\, \Delta t` of its profile on level 0 with ``erf.fixed_dt``, and the script
+prints a note for a member above 1; a compressible deck's step is also bound
+by the sound speed, which the number does not include. The inputs the
+members' wind is derived from cannot be given in the plan: the wind and
+restart inputs, ``geometry.is_periodic``, the lateral faces' inputs,
+``conductors.intensity_measure``, ``conductors.diagnostics_dir`` and, with
+``seeds``, ``conductors.gust_seed``. A file the deck names that stands beside
+it (a terrain file, a member design file) must be listed in
+``support_files``, which are copied to every member; otherwise the script
+stops.
+
+**Running.** ``fragility_ensemble.py run --plan plan.json --exe erf_exec``
+runs the members one after another. Before each run it waits until the
+machine's 1-minute load is below ``--load-start`` (6); during a run it stops
+the run's processes when the load passes ``--load-pause`` (12) and continues
+them below ``--load-resume`` (7). ``--ranks`` (4) may not exceed
+``--max-ranks`` (4). A member that finished with return code 0 is skipped
+when the command is given again; a member that failed or was interrupted runs
+again from its start. ``--dry-run`` writes the directories and the manifest
+and runs nothing. The manifest is written before the directories and holds a
+SHA-256 of the base deck, the wind files and the support files: a directory
+written from another plan or from files that have changed since is refused,
+and so is a second driver on a directory in use (``run.lock``). The run's
+processes are found as the launcher's descendants with ``ps``; when the
+driver is interrupted or receives SIGTERM it ends the run with it, and that
+member runs again next time.
+
+**Gathering.** After the runs (or with ``collect``) the script writes
+``demand_table_all.csv`` and ``intensity_all.csv``: the rows of every
+complete member's ``demand_table.csv`` and ``intensity.csv`` behind the four
+key columns ``member``, ``stripe``, ``nominal_direction`` and ``seed``. A
+member is complete when its run finished and both tables can be read with
+the header of the first complete member. ``members_status.csv`` has one row
+per member with its status (``complete``, ``not_run``, ``failed``,
+``no_demand_table``, ``no_intensity_table``, ``bad_demand_table``,
+``bad_intensity_table``), return code and, for a failed run, the abort
+message of its log. Members that are not complete are listed on the screen
+and the command returns 1; a member goes into both tables or into neither.
+
+**Limits.**
+
+* The members' flows start from the scaled sounding. A deck that restarts
+  from a spun-up checkpoint (``amr.restart``) would start every member from
+  the checkpoint's wind, so the script stops on it; such a case needs a
+  spin-up per member, which the script does not run.
+* An inflow through two faces has no regression test in ERF beyond the trial
+  described in the tool's README; the corner column between an inflow and an
+  outflow face takes the profile on one side and a zero gradient on the other.
+  The profile is applied by mesh level index, so the terrain should be flat
+  at every lateral face that can become an inflow; the script cannot check
+  this.
+* A direction within :math:`10^{-12}` of a face's plane counts as along it;
+  any other direction, however close, makes that face an inflow with a small
+  normal wind. Directions a few degrees off a face are best avoided.
+* A wind along a periodic direction with side faces across it has no inflow;
+  with surface drag nothing sustains it.
+* The scaling keeps a neutral flow similar. Stratification is not scaled: a
+  profile with an inversion has a bulk Richardson number that varies as
+  :math:`1/S^2` between stripes.
+* The run's length is the same for every stripe, so the number of
+  flow-through times and of gust time scales (:math:`L_u / U`) in a run
+  changes with the stripe.
+* Members that differ in the seed only repeat the same flow solve and record
+  the same intensity; their peak demands differ through the gusts. The data
+  therefore suit an analysis stripe by stripe. The same seeds are used in
+  every stripe, so the gust series of different stripes are not independent
+  draws.
+* The load gate reads the load of the machine the script runs on and stops
+  processes started there; ranks on other nodes, or started by a launcher
+  that does not keep them as its descendants, are not paused
+  (``--no-load-gate``).
+* At most 100 000 members.
+* A run that stops by design at a first failure (``conductors.failure_stop``)
+  returns an error code and is reported as failed; ensembles run with
+  ``failure_stop`` off.
+* Large-eddy members are not covered: their inflow needs a precursor or a
+  perturbation method that has not been checked against one.
+
+**Tests.** ``FragilityEnsemble_DryRun`` compares the member set, the decks,
+the wind files and the manifest of a dry run with values worked out by hand
+for three stored base decks (an inflow face with a profile, a periodic deck,
+a prescribed wind), and requires a changed source file or a lost manifest to
+be refused; ``FragilityEnsemble_Refused`` gives the plan's keys, the run
+options and the base deck values out of range and requires a stop that names
+each; ``FragilityEnsemble_Run`` uses a stand-in executable of several
+processes to show that finished members are skipped, failed ones run again,
+an earlier attempt's tables are not taken, the gate waits, stops every
+process of the run and continues it, and a driver that is told to end leaves
+no process behind;
+``FragilityEnsemble_Collect`` gathers stored tables, among them a member
+without a demand table, a failed one, one not run and one with another
+header. No test runs ERF. The tool's README records two ensembles run by
+hand: four members on ``Conductors_TwoLevel``, whose recorded wind equals the
+planned stripe within 0.01 % and the planned direction within 0.001°, and an
+oblique wind through two inflow faces on ``Conductors_RandomGusts``.
+
 Ground contact
 --------------
 

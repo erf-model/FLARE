@@ -1,0 +1,12 @@
+{
+ "base_deck": "../../../../../Tests/test_files/Conductors_TwoLevel/Conductors_TwoLevel.i",
+ "output_dir": "ensemble",
+ "speeds": [16, 24],
+ "directions": [90, 0],
+ "reference_height": 10,
+ "inputs": {
+  "conductors.S1.rated_breaking_strength": 13890.45,
+  "conductors.S1.hardware_rated_load": 13892.0,
+  "conductors.intensity_averaging_time": 1
+ }
+}
