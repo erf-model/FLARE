@@ -1,0 +1,9 @@
+member,stripe,nominal_direction,seed,kind,component,peak_ratio,peak_demand,peak_capacity,peak_time,point,peak_speed,peak_direction,peak_k,peak_wind_time,max_speed,max_direction,max_k,max_time,exceeded,first_time,first_demand,first_capacity,first_speed,first_direction,first_k,first_wind_time
+m001_s20_d0_seed1,20,0,1,conductor,S1,1.0,50000.0,50000,8,S1,20,0,,8,20,0,,8,0,,,,,,,
+m001_s20_d0_seed1,20,0,1,hardware,S1_end_a,1.0,40000.0,40000,8,S1_end_a,20,0,,8,20,0,,8,0,,,,,,,
+m002_s20_d0_seed2,20,0,2,conductor,S1,1.0,50000.0,50000,8,S1,20,0,,8,20,0,,8,0,,,,,,,
+m002_s20_d0_seed2,20,0,2,hardware,S1_end_a,1.0,40000.0,40000,8,S1_end_a,20,0,,8,20,0,,8,0,,,,,,,
+m003_s30_d0_seed1,30,0,1,conductor,S1,1.221402758,61070.1379,50000,8,S1,30,0,,8,30,0,,8,1,,,,,,,
+m003_s30_d0_seed1,30,0,1,hardware,S1_end_a,1.0,40000.0,40000,8,S1_end_a,30,0,,8,30,0,,8,0,,,,,,,
+m004_s30_d0_seed2,30,0,2,conductor,S1,1.221402758,61070.1379,50000,8,S1,30,0,,8,30,0,,8,1,,,,,,,
+m004_s30_d0_seed2,30,0,2,hardware,S1_end_a,1.0,40000.0,40000,8,S1_end_a,30,0,,8,30,0,,8,0,,,,,,,
