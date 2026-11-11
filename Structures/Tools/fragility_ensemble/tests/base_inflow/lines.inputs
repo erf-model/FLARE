@@ -1,0 +1,5 @@
+# the span and its gusts
+erf.structures.model = conductors
+conductors.lines     = S1
+conductors.gust_type = random
+conductors.gust_seed = 7

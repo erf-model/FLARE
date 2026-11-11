@@ -1,0 +1,10 @@
+{
+ "base_deck": "span.i",
+ "output_dir": "out",
+ "speeds": [10, {"speed": 20, "inputs": {"erf.fixed_dt": 0.25, "max_step": 20}}],
+ "directions": [0, 90, -135],
+ "seeds": [3, 8],
+ "reference_height": 10,
+ "inputs": {"conductors.S1.rated_breaking_strength": 50000},
+ "support_files": ["terrain.txt"]
+}
