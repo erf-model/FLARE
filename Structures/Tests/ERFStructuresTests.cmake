@@ -160,7 +160,96 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
         COMMON_OPTIONS "conductors.S1.rated_breaking_strength=13890.45 conductors.S1.hardware_rated_load=13892.0"
         DATALOG "conductors/failures.dat conductors/capacities.csv S1.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
     set_tests_properties(Conductors_Capacities_Restart PROPERTIES LABELS "regression;restart-parity;conductors;multilevel")
+    # conductors.intensity_measure = wind on the same deck: the wind 10 m above the ground under the span's middle
+    # and its two ends, kept beside each component's peak. The deck's crosswind is v = 15 + 0.1 z along +y, so
+    # check_demand_table.py requires every point to read 15 + 0.1 h m/s at 90 degrees (2e-3, 0.05 degrees: the
+    # line's drag moves the flow a little), the demand table to hold capacities.csv's peaks and first exceedances,
+    # and the conductor's peak demand to be the largest tension in S1.dat. The run is 2.5 s long: with the
+    # default 3 s average no run maximum may be written (a maximum is a full window's average). The second
+    # variant sets the height to 40 m, away from its default, so the check shows the key is read, and the
+    # averaging time to 1 s, so the maxima exist and must not be stamped before 1 s. The lines step on the
+    # level-1 patch, where the points lie.
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(NOT Python3_Interpreter_FOUND)
+      message(STATUS "Conductors_Intensity_TwoLevel, _Height40 and _PeakWind need Python 3 and are not registered")
+    endif()
+    if(Python3_Interpreter_FOUND)
+      set(_im_src ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TwoLevel)
+      set(_im_caps "conductors.S1.rated_breaking_strength=13890.45 conductors.S1.hardware_rated_load=13892.0 conductors.intensity_measure=wind")
+      set(_im_names Conductors_Intensity_TwoLevel Conductors_Intensity_Height40)
+      set(_im_opts_0 "")
+      set(_im_opts_1 "conductors.intensity_height=40 conductors.intensity_averaging_time=1")
+      set(_im_check_0 "")
+      set(_im_check_1 "--height 40 --averaging 1")
+      foreach(_i RANGE 1)
+        list(GET _im_names ${_i} _im_name)
+        set(_im_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/${_im_name})
+        file(MAKE_DIRECTORY ${_im_dir})
+        file(COPY ${_im_src}/Conductors_TwoLevel.i ${_im_src}/input_sounding DESTINATION ${_im_dir})
+        add_test(NAME ${_im_name}
+                 COMMAND sh -c "rm -rf plt0* conductors S1.dat && ${_cap_mpi} ${_cap_exe} Conductors_TwoLevel.i ${_im_caps} ${_im_opts_${_i}} amrex.call_addr2line=0 > run.log 2>&1 && \"${Python3_EXECUTABLE}\" -I ${_im_src}/check_demand_table.py ${_im_check_${_i}}"
+                 WORKING_DIRECTORY ${_im_dir})
+        set_tests_properties(${_im_name} PROPERTIES LABELS "regression;conductors;multilevel" TIMEOUT 600
+                             PROCESSORS 2 ATTACHED_FILES_ON_FAIL "${_im_dir}/run.log")
+      endforeach()
+      # The wind kept is the one of the peak's step. On Conductors_EventGust (two lines on lattice towers over
+      # hills, k-equation RANS, a travelling gust) the tensions and footing loads peak at different steps before
+      # the end while the wind at the points changes; check_peak_wind.py requires each kept wind to be stamped
+      # with its component's peak time and to differ from the point's last value for the components peaking
+      # before the end, the points to be one per span, attachment and tower, and every k to be positive.
+      set(_pw_src ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_EventGust)
+      set(_pw_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/Conductors_Intensity_PeakWind)
+      file(MAKE_DIRECTORY ${_pw_dir})
+      file(GLOB _pw_files ${_pw_src}/*)
+      file(COPY ${_pw_files} DESTINATION ${_pw_dir})
+      add_test(NAME Conductors_Intensity_PeakWind
+               COMMAND sh -c "rm -rf plt0* conductors && ${_cap_mpi} ${_cap_exe} Conductors_EventGust.i conductors.L1.rated_breaking_strength=1.0e5 conductors.L1.hardware_rated_load=1.0e5 conductors.L2.rated_breaking_strength=1.0e5 conductors.intensity_measure=wind amrex.call_addr2line=0 > run.log 2>&1 && \"${Python3_EXECUTABLE}\" -I ${_pw_src}/check_peak_wind.py"
+               WORKING_DIRECTORY ${_pw_dir})
+      set_tests_properties(Conductors_Intensity_PeakWind PROPERTIES LABELS "regression;conductors" TIMEOUT 600
+                           PROCESSORS 2 ATTACHED_FILES_ON_FAIL "${_pw_dir}/run.log")
+    endif()
+    # the averaging window, the run's maxima and the winds kept at the peaks across a checkpoint at step 5
+    # (t = 1.25 s) with a 1 s average: the window is full and trimmed before the checkpoint and the maxima exist,
+    # and the restarted run's two tables must be the straight run's
+    add_test_restart_parity(Conductors_Intensity_Restart Conductors_TwoLevel 5 10
+        COMMON_OPTIONS "conductors.S1.rated_breaking_strength=13890.45 conductors.S1.hardware_rated_load=13892.0 conductors.intensity_measure=wind conductors.intensity_averaging_time=1"
+        DATALOG "conductors/demand_table.csv conductors/intensity.csv" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
+    set_tests_properties(Conductors_Intensity_Restart PROPERTIES LABELS "regression;restart-parity;conductors;multilevel")
+    # a restart with another averaging time is refused: the checkpoint's window is not this run's
+    add_test_restart_abort(Conductors_Intensity_RestartWindowAbort Conductors_TwoLevel 5
+        "it was written with conductors.intensity_averaging_time = 3, the run has 1"
+        COMMON_OPTIONS "conductors.S1.rated_breaking_strength=13890.45 conductors.intensity_measure=wind"
+        RESTART_OPTIONS "conductors.intensity_averaging_time=1")
+    set_tests_properties(Conductors_Intensity_RestartWindowAbort PROPERTIES LABELS "regression;conductors;abort")
   endif()
+  # The intensity measure's start-up checks: an unknown value, a height or averaging time out of range or given
+  # without the measure, the measure without a capacity, and a point outside the anchor level's grids (250 m is
+  # above the level-1 box's top at 200 m)
+  set(_im_two ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TwoLevel)
+  set(_im_rbs "conductors.S1.rated_breaking_strength=1.0e6")
+  add_test_abort(Conductors_Intensity_UnknownAbort ${_im_two} Conductors_TwoLevel.i
+      "conductors.intensity_measure must be none or wind, got 'gust'" "${_im_rbs} conductors.intensity_measure=gust")
+  add_test_abort(Conductors_Intensity_HeightRangeAbort ${_im_two} Conductors_TwoLevel.i
+      "conductors.intensity_height must be in .0, 500." "${_im_rbs} conductors.intensity_measure=wind conductors.intensity_height=0")
+  add_test_abort(Conductors_Intensity_TimeRangeAbort ${_im_two} Conductors_TwoLevel.i
+      "conductors.intensity_averaging_time must be in .0, 600." "${_im_rbs} conductors.intensity_measure=wind conductors.intensity_averaging_time=-1")
+  add_test_abort(Conductors_Intensity_HeightNeedsMeasureAbort ${_im_two} Conductors_TwoLevel.i
+      "conductors.intensity_height needs conductors.intensity_measure = wind" "${_im_rbs} conductors.intensity_height=20")
+  add_test_abort(Conductors_Intensity_TimeNeedsMeasureAbort ${_im_two} Conductors_TwoLevel.i
+      "conductors.intensity_averaging_time needs conductors.intensity_measure = wind" "${_im_rbs} conductors.intensity_averaging_time=1")
+  add_test_abort(Conductors_Intensity_NeedsCapacityAbort ${_im_two} Conductors_TwoLevel.i
+      "conductors.intensity_measure = wind needs a capacity to check" "conductors.intensity_measure=wind")
+  add_test_abort(Conductors_Intensity_NotCoveredAbort ${_im_two} Conductors_TwoLevel.i
+      "conductors.intensity_measure = wind: the intensity point" "${_im_rbs} conductors.intensity_measure=wind conductors.intensity_height=250")
+  # a second line named like the first's dead end would share its intensity point's name
+  add_test_abort(Conductors_Intensity_NameClashAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
+      Conductors_PrescribedWind.i "two intensity points are named 'S1_end_a': rename a line in conductors.lines"
+      "conductors.S1.rated_breaking_strength=1.0e6 conductors.intensity_measure=wind conductors.lines=S1 S1_end_a conductors.S1_end_a.end_a=300. 600. 30. conductors.S1_end_a.end_b=600. 600. 30. conductors.S1_end_a.length=301.5 conductors.S1_end_a.diameter=0.0281 conductors.S1_end_a.mass_per_length=1.628 conductors.S1_end_a.axial_stiffness=3.0e7 conductors.S1_end_a.output_root=S2")
+  set_tests_properties(Conductors_Intensity_NameClashAbort PROPERTIES LABELS "regression;conductors;abort")
+  set_tests_properties(Conductors_Intensity_UnknownAbort Conductors_Intensity_HeightRangeAbort Conductors_Intensity_TimeRangeAbort
+                       Conductors_Intensity_HeightNeedsMeasureAbort Conductors_Intensity_TimeNeedsMeasureAbort
+                       Conductors_Intensity_NeedsCapacityAbort Conductors_Intensity_NotCoveredAbort
+                       PROPERTIES LABELS "regression;conductors;abort")
   # A conductor span heated by a fire below it (conductors.thermal_model = ieee738; stub only, since the sag
   # check uses the stub's elastic parabola). FLARE's engine releases a prescribed 2e5 W/m^2 over a 40 m disc
   # under the middle of a 300 m span 30 m up, in still air at 300 K with passive coupling, so the conductor's

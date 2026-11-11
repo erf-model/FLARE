@@ -1509,6 +1509,252 @@ References
   1 000 V - Definitions, test methods and acceptance criteria.* International
   Electrotechnical Commission, Geneva.
 
+Wind intensity beside the peak demand
+-------------------------------------
+
+This section describes a record a run can keep for a later fragility analysis:
+beside each component's peak demand-to-capacity ratio (`Component capacities
+and first failure`_), the wind at a fixed height near the component. One run
+then gives, for every component, a pair of wind intensity and peak demand. It
+is switched on with
+``conductors.intensity_measure = wind`` and is off by default, in which case
+nothing changes. The implementation is
+``Structures/Conductors/ERF_Intensity.{H,cpp}`` (class ``IntensityRecorder``),
+called from ``Conductors``.
+
+Intensity points
+~~~~~~~~~~~~~~~~
+
+The wind is taken at **intensity points**, fixed for the run: one under the
+middle of every span (the middle of the chord between its attachment points),
+one at every attachment of every line (the two dead ends and each tower
+attachment), and one at every tower's base. Each point sits at the height
+:math:`h` (``conductors.intensity_height``, 10 m by default) above the ground
+there, the terrain or the immersed surface under it. A span's conductor takes
+the point under its middle, an insulator string and the hardware the point at
+their attachment, and a tower's footings and members the point at its base.
+
+Averaged wind
+~~~~~~~~~~~~~
+
+At every step of the lines' anchor level, from :math:`t_n` to
+:math:`t_{n+1} = t_n + \Delta t_n`, the model samples the flow's horizontal
+velocity :math:`(u, v)` at each point at :math:`t_n`. This is the wind the
+step's loads are computed from. The intensity at point :math:`p` is the
+horizontal speed averaged over the last :math:`T` seconds
+(``conductors.intensity_averaging_time``, 3 s by default):
+
+.. math::
+   :label: im-average
+
+   S_p(t_{n+1}) = \frac{\sum_{i \le n} w_i \, s_{p,i}}{\sum_{i \le n} w_i} , \qquad
+   s_{p,i} = \sqrt{u_{p,i}^2 + v_{p,i}^2} , \qquad
+   w_i = \left| \, [t_i, t_{i+1}] \cap [t_{n+1} - T, \, t_{n+1}] \, \right| ,
+
+where :math:`s_{p,i}` is the sample of step :math:`i` and :math:`w_i` the
+length of that step inside the averaging window. The oldest step that reaches
+past the window's start counts with the part inside it. Before the run is
+:math:`T` old the window holds what has been sampled. With :math:`T = 0`, or a
+step longer than :math:`T`, the intensity is the last sample. The direction is
+that of the averaged vector,
+
+.. math::
+   :label: im-direction
+
+   \theta_p = \operatorname{atan2}\left( \sum_i w_i v_{p,i} , \ \sum_i w_i u_{p,i} \right) ,
+
+in degrees from :math:`+x` towards :math:`+y`: the direction the wind blows
+towards, in (−180°, 180°], and 0 when the averaged vector vanishes. With the
+k-equation RANS (:ref:`RANS`) the turbulent kinetic energy :math:`k` at the
+point is averaged with the same weights.
+
+**What the average means.** :math:`S_p` is the :math:`T`-second average of
+the wind the flow resolves, built from one sample per step. In a flow that
+resolves gusts (a large-eddy simulation) it approaches the :math:`T`-second
+gust at the point when the step is much shorter than :math:`T` (see
+Limitations). In a RANS flow the velocity is already a mean, so :math:`S_p` is
+the mean wind, and the gustiness is in :math:`k`. The record holds both and
+applies no gust factor. The speed is averaged as a speed, so :math:`S_p` is
+never below the length of the averaged vector; the two differ by a fraction of
+a per cent in a gusty wind, and by 10 % when the wind turns through 90° inside
+the window.
+
+What is kept
+~~~~~~~~~~~~
+
+For each point the model keeps the run's largest intensity over the steps
+whose window is full,
+
+.. math::
+   :label: im-max
+
+   \hat S_p = \max_{n \,:\, t_n - t_0 \ge T} \, S_p(t_n) ,
+
+with its time, direction and :math:`k`; :math:`t_0` is the time of the first
+sample. An average over a window that is not yet full is a shorter average,
+and is not compared: a run shorter than :math:`T` has no :math:`\hat S_p`. For each component :math:`c` with
+point :math:`p(c)` it keeps the intensity of the step at which the peak ratio
+:math:`\hat r_c` of Eq. :eq:`cap-peak` was reached, and the intensity of the
+step of its first exceedance :math:`t_c^{*}`:
+
+.. math::
+   :label: im-kept
+
+   S_c^{peak} = S_{p(c)}(t_{\hat n}) , \quad r_c(t_{\hat n}) = \hat r_c ; \qquad
+   S_c^{*} = S_{p(c)}(t_c^{*}) .
+
+**Why both the peak's wind and the run's largest.** A component's largest
+demand need not occur at the largest wind: a span swinging back, a gust model,
+a heated member or a neighbour's load can move it. :math:`S_c^{peak}` is the
+wind that accompanied the peak demand; :math:`\hat S_p` is the hazard level
+the run reached.
+
+Outputs and restart
+~~~~~~~~~~~~~~~~~~~
+
+``<diagnostics_dir>/demand_table.csv`` holds one row per component, in
+``capacities.csv``'s order: ``kind``, ``component``, the peak ratio with its
+demand, capacity and time, the component's ``point``, the wind kept at the
+peak (``peak_speed``, ``peak_direction``, ``peak_k``, and ``peak_wind_time``,
+the end of the step it was sampled for), the point's largest
+(``max_speed``, ``max_direction``, ``max_k``, ``max_time``), ``exceeded``, and
+the first exceedance's time, demand and capacity with the wind kept then
+(``first_speed``, ``first_direction``, ``first_k``, ``first_wind_time``).
+``<diagnostics_dir>/intensity.csv`` holds one row per point: its name,
+position (``x``, ``y`` and the elevation ``z`` it is sampled at), height above
+the ground, the averaged wind now and the run's largest. Speeds are in m/s, directions in degrees, :math:`k` in
+m\ :sup:`2`/s\ :sup:`2`; a field that does not exist is empty (:math:`k`
+without the k-equation RANS, the first exceedance of a component that never
+exceeded, the wind of a component never recorded, the largest of a run
+shorter than :math:`T`). Both files are rewritten at the first step, every
+``diagnostics_int`` steps, at each first exceedance and on a restart; as with
+``capacities.csv``, steps after the last multiple of ``diagnostics_int`` are
+not in the files a run leaves.
+Point names are ``<line>`` or ``<line>_span<k>``, ``<line>_end_a``,
+``<line>_tower<j>``, ``<line>_end_b`` and ``tower_<tower>``. A tower
+attachment's point and its tower's point stand at nearly the same place and
+read nearly the same wind. A line whose name equals one of these names stops
+the run at start-up.
+
+A checkpoint stores the samples inside the averaging window, every point's
+largest and every component's kept winds (17 significant digits) under
+``<chk>/conductors/intensity``, and a restart continues them: the restarted
+run's tables equal the uninterrupted run's. The height and the averaging time
+must be the checkpoint's, and the samples must still carry (or not carry)
+:math:`k`, which changes with ``erf.rans_type`` on the anchor level and with
+``conductors.prescribed_velocity``; otherwise the restart stops and names the
+input. A checkpoint without the record (the measure switched on at the
+restart) starts the averages and the maxima there, with a message: a
+component whose restored peak is not passed again then has no wind beside it,
+and the largest covers the time since the restart. A restart with the measure
+off removes the two tables the earlier run left, with a message.
+
+Limitations
+~~~~~~~~~~~
+
+* **The flow's wind only.** The gusts of ``conductors.gust_type`` are added
+  to the wind the lines and towers take, not to the flow, so they are not in
+  :math:`S_p`. With a RANS flow and a gust model the peak demand includes the
+  gust and the intensity does not; :math:`k` at the point is recorded for a
+  gust estimate made afterwards.
+* **No exposure conversion.** :math:`S_p` is the model's wind at the point,
+  over the terrain and roughness of the run. It is not converted to another
+  exposure or height.
+* **One sample per step.** :math:`S_p` is a sum over step-start samples, so it
+  is a :math:`T`-second average only when the step is short against
+  :math:`T`. For a synthetic wind (mean 15 m/s, standard deviation 3 m/s,
+  integral time scale 5 s, :math:`T = 3` s) its root-mean-square difference
+  from the true 3-second average is 2 % of that average's standard deviation
+  at :math:`\Delta t = 0.125` s, 18 % at 0.9 s and 62 % at 3 s, where the
+  largest value in 10 minutes is also biased high (by 0.4 m/s). A step of
+  :math:`T/6` or less keeps the difference under about 17 %. The average also
+  ends half a step early, since the last sample is taken at the step's start.
+* **Below the first cell centre.** When :math:`h` is below the first cell
+  centre, the wind and :math:`k` are extrapolated linearly from the first two
+  cell centres, not taken from the wall law. For a logarithmic profile with a
+  first centre at 12.5 m this reads 2.5 % high at 10 m.
+* **Slow components.** The wind kept at a peak is that of the peak's step. A
+  span swinging with a period of several seconds reaches its largest tension
+  after the gust that caused it, so its :math:`S_c^{peak}` can be below that
+  gust; for such components :math:`\hat S_p`, or an averaging time at least
+  as long as the period, is the better intensity.
+* **k from the RANS only.** A large-eddy simulation carries no :math:`k`
+  column; its gustiness is in the resolved wind.
+* **Start of the step.** The wind is sampled at the start of each step and
+  stamped with its end, as the loads it produces are. On towers that move, the
+  capacity checks inside one ERF step (`Instants of the check`_) all take the
+  wind of that step.
+* **A prescribed wind.** With ``conductors.prescribed_velocity`` the
+  intensity is that velocity's horizontal speed at every point, without
+  :math:`k`; ``intensity_height`` is then read and checked but changes no
+  value.
+* **Refined levels.** Every point must lie on the grids of the lines' anchor
+  level with the cells around it; a refined patch that holds the lines but
+  not the air at :math:`h` above the ground under them stops the run, naming
+  the point.
+
+Verification of the intensity record
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 42 58
+
+   * - Test
+     - What is pinned
+   * - ``Intensity.TheAverageIsOverTheLastTSeconds``,
+       ``Intensity.StepsOfDifferentLengthsCountWithTheirPartInTheWindow``,
+       ``Intensity.AStepLongerThanTheWindowAndAZeroWindowKeepTheLastSample``
+     - Eq. :eq:`im-average` by hand: equal steps before and after the window
+       fills; steps of 2, 1 and 2 s with :math:`T = 3` s; the oldest step cut
+       at the window's start; a step longer than :math:`T`; :math:`T = 0`.
+   * - ``Intensity.TheSpeedIsAveragedAsASpeedAndTheDirectionIsTheMeanVectors``
+     - A turning wind keeps its mean speed; Eq. :eq:`im-direction`'s
+       convention at 0°, 45°, 180° and −90°, and the zero vector.
+   * - ``Intensity.TheRunsMaximumKeepsItsTimeDirectionAndK``,
+       ``Intensity.TheMaximumWaitsForAFullWindow``
+     - Eq. :eq:`im-max` with its time, direction and :math:`k`, not the last
+       value; averages over 1 s and 2 s of a 3 s window (20 and 11 m/s) are
+       not the largest, which is 8 m/s at 3 s.
+   * - ``Intensity.AComponentKeepsTheWindAtItsPeakNotTheLastWind``
+     - Eq. :eq:`im-kept`: the wind of the peak's step while the wind goes on
+       rising; a component without a point keeps none.
+   * - ``Intensity.TheTablesCarryEveryField``,
+       ``Intensity.BadInputsAreRefused``
+     - Both tables' headers and rows, with empty fields; the two inputs'
+       ranges and every refused call.
+   * - ``Intensity.ARestartContinuesTheWindowAndTheMaxima``
+     - A run split by a state round trip equals the straight run to the bit;
+       a changed height, averaging time or :math:`k` is refused by name; a
+       point that joins at a restart survives the next round trip.
+   * - ``Conductors_Intensity_TwoLevel``, ``Conductors_Intensity_Height40``
+       (CTests, stub)
+     - ``Conductors_TwoLevel`` (crosswind :math:`v = 15 + 0.1 z` m/s, lines on
+       level 1): every point reads :math:`15 + 0.1 h` m/s at 90° to 0.2 %, for
+       :math:`h` = 10 m and for 40 m with :math:`T` = 1 s; the 2.5 s run has
+       no largest with :math:`T` = 3 s and one stamped at 1 s or later with
+       :math:`T` = 1 s; the table's peaks and first exceedances are
+       ``capacities.csv``'s, and the conductor's peak demand is the largest
+       tension in ``S1.dat``.
+   * - ``Conductors_Intensity_PeakWind`` (CTest, stub)
+     - ``Conductors_EventGust`` (two lines on lattice towers over hills,
+       k-equation RANS): 12 of 15 components peak before the run's end; each
+       kept wind is stamped with its component's peak time and differs from
+       the point's last value; one point per span, attachment and tower, each
+       attachment's at 10 m above the terrain of ``ground.dat`` (which
+       differs by 53 m between attachments); every :math:`k` positive; no
+       largest stamped before 3 s.
+   * - ``Conductors_Intensity_Restart``,
+       ``Conductors_Intensity_RestartWindowAbort`` (CTests, stub)
+     - A checkpoint at 1.25 s with :math:`T` = 1 s (the window full and
+       trimmed): the restarted run's two tables equal the uninterrupted
+       run's; a restart with another averaging time stops, naming the input.
+   * - ``Conductors_Intensity_*Abort`` (CTests)
+     - An unknown measure, a height or averaging time out of range or given
+       without the measure, the measure without a capacity, a point above the
+       refined patch, and a line named like another's attachment each stop
+       the run with the input's name.
+
 Ground contact
 --------------
 

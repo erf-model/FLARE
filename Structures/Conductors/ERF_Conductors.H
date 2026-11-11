@@ -17,6 +17,7 @@
 #include <AMReX_RealBox.H>
 
 #include "ERF_Capacities.H"
+#include "ERF_Intensity.H"
 #include "ERF_GroundContact.H"
 #include "ERF_ConductorGeometry.H"
 #include "ERF_ConductorInputs.H"
@@ -47,7 +48,10 @@
  * (ASCE 10-15) every step. After every coupling step each component whose capacity is known (a conductor's rated
  * breaking strength, an insulator string's or the hardware's rated load, a footing's allowable, a member's design
  * strength) is checked against its demand (ERF_Capacities.H): the peaks go to capacities.csv, each component's first
- * exceedance to failures.dat, and with conductors.failure_stop the first one stops the run. With an conductors.gust_type the k-equation RANS's k sets the gusts
+ * exceedance to failures.dat, and with conductors.failure_stop the first one stops the run. With
+ * conductors.intensity_measure = wind the wind at a fixed height above the ground near each component, averaged over a
+ * few seconds, is kept beside its peak and its first exceedance (ERF_Intensity.H: demand_table.csv, intensity.csv).
+ * With an conductors.gust_type the k-equation RANS's k sets the gusts
  * (ERF_Gusts.H): every span's static gust factor, and with event or random a gust added to the wind
  * the lines and towers take.
  */
@@ -451,6 +455,29 @@ private:
     /** Add every component with a capacity to m_cap, afresh (set_ground() or restore() calls it once the lines and towers exist). */
     void build_capacities ();
     /**
+     * With conductors.intensity_measure = wind, where the intensity points stand: one at the middle of every
+     * span, one at every attachment of every line and one at every tower's base, each at intensity_height
+     * above the ground there. set_ground() calls it once the towers stand.
+     */
+    void place_intensity_points (const amrex::MultiFab* z_phys_nd, const amrex::Geometry& geom);
+    /**
+     * Create the intensity recorder from the placed points and link every component of the capacity monitor
+     * to its point: a span's conductor to the span's middle, a string or the hardware to its attachment, a
+     * tower's footings and members to the tower's base. After build_capacities(); aborts when no capacity is
+     * checked.
+     */
+    void build_intensity ();
+    /**
+     * Sample the flow's horizontal wind (and k with the k-equation RANS) at the intensity points for the
+     * step from time to time + dt; aborts when a point is not covered by the anchor level's grids.
+     */
+    void sample_intensity (double time, double dt, const amrex::MultiFab& U, const amrex::MultiFab& V, const amrex::MultiFab& W,
+                           const amrex::MultiFab* z_phys_nd, const amrex::Geometry& geom, const amrex::MultiFab* cons);
+    /** Record component id's demand and capacity at t, keeping the intensity at a new peak and at a first exceedance. */
+    void record_capacity (std::size_t id, double demand, double capacity, double t, std::vector<std::size_t>& fresh);
+    /** Write demand_table.csv and intensity.csv (the I/O rank; nothing without the intensity measure). */
+    void write_intensity () const;
+    /**
      * With ground_contact, write each placed line's seafloor file (seafloor_file() of its MoorDyn input): the anchor
      * level's terrain nodes under the line and one span length (and string) around it, within the domain, every
      * node or, past ConductorInputs::max_seafloor_points, every stride-th, raised by the conductor's radius (MoorDyn's
@@ -509,6 +536,7 @@ private:
     std::vector<std::vector<erf_actuator::RunningStats>> m_stats;   //!< per line: per span, then the strings', from stats_start
     //! per line with gust_type = factor: per span, the root-mean-square wind and normal wind and the mean k over its nodes
     std::vector<erf_actuator::RunningStats> m_gust_stats;
+    bool m_keqn{false};                                            //!< the anchor level runs the k-equation RANS (set_closure())
     bool m_closure_set{false};                                     //!< set_closure() has run
     double m_gust_sigma{0.0};                                      //!< sigma_u / sqrt(k) of the gusts
     erf_conductors::GustEvent m_event;                             //!< gust_type = event: the travelling gust
@@ -572,6 +600,12 @@ private:
     void step_thermal (double time, double dt, const std::vector<std::vector<amrex::Real>>& wind, const amrex::MultiFab* cons,
                        const amrex::MultiFab& U, const amrex::MultiFab* z_phys_nd, const amrex::Geometry& geom,
                        const StructureFire* fire, bool write_row);
+    erf_conductors::IntensityRecorder m_im;                         //!< the wind beside each component's peak (intensity_measure = wind)
+    struct IntensityPlace { std::string name; std::array<amrex::Real,3> pos; };
+    std::vector<IntensityPlace> m_im_place;                         //!< the intensity points: spans, attachments, towers, in that order
+    std::vector<std::vector<std::size_t>> m_im_span;                //!< per line, per span: its place in m_im_place
+    std::vector<std::vector<std::size_t>> m_im_attach;              //!< per line, per attachment (0 .. num_spans)
+    std::vector<std::size_t> m_im_tower;                            //!< per tower
     erf_conductors::CapacityMonitor m_cap;                          //!< capacities(): the components' demands against their capacities
     static constexpr std::size_t no_component = static_cast<std::size_t>(-1);
     std::vector<std::vector<std::size_t>> m_cap_span;               //!< per line, per span: its conductor in m_cap (no_component: none)

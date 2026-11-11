@@ -269,6 +269,25 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           |                                                          | frame's member       |                          |
 |                                                           |                                                          | design data          |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.intensity_measure**                          | wind: beside every component checked against a capacity, | none or wind; wind   | none                     |
+|                                                           | keep the wind at intensity_height above the ground where | needs a capacity (as |                          |
+|                                                           | it stands (a span's middle, an attachment, a tower's     | failure_stop)        |                          |
+|                                                           | base), averaged over intensity_averaging_time: at the    |                      |                          |
+|                                                           | component's peak demand-to-capacity ratio, at its first  |                      |                          |
+|                                                           | exceedance, and the run's largest (demand_table.csv,     |                      |                          |
+|                                                           | intensity.csv; theory: Wind intensity beside the peak    |                      |                          |
+|                                                           | demand)                                                  |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.intensity_height**                           | the height above the ground the wind is taken at (m)     | Real in (0, 500];    | 10.0                     |
+|                                                           |                                                          | needs                |                          |
+|                                                           |                                                          | intensity_measure =  |                          |
+|                                                           |                                                          | wind                 |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.intensity_averaging_time**                   | the time the wind is averaged over (s); 0 keeps the last | Real in [0, 600];    | 3.0                      |
+|                                                           | sample                                                   | needs                |                          |
+|                                                           |                                                          | intensity_measure =  |                          |
+|                                                           |                                                          | wind                 |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.thermal_model**                              | the conductors' temperature: ieee738 steps every span    | none or ieee738      | none                     |
 |                                                           | node's IEEE 738 heat balance with the fire's radiation   |                      |                          |
 |                                                           | and the air around it, and lengthens each span with its  |                      |                          |
