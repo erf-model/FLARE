@@ -19,6 +19,7 @@
 #include "ERF_Capacities.H"
 #include "ERF_Intensity.H"
 #include "ERF_GroundContact.H"
+#include "ERF_TowerFailures.H"
 #include "ERF_ConductorGeometry.H"
 #include "ERF_ConductorInputs.H"
 #include "ERF_ConductorLine.H"
@@ -237,6 +238,8 @@ public:
     const erf_conductors::CapacityMonitor& capacities () const { return m_cap; }
     /** With ground_contact, each span on the ground: first touch and the most nodes on it (empty otherwise). */
     const erf_conductors::GroundContactLog& ground_contacts () const { return m_ground_log; }
+    /** The towers that failed with conductors.tower_failure = release, in order. */
+    const erf_conductors::TowerFailureLog& tower_failures () const { return m_tower_failures; }
     /** The releases made by conductors.failure_break, in order. */
     const erf_conductors::BreakLog& breaks () const { return m_breaks; }
     /** The conductors' temperatures (conductors.thermal_model = ieee738), or null. */
@@ -521,10 +524,19 @@ private:
      */
     void report_failures (const std::vector<std::size_t>& fresh);
     /**
+     * The number of equal pieces a step of dt (s) is advanced and checked in, so that no piece is longer than
+     * conductors.capacity_check_interval: 1 when the interval is 0. Aborts, naming the input, above
+     * ConductorInputs::max_capacity_checks.
+     */
+    int capacity_check_pieces (double dt) const;
+    /**
+     * With conductors.tower_failure = release a footing's or member's first exceedance fails its tower, once: every
+     * line still on it is let go (erf_conductors::tower_releases()) and the tower is logged in tower_failures.dat.
      * With conductors.failure_break: for each of the step's first exceedances (fresh, in time order) that is a
      * line's conductor, insulator string or hardware, let go of the line as erf_conductors::decide_break() says,
-     * at time t (s, the end of the step), and log it in breaks.dat. A span released in this call is not released
-     * again in it: its tension has not fallen yet. Every rank makes the same releases on its own copy of the lines.
+     * at time t (s, the end of the step), and log it in breaks.dat. A span released in this call, by its line or
+     * by a failed tower, is not released again in it by a line's component: its tension has not fallen yet. A failed
+     * tower lets go of every end still on it, whatever was released before. Every rank makes the same releases on its own copy of the lines.
      */
     void apply_breaks (const std::vector<std::size_t>& fresh, double t);
     /**
@@ -634,6 +646,7 @@ private:
     std::vector<std::size_t> m_step_fresh;                          //!< the components first exceeding in this step, every group's
     erf_conductors::GroundContactLog m_ground_log;                  //!< with ground_contact: each span on the ground
     erf_conductors::BreakLog m_breaks;                              //!< breaks(): the releases made by failure_break, in order
+    erf_conductors::TowerFailureLog m_tower_failures;               //!< tower_failures(): the towers that failed, in order
     std::vector<std::vector<std::size_t>> m_ground_span;            //!< per line, per span: its index in m_ground_log
 };
 

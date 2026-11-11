@@ -277,9 +277,34 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           | line at a capacity exceedance)                           | gth,                 |                          |
 |                                                           |                                                          | insulator_rated_load |                          |
 |                                                           |                                                          | or                   |                          |
-|                                                           |                                                          | hardware_rated_load; |                          |
-|                                                           |                                                          | not with             |                          |
+|                                                           |                                                          | hardware_rated_load  |                          |
+|                                                           |                                                          | (or, with            |                          |
+|                                                           |                                                          | tower_failure =      |                          |
+|                                                           |                                                          | release, a tower's   |                          |
+|                                                           |                                                          | capacity); not with  |                          |
 |                                                           |                                                          | failure_stop         |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.capacity_check_start**                       | the time from which the components' demands are checked  | Real >= 0 (s); above | 0                        |
+|                                                           | against their capacities (s): a check stamped earlier is | 0 needs a capacity   |                          |
+|                                                           | not made, so nothing is recorded, exceeded, released or  | to check             |                          |
+|                                                           | failed before it (theory: When the checks start)         |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.capacity_check_interval**                    | the longest time between two checks of the components'   | Real in [0, 3600]    | 0                        |
+|                                                           | demands against their capacities (s). 0: once per step   | (s); above 0 needs a |                          |
+|                                                           | of the lines' level. Above 0 the lines advance in pieces | capacity to check    |                          |
+|                                                           | no longer than this within the step and are checked      |                      |                          |
+|                                                           | after each, so that a load peak shorter than the step is |                      |                          |
+|                                                           | seen (theory: Checks inside a step)                      |                      |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.tower_failure**                              | release: a tower whose footing or member exceeds its     | none or release;     | none                     |
+|                                                           | capacity lets go of every line on it at the end of that  | release needs        |                          |
+|                                                           | step (a string leaves the cross-arm, a clamped line      | failure_break = true |                          |
+|                                                           | leaves the tower on both sides); the tower stays and     | and a tower's        |                          |
+|                                                           | carries no line (tower_failures.dat, breaks.dat; theory: | capacity             |                          |
+|                                                           | Tower failure)                                           | (allowable_uplift,   |                          |
+|                                                           |                                                          | allowable_compressio |                          |
+|                                                           |                                                          | n or member design   |                          |
+|                                                           |                                                          | data)                |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.intensity_measure**                          | wind: beside every component checked against a capacity, | none or wind; wind   | none                     |
 |                                                           | keep the wind at intensity_height above the ground where | needs a capacity (as |                          |

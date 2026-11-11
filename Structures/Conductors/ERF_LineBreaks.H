@@ -71,7 +71,8 @@ constexpr double break_tie_tolerance = 1.0e-6;
  *    span there lets go of it; at a tower with strings the string lets go of the cross-arm; at a
  *    tower the spans are clamped to, the span with the higher tension at the tower lets go of it (the
  *    span before the tower on a tie), or the one still attached.
- * Footings and members release nothing (any = false), as does a component whose ends were all released
+ * Footings and members release nothing here (any = false; with conductors.tower_failure = release their
+ * tower lets go of its lines, ERF_TowerFailures.H), as does a component whose ends were all released
  * before. Aborts on an index outside the line or on vectors of unequal length.
  */
 BreakDecision decide_break (ComponentKind kind, int index, const LineEnds& e);

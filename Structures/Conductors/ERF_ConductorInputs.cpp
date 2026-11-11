@@ -562,7 +562,8 @@ std::string ConductorInputs::validate_settings (const ConductorInputs& in)
     // conductor_temperature: the thermal model's log (ERF_LineThermal.H), reserved whether or not it is selected, and
     // tower_temperature with tower_<tower>_member_temperature per frame tower: the towers' heating logs (ERF_TowerThermal.H), likewise
     // breaks: the releases' log (ERF_LineBreaks.H), reserved whether or not failure_break is set;
-    std::vector<std::string> own{"total_load", "separation", "transformers", "ground", "failures", "breaks", "conductor_temperature",
+    // tower_failures: the failed towers' log (ERF_TowerFailures.H), likewise;
+    std::vector<std::string> own{"total_load", "separation", "transformers", "ground", "failures", "breaks", "tower_failures", "conductor_temperature",
                                  "tower_temperature"};
     bool towers = false, moving = false;
     for (const LineInputs& s : in.lines) {
@@ -720,6 +721,27 @@ ConductorInputs ConductorInputs::read ()
     if (in.failure_break && in.failure_stop) {
         Abort("conductors.failure_break and conductors.failure_stop cannot both be true: failure_stop stops the run at the first "
               "exceedance, failure_break lets go of the line there and goes on");
+    }
+    pp.query("capacity_check_start", in.capacity_check_start);
+    if (!(std::isfinite(in.capacity_check_start) && in.capacity_check_start >= Real(0.0))) {
+        std::ostringstream msg;
+        msg << "conductors.capacity_check_start must be finite and >= 0 (s), got " << in.capacity_check_start;
+        Abort(msg.str());
+    }
+    pp.query("capacity_check_interval", in.capacity_check_interval);
+    if (!(std::isfinite(in.capacity_check_interval) && in.capacity_check_interval >= Real(0.0) && in.capacity_check_interval <= Real(3600.0))) {
+        std::ostringstream msg;
+        msg << "conductors.capacity_check_interval must be in [0, 3600] s (0: one check per step of the lines' level), got "
+            << in.capacity_check_interval;
+        Abort(msg.str());
+    }
+    pp.query("tower_failure", in.tower_failure);
+    if (in.tower_failure != "none" && in.tower_failure != "release") {
+        Abort("conductors.tower_failure must be none or release, got '" + in.tower_failure + "'");
+    }
+    if (in.tower_release_on() && !in.failure_break) {
+        Abort("conductors.tower_failure = release needs conductors.failure_break = true: a failed tower lets go of its lines, "
+              "which are then followed to the ground");
     }
     if (in.failure_break && !in.ground_contact) {
         Abort("conductors.failure_break = true needs conductors.ground_contact = true: a released conductor falls onto the terrain");

@@ -2545,8 +2545,10 @@ zero (``towers.dat``, ``transformers.dat``, the hardware's demand from the
 next check on).
 
 For lines on towers that bend, the check runs after every coupling step inside
-the level's step (`Component capacities and first failure`_). An exceedance
-found there carries its own time in ``failures.dat``, and the release is made
+the level's step (`Component capacities and first failure`_). With
+``conductors.capacity_check_interval`` (`Checks inside a step`_) every line
+is checked several times inside the step. An exceedance
+found inside a step carries its own time in ``failures.dat``, and the release is made
 at the end of the level's step that contains it. The tensions of Eq.
 :eq:`br-end`, and the tension written to ``breaks.dat``, are those at the end
 of that step.
@@ -2578,7 +2580,8 @@ between). :math:`T_k^a` and :math:`T_k^b` (N) are the tensions at span
      - Of the two spans meeting there, the one with the higher tension at the
        tower leaves it
    * - Tower footing or member
-     - Nothing (a tower failure is not part of this model)
+     - Nothing, unless ``conductors.tower_failure = release``: then the tower
+       lets go of every line on it (`Tower failure`_)
 
 The end of a span that lets go is
 
@@ -2680,7 +2683,8 @@ between its two sides; the footing and member checks see that load.
      - ``false``
      - ``true``: a line's component over its capacity lets go of the line at
        the end of that step; needs ``ground_contact = true`` and a line's
-       capacity; not with ``failure_stop``
+       capacity (or, with ``tower_failure = release``, a tower's); not with
+       ``failure_stop``
    * - :math:`\epsilon`
      - :math:`10^{-6}`
      - tie tolerance of Eq. :eq:`br-end` (``break_tie_tolerance``)
@@ -2698,18 +2702,21 @@ Assumptions and limitations
   not made because its span had let go at its other end in the same step, and
   a component already over its capacity in a checkpoint when a restart first
   sets ``failure_break``; the restart names each such component.
-* **Towers do not fail.** A footing or member over its capacity is logged and
-  releases nothing. The cascade followed here is through the lines: a release
-  changes the loads on what remains, which may then exceed its own capacity.
+* **Towers.** A footing or member over its capacity is logged and releases
+  nothing by default. With ``conductors.tower_failure = release`` the tower
+  lets go of its lines (`Tower failure`_). Either way a release changes the
+  loads on what remains, which may then exceed its own capacity.
 * **Nominal capacities.** As for the capacity check, the capacities are the
   inputs' values with no strength factor and no scatter.
 * **Timing.** The release is made at the end of the step that finds the
   exceedance, so the time of a release is resolved to one step of the lines'
   level.
 * **Dynamic loads after a release.** The whip of a falling span is resolved by
-  MoorDyn-C's internal step, but the demand is checked once per step of the
-  lines' level: a peak shorter than that step may be missed (see the runs
-  under `Verification of the release`_).
+  MoorDyn-C's internal step, but by default the demand is checked once per
+  step of the lines' level: a peak shorter than that step may be missed (see
+  the runs under `Verification of the release`_). Set
+  ``conductors.capacity_check_interval`` to check inside the step (`Checks
+  inside a step`_).
 * **Sensitivity of a fall.** A falling conductor that lands and whips
   amplifies small differences. Two MoorDyn-C runs of the same case on 2 and
   on 3 MPI ranks, whose flows differ in the last digits, made the same
@@ -2734,6 +2741,192 @@ Assumptions and limitations
   :eq:`br-end` is the rule there, since its span carries the same tension at
   both ends. Release times agree between the stub and MoorDyn-C when the
   demand passes the capacity at the same step.
+
+Checks inside a step
+~~~~~~~~~~~~~~~~~~~~
+
+By default the demands are compared with the capacities once per step
+:math:`\Delta t` (s) of the lines' level, at its end. A load peak shorter than
+the step can then pass unseen. With
+``conductors.capacity_check_interval`` :math:`= \tau > 0` the lines advance
+within the step in
+
+.. math::
+   :label: ci-pieces
+
+   n = \left\lceil \frac{\Delta t}{\tau} \right\rceil , \qquad h = \frac{\Delta t}{n} \le \tau ,
+
+equal pieces of length :math:`h`, and the components are checked after each,
+at :math:`t + h, t + 2h, \dots, t + \Delta t`. The wind is the one sampled at
+the start of the step, held over all pieces, as without the option. The
+lines' own integration is MoorDyn's and keeps its internal step; only the
+points at which ERF reads the loads are added. Lines on towers that bend take
+at least :math:`n` coupling steps, each of which they already check.
+
+The towers that stand still are checked with the lines, under the lines' pull
+at each of these times. Releases and tower failures are still made at the end
+of the step (Eqs. :eq:`br-trigger` and :eq:`tf-time`); the times in
+``failures.dat`` and the peaks in ``capacities.csv`` are those of the pieces.
+
+**Choosing the interval.** After a release the remaining support sees a peak
+15 to 105 ms wide (`Verification of the release`_). An interval of 10 ms
+places at least one check inside the narrowest of these; one of 125 ms can
+miss more than half of its height. In MoorDyn-C runs of a released 300 m
+span the checks saw, at the worst phase, 32 to 44 % of the peak at 0.25 s,
+41 to 46 % at 0.125 s, 51 to 69 % at 0.05 s and 85 to 99 % at 0.01 s (the
+peak was 12 ms wide on the finest line).
+
+**Cost and effect on the answer.** Each piece of a line on fixed supports is
+``conductors.substeps`` calls of MoorDyn and one check; a line on towers that
+bend takes the larger of its coupling steps and :math:`n`. Advancing a line in
+more calls changes its answer, since MoorDyn divides each call into its own
+steps and ends it on a shorter one: by about :math:`10^{-7}` in the tension
+of a line at rest; for a falling conductor by :math:`10^{-6}` in position and
+up to a few per cent in the tension read at a check. The lines on fixed supports are advanced in pieces whenever any
+capacity is checked, also one that is only on a tower that bends. With
+:math:`\tau = 0`, the default, nothing changes.
+
+**What stays per step.** The wind, the gusts, the conductors' temperatures,
+the statistics, ``ground_contact.csv`` and the wind of
+``conductors.intensity_measure`` are sampled once per step, as without the
+option. A peak found inside a step keeps the averaged wind of that step's
+end beside it in ``demand_table.csv``.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 38 14 48
+
+   * - Input or constant
+     - Default
+     - Effect
+   * - ``conductors.capacity_check_interval``
+     - 0
+     - :math:`\tau` (s), in [0, 3600]; 0: one check per step of the lines'
+       level; needs a capacity to check
+   * - most checks per step
+     - 100 000
+     - a smaller :math:`\tau` stops the run at its first step, naming the
+       input (``ConductorInputs::max_capacity_checks``)
+
+When the checks start
+~~~~~~~~~~~~~~~~~~~~~
+
+By default the components are checked from the first step. A run often
+starts away from the state it is meant to study: the flow spins up, or lines
+switched on at a restart start from their still-air shape and their towers,
+if they bend, ring from rest. The loads of that start-up are then recorded as
+peaks, and with ``failure_break`` or ``tower_failure`` they can release a
+line. With ``conductors.capacity_check_start`` :math:`= t_s` a check stamped
+with a time :math:`t < t_s` is not made:
+
+.. math::
+   :label: cs-start
+
+   \text{checked at } t \iff t \ge t_s .
+
+Before :math:`t_s` nothing is recorded: no demand, no peak, no exceedance,
+no release and no tower failure, and the components' demand and peak fields
+in ``capacities.csv`` are empty. The lines and towers themselves advance as
+without the option. The first check is the first one stamped at or after
+:math:`t_s`: the end of a step, or of a piece or coupling step inside it
+(`Checks inside a step`_). The time is the run's, so a restart keeps it.
+With ``conductors.intensity_measure = wind`` the largest averaged wind of
+each point (Eq. :eq:`im-max`) is likewise looked for from :math:`t_s` on; the
+averaging window is filled from the first step as before.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 38 14 48
+
+   * - Input
+     - Default
+     - Effect
+   * - ``conductors.capacity_check_start``
+     - 0
+     - :math:`t_s` (s), finite and :math:`\ge 0`; needs a capacity to check
+
+Tower failure
+~~~~~~~~~~~~~
+
+With ``conductors.tower_failure = release`` a tower fails when one of its
+checked components first exceeds its capacity: the footings' largest uplift
+or compression against the tower type's allowable values, or a frame tower's
+member against its design strength (`Component capacities and first
+failure`_). With :math:`c \in t` the checked components of tower :math:`t`,
+its failure time is
+
+.. math::
+   :label: tf-time
+
+   t_t^{*} = \min_{c \in t} \; t_c^{*} ,
+
+with :math:`t_c^{*}` from Eq. :eq:`br-trigger`. A tower fails once. At the end
+of the step that finds :math:`t_t^{*}` every line still attached to it is let
+go:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Line at the tower
+     - Release
+   * - Hangs from an insulator string
+     - The string leaves the cross-arm
+   * - Clamped to the tower
+     - The span before the tower leaves it, then the span after it
+
+Lines of other circuits that share the tower are released with it. Ends
+released before are left as they are. A failed tower lets go of every end
+still on it, also of a span that let go at its other end in the same step; a
+span the tower lets go of is not released again in that step by its own
+conductor or hardware. The tower itself is not removed: it
+stays where it stands, keeps its wind load and carries no line afterwards.
+Its footing and member checks go on and see no further load from the lines.
+
+**Why this is a cascade mechanism.** A tower that lets go of a conductor
+passes the conductor's weight to its neighbours. On a line with strings, the
+next tower then carries its share of the longer span beside it. An example,
+by the elastic catenary and by MoorDyn-C: spans of 300, 500 and 100 m with
+attachments 60 m up, strung to pull equally along the line. Towers 1 and 2
+carry the conductor of 397 m and 282 m. After tower 1 fails, the conductor
+hangs 800 m from the dead end to tower 2, which carries that of 423 m at
+rest: 1.44 times its vertical load before. Before it rests the load is
+larger: in the MoorDyn-C run it reaches 21.5 kN against 7.3 kN at rest, as
+the released conductor falls and swings. Whether the next tower fails depends
+on its own capacity and on that dynamic load (`Checks inside a step`_).
+
+The transfer is smaller where the released conductor reaches the ground,
+which then carries part of it. With spans of 300, 400 and 200 m on 30 m
+towers the 700 m span lies on the ground at rest and tower 2 carries 1.11
+times its load before, against 1.47 times clear of the ground.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 16 50
+
+   * - Input
+     - Default
+     - Effect
+   * - ``conductors.tower_failure``
+     - ``none``
+     - ``release``: a tower whose footing or member exceeds its capacity lets
+       go of every line on it at the end of that step; needs
+       ``failure_break = true`` and a capacity on a tower
+
+**Limits of the tower model.** The failed tower does not collapse, lose
+members or shed load to other members: only its lines are released. A real
+tower that fails falls with its conductors and pulls on its neighbours as it
+goes; here the neighbours see only the released conductor. Which towers fail
+together is decided by the step: all towers whose first exceedance falls in
+one step of the lines' level fail at its end.
+
+``<diagnostics_dir>/tower_failures.dat`` holds one row per failed tower:
+``time tower component releases``, with the component whose exceedance failed
+it and the number of releases made. Each release is also a row of
+``breaks.dat``, naming that component. A checkpoint stores the failed towers
+under ``<chk>/conductors/tower_failures``; a restart does not fail them
+again. A component already over its capacity in a checkpoint does not fail
+its tower when a restart first sets the option; the restart names it.
 
 Outputs and restart
 ~~~~~~~~~~~~~~~~~~~
@@ -2840,6 +3033,48 @@ Verification of the release
        string lets go at 4.5 s, the step of the checkpoint.
    * - ``Conductors_Break_NeedsGroundContactAbort``, ``_WithFailureStopAbort``, ``_NeedsLineCapacityAbort`` (CTests)
      - The three refusals at start-up.
+   * - ``Conductors.CapacityChecksInsideTheStepStampTheFirstExceedanceThere``
+     - Eq. :eq:`ci-pieces`: a step of 0.25 s with :math:`\tau` = 0.1 s is
+       checked at 0.25/3 s, where a strength below the still-air tension is
+       first exceeded; the release is at 0.25 s. Lines on towers that bend
+       take 25 coupling steps with :math:`\tau` = 0.01 s, 10 without.
+   * - ``Conductors.CapacityChecksInsideTheStepSeeTheLoadAfterARelease``
+     - A clamped section lets go of both dead ends: the largest pull recorded
+       on a tower with a check every 0.01 s is at least that with one check
+       per 0.25 s step, and more than 5 % above it with MoorDyn-C.
+   * - ``Conductors.CapacityCheckIntervalIsRefusedOutOfRangeOrWithoutACapacity``
+     - Values outside [0, 3600], no capacity to check, and more than the
+       most checks per step stop the run, naming the input.
+   * - ``Conductors.CapacityChecksStartAtTheirStartTime``
+     - Eq. :eq:`cs-start`: with :math:`t_s` = 0.6 s and steps of 0.25 s a
+       strength below the still-air tension is first exceeded at 0.75 s,
+       not at 0.25 s; before it the component has no record and the line is
+       whole. With pieces of 0.25/3 s the first check is at 0.6667 s. A
+       negative start and a start without a capacity stop the run.
+   * - ``TowerReleases.*``, ``TowerFailureLog.*``
+     - The table of `Tower failure`_: the string, or both sides of a clamped
+       line, less what was released before; the rows of
+       ``tower_failures.dat``, a bit-exact round trip, a second failure of a
+       tower refused.
+   * - ``Conductors.ATowerOverItsFootingsLoadLetsGoOfItsLines``
+     - Standing towers whose legs carry 23.7 kN against a bearing capacity
+       of 23 kN fail at the end of the first step, Eq. :eq:`tf-time`: a
+       clamped line leaves each on both sides, a line on strings loses its
+       strings; each tower is logged once and carries no line afterwards.
+   * - ``Conductors.AFailedTowerPassesItsLoadToTheNext``
+     - Spans of 300, 500 and 100 m on strings, 60 m up, legs rated 1.8 kN:
+       tower 1's legs carry 1.98 kN and tower 2's 1.52 kN, so only tower 1
+       fails at the first step (0.25 s). With MoorDyn-C tower 2, whose legs
+       then carry 2.08 kN at rest and more while the conductor falls, fails
+       at 1.0 s; without the release it never passes its capacity. The
+       stub's string load hardly changes, so there the second tower stands.
+   * - ``Conductors.FailedTowersStayFailedAcrossARestart``, ``Conductors.TowerFailureNeedsFailureBreakAndATowersCapacity``
+     - Failed towers and their releases come back from a checkpoint and the
+       lines follow the uninterrupted run's; the refusals; off by default.
+   * - ``Conductors_TowerFailure_Terrain_Restart`` (CTest, stub and MoorDyn-C), three abort CTests
+     - On the hills all three towers fail at the first step under a bearing
+       capacity of 10 kN; the restarted run's logs equal the straight run's
+       to ten digits. The refusals at start-up.
 
 **Observed, not pinned.** In the MoorDyn-C run of ``Conductors_Break_TwoLevel``
 the falling span's largest tension after the release is 7.7 kN at 3 s, 57 % of

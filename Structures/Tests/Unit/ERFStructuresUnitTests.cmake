@@ -73,6 +73,10 @@ function(erf_structures_unit_tests target)
   # the end the rule names, once; the released span must come to hang from its other end with the weight of its
   # hanging length there, its support take nothing, and a restart make the release again and continue the run
   # (ERF_GTestLineBreaks.cpp holds the rule's, the log's and the line's own tests).
+  # With tower_failure = release a tower over a footing's or member's capacity must let go of every line on it, once,
+  # at the end of that step, carry no line afterwards and stay failed across a restart; on MoorDyn-C the next tower,
+  # which then carries more of the conductor, must fail after it (ERF_GTestTowerFailures.cpp holds the rule's and
+  # the log's own tests).
   target_sources(${target} PRIVATE
     ${_erf_structures_tests_dir}/ERF_GTestConductorInputsReset.cpp
     ${_erf_structures_tests_dir}/ERF_GTestConductorGeometry.cpp
@@ -86,6 +90,7 @@ function(erf_structures_unit_tests target)
     ${_erf_structures_tests_dir}/ERF_GTestIntensity.cpp
     ${_erf_structures_tests_dir}/ERF_GTestGroundContact.cpp
     ${_erf_structures_tests_dir}/ERF_GTestLineBreaks.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestTowerFailures.cpp
     ${_erf_structures_tests_dir}/ERF_GTestTransformer.cpp
   )
   # Motivation: a conductor's temperature under a fire (conductors.thermal_model = ieee738) must use the

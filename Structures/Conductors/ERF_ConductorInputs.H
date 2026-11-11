@@ -343,6 +343,24 @@ std::string first_nonfinite (const std::vector<T>& v, std::size_t per_point, con
  *                                                   peaks go to <diagnostics_dir>/capacities.csv and each component's
  *                                                   first exceedance to <diagnostics_dir>/failures.dat with or without
  *                                                   it; default false; true needs at least one capacity)
+ *   conductors.capacity_check_start = 0.       (s, >= 0. The time from which the components' demands are checked against
+ *                                                   their capacities: a check stamped earlier is not made, so nothing is
+ *                                                   recorded, exceeded, released or failed before it. For a run whose
+ *                                                   lines or flow first settle (a spin-up, lines switched on at a
+ *                                                   restart). Default 0: from the first step; needs a capacity to check)
+ *   conductors.capacity_check_interval = 0.    (s, in [0, 3600]. The longest time between two checks of the components'
+ *                                                   demands against their capacities. 0 (the default): once per step of
+ *                                                   the lines' level, at its end (lines on towers that bend: after each
+ *                                                   coupling step). Above 0 the lines advance in pieces no longer than
+ *                                                   this within the step and are checked after each, so that a load peak
+ *                                                   shorter than the step is seen; needs a capacity to check)
+ *   conductors.tower_failure    = none         (none or release. release: a tower whose footing or member exceeds its
+ *                                                   capacity lets go of every line on it at the end of that step (an
+ *                                                   insulator string leaves the cross-arm; a clamped line leaves the
+ *                                                   tower on both sides); the tower stays and carries no line. Each
+ *                                                   failed tower goes to <diagnostics_dir>/tower_failures.dat and its
+ *                                                   releases to breaks.dat. Needs failure_break = true and a tower's
+ *                                                   capacity. Default none)
  *   conductors.failure_break    = false        (a line's component that exceeds its capacity lets go of the line at
  *                                                   the end of that step, and the run goes on with the end free: a
  *                                                   conductor's span at its end with the higher tension, an insulator
@@ -351,7 +369,8 @@ std::string first_nonfinite (const std::vector<T>& v, std::size_t per_point, con
  *                                                   tension). Each release goes to <diagnostics_dir>/breaks.dat.
  *                                                   Default false; true needs conductors.ground_contact = true and a
  *                                                   line's rated_breaking_strength, insulator_rated_load or
- *                                                   hardware_rated_load, and cannot be combined with failure_stop)
+ *                                                   hardware_rated_load (or, with tower_failure = release, a
+ *                                                   tower's capacity), and cannot be combined with failure_stop)
  *   conductors.ground_contact   = false        (the terrain holds the lines up: each line's MoorDyn system takes the
  *                                                   anchor level's terrain under it as its seafloor
  *                                                   (<diagnostics_dir>/<line>.seafloor.txt), so a conductor that sags
@@ -426,6 +445,11 @@ struct ConductorInputs
     amrex::Real flashover_distance{1.0};                //!< (m)
     bool failure_stop{false};                           //!< stop the run at the first capacity exceedance
     bool failure_break{false};                          //!< a line's component over its capacity lets go of the line
+    amrex::Real capacity_check_start{0.0};              //!< the time from which the capacities are checked (s)
+    amrex::Real capacity_check_interval{0.0};           //!< the longest time between capacity checks (s); 0: once per step of the lines' level
+    static constexpr int max_capacity_checks = 100000;  //!< the most capacity checks in one step of the lines' level
+    std::string tower_failure{"none"};                  //!< none or release: a tower over a footing's or member's capacity lets go of its lines
+    bool tower_release_on () const { return tower_failure == "release"; }
     std::string intensity_measure{"none"};              //!< none or wind: the wind beside each component's peak demand
     amrex::Real intensity_height{10.0};                 //!< the height above the ground the wind is taken at (m)
     amrex::Real intensity_averaging_time{3.0};          //!< the time the wind is averaged over (s); 0: the last sample

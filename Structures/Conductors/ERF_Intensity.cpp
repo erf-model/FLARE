@@ -163,7 +163,8 @@ IntensityRecorder::sample (const std::vector<IntensitySample>& s, double dt, dou
         while (m_hist[p].size() > keep) { m_hist[p].pop_back(); }
         average(p, m_p[p].now);
         // the run's largest T-second average: an average over a window not yet full is a shorter one, and is not compared
-        if (full && (!m_p[p].max.set || m_p[p].now.speed > m_p[p].max.speed)) { m_p[p].max = m_p[p].now; }
+        // (nor one stamped before the start time of the checks)
+        if (full && !(t < m_max_start) && (!m_p[p].max.set || m_p[p].now.speed > m_p[p].max.speed)) { m_p[p].max = m_p[p].now; }
     }
 }
 
