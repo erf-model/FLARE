@@ -62,6 +62,9 @@ function(erf_structures_unit_tests target)
   # level), its demand pinned to the still-air catenary tension or the footings' share of the
   # weight, its first exceedance logged once and kept across a restart, and failure_stop must stop
   # the run after the log is written (ERF_GTestCapacities.cpp holds the monitor's own tests).
+  # With intensity_measure = wind the averaged wind beside each component's peak must be the time-weighted mean
+  # over the averaging window, kept at the peak's step (not the last), and continue across a restart to the bit
+  # (ERF_GTestIntensity.cpp).
   # With ground_contact the terrain under each line must reach MoorDyn as its seafloor, node for
   # node, and hold a slack span on the ground; the contact's damping must be critical for the
   # conductor and a MoorDyn step too long for it refused; the spans' ground records must survive a
@@ -76,6 +79,7 @@ function(erf_structures_unit_tests target)
     ${_erf_structures_tests_dir}/ERF_GTestConductorLine.cpp
     ${_erf_structures_tests_dir}/ERF_GTestConductors.cpp
     ${_erf_structures_tests_dir}/ERF_GTestCapacities.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestIntensity.cpp
     ${_erf_structures_tests_dir}/ERF_GTestGroundContact.cpp
     ${_erf_structures_tests_dir}/ERF_GTestTransformer.cpp
   )

@@ -92,6 +92,15 @@ conductors.epsilon            = 2.0         # Real > 0 (cells). Width of the Gau
 conductors.flashover_distance = 1.0         # Real > 0 (m). Two lines closer than this are flagged as clashing in
                                                 #   separation.dat, a conductor this close to a transformer in
                                                 #   transformers.dat. Default: 1.0
+conductors.intensity_measure = none        # none or wind. wind: beside every component checked against a capacity,
+                                                #   keep the wind at intensity_height above the ground where it stands,
+                                                #   averaged over intensity_averaging_time: at its peak demand-to-capacity
+                                                #   ratio, at its first exceedance, and the run's largest
+                                                #   (demand_table.csv, intensity.csv). wind needs at least one
+                                                #   capacity. Default: none
+#conductors.intensity_height = 10.0        # (0, 500] m above the ground. Needs intensity_measure = wind. Default: 10.0
+#conductors.intensity_averaging_time = 3.0 # [0, 600] s; 0 keeps the last sample. Needs intensity_measure = wind.
+                                                #   Default: 3.0
 conductors.failure_stop      = false       # true or false. Stop the run (an abort naming the component) at the
                                                 #   first coupling step where a component's demand exceeds its
                                                 #   capacity, after capacities.csv and failures.dat are written.

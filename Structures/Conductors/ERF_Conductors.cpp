@@ -131,6 +131,7 @@ Conductors::create (int max_level)
 void
 Conductors::set_closure (bool keqn_rans, Real Cmu0)
 {
+    m_keqn = keqn_rans;
     if (!m_in.gusts_on()) { m_closure_set = true; return; }
     if (!keqn_rans) {
         Abort("conductors.gust_type = " + m_in.gust_type + " needs the k-equation RANS (erf.rans_type = kEqn) on the conductors' "
@@ -284,6 +285,7 @@ Conductors::set_ground (const MultiFab* z_phys_nd, const Geometry& geom, const s
     write_asce74();
     setup_gusts(geom);
     write_seafloors(z_phys_nd, geom);
+    place_intensity_points(z_phys_nd, geom);
 
     if (!restart_chkdir.empty()) {
         const std::string dir = restart_chkdir + "/conductors";
@@ -405,6 +407,7 @@ Conductors::set_ground (const MultiFab* z_phys_nd, const Geometry& geom, const s
         write_member_tables();
     }
     build_capacities();
+    build_intensity();
     build_ground_log();
 }
 
@@ -1306,13 +1309,160 @@ Conductors::build_capacities ()
 }
 
 void
+Conductors::place_intensity_points (const MultiFab* z_phys_nd, const Geometry& geom)
+{
+    m_im_place.clear();
+    m_im_span.assign(m_placed.size(), {});
+    m_im_attach.assign(m_placed.size(), {});
+    m_im_tower.clear();
+    if (!m_in.intensity_on()) { return; }
+    for (std::size_t i = 0; i < m_placed.size(); ++i) {
+        const LineInputs& s = m_placed[i];
+        const int ns = s.num_spans();
+        for (int k = 0; k < ns; ++k) {
+            const auto& a = s.point(k);
+            const auto& b = s.point(k + 1);
+            m_im_span[i].push_back(m_im_place.size());
+            m_im_place.push_back({(ns == 1) ? s.name : s.name + "_span" + std::to_string(k + 1),
+                                  {{Real(0.5) * (a[0] + b[0]), Real(0.5) * (a[1] + b[1]), Real(0.0)}}});
+        }
+        for (int a = 0; a <= ns; ++a) {
+            const auto& p = s.point(a);
+            const std::string where = (a == 0) ? "end_a" : (a == ns ? "end_b" : "tower" + std::to_string(a));
+            m_im_attach[i].push_back(m_im_place.size());
+            m_im_place.push_back({s.name + "_" + where, {{p[0], p[1], Real(0.0)}}});
+        }
+    }
+    for (const auto& t : m_towers) {
+        m_im_tower.push_back(m_im_place.size());
+        m_im_place.push_back({"tower_" + t.name(), {{t.base()[0], t.base()[1], Real(0.0)}}});
+    }
+    // a line named like another's span or attachment, or like a tower's point, would share a point's name
+    for (std::size_t p = 0; p < m_im_place.size(); ++p) {
+        for (std::size_t q = 0; q < p; ++q) {
+            if (m_im_place[p].name == m_im_place[q].name) {
+                Abort("conductors.intensity_measure = wind: two intensity points are named '" + m_im_place[p].name + "': rename a "
+                      "line in conductors.lines so that its name is not another line's span or attachment (<line>_span<k>, "
+                      "<line>_end_a, <line>_end_b, <line>_tower<j>) nor tower_<a tower's name>");
+            }
+        }
+    }
+    // each point at intensity_height above the ground under it
+    std::vector<Real> pos, h;
+    for (const auto& p : m_im_place) { pos.insert(pos.end(), {p.pos[0], p.pos[1], p.pos[2]}); }
+    ground_heights(z_phys_nd, geom, pos, h);
+    for (std::size_t p = 0; p < m_im_place.size(); ++p) { m_im_place[p].pos[2] = h[p] + m_in.intensity_height; }
+}
+
+void
+Conductors::build_intensity ()
+{
+    m_im = erf_conductors::IntensityRecorder();
+    if (!m_in.intensity_on()) { return; }
+    if (m_cap.empty()) {
+        Abort("conductors.intensity_measure = wind needs a capacity to check: a line's rated_breaking_strength, "
+              "insulator_rated_load or hardware_rated_load, a tower type's allowable_uplift or allowable_compression, "
+              "or a frame tower's member design data");
+    }
+    const bool with_k = m_keqn && !m_in.has_prescribed_velocity;
+    const std::string err = m_im.configure(static_cast<double>(m_in.intensity_height),
+                                           static_cast<double>(m_in.intensity_averaging_time), with_k);
+    if (!err.empty()) { Abort(err); }
+    for (const auto& p : m_im_place) {
+        m_im.add_point(p.name, static_cast<double>(p.pos[0]), static_cast<double>(p.pos[1]), static_cast<double>(p.pos[2]));
+    }
+    m_im.components(m_cap.size());
+    auto link = [&] (std::size_t id, std::size_t place) { if (id != no_component) { m_im.link(id, place); } };
+    for (std::size_t i = 0; i < m_lines.size(); ++i) {
+        const int ns = m_lines[i]->num_spans();
+        for (int k = 0; k < ns; ++k) { link(m_cap_span[i][static_cast<std::size_t>(k)], m_im_span[i][static_cast<std::size_t>(k)]); }
+        // string j hangs at attachment j + 1
+        for (std::size_t j = 0; j < m_cap_string[i].size(); ++j) { link(m_cap_string[i][j], m_im_attach[i][j + 1]); }
+        for (int a = 0; a <= ns; ++a) { link(m_cap_hardware[i][static_cast<std::size_t>(a)], m_im_attach[i][static_cast<std::size_t>(a)]); }
+    }
+    for (std::size_t t = 0; t < m_towers.size(); ++t) {
+        link(m_cap_footing[t][0], m_im_tower[t]);
+        link(m_cap_footing[t][1], m_im_tower[t]);
+        for (const std::size_t id : m_cap_member[t]) { link(id, m_im_tower[t]); }
+    }
+    Print() << "conductors: the wind at " << m_in.intensity_height << " m above the ground, averaged over "
+            << m_in.intensity_averaging_time << " s, kept at " << m_im.num_points() << " point(s) beside the components' peaks"
+            << (with_k ? ", with the RANS k" : "") << " (" << m_in.diagnostics_dir << "/demand_table.csv, intensity.csv)\n";
+}
+
+void
+Conductors::sample_intensity (double time, double dt, const MultiFab& U, const MultiFab& V, const MultiFab& W,
+                              const MultiFab* z_phys_nd, const Geometry& geom, const MultiFab* cons)
+{
+    if (!m_in.intensity_on()) { return; }
+    const std::size_t np = m_im.num_points();
+    std::vector<erf_conductors::IntensitySample> s(np);
+    if (m_in.has_prescribed_velocity) {
+        for (auto& v : s) { v.u = static_cast<double>(m_in.prescribed_velocity[0]); v.v = static_cast<double>(m_in.prescribed_velocity[1]); }
+    } else {
+        std::vector<Real> pos, uvw;
+        for (std::size_t p = 0; p < np; ++p) {
+            const auto& q = m_im.point(p);
+            pos.insert(pos.end(), {static_cast<Real>(q.x), static_cast<Real>(q.y), static_cast<Real>(q.z)});
+        }
+        std::string outside;
+        if (!erf_actuator::points_covered_by(U.boxArray(), geom, pos, coverage_reach(geom, Real(0.0)), outside,
+                                             (z_phys_nd == nullptr) ? erf_actuator::CoverZ::Reach : erf_actuator::CoverZ::Footprint)) {
+            Abort("conductors.intensity_measure = wind: the intensity point " + outside + " (conductors.intensity_height above "
+                  "the ground under a span's middle, an attachment or a tower) is not covered, with the cells around it, by the "
+                  "grids of the anchor level " + std::to_string(m_anchor) + "; refine down to the ground under the lines or lower "
+                  "conductors.anchor_level");
+        }
+        erf_actuator::sample_velocity(U, V, W, z_phys_nd, geom, pos, uvw);
+        std::vector<double> k;
+        if (m_im.with_k()) {
+            if (cons == nullptr) { Abort("Conductors::sample_intensity: the k-equation RANS's k needs the conserved state"); }
+            k = sample_k(pos, *cons, z_phys_nd, geom);
+        }
+        for (std::size_t p = 0; p < np; ++p) {
+            s[p].u = static_cast<double>(uvw[3*p]);
+            s[p].v = static_cast<double>(uvw[3*p+1]);
+            if (m_im.with_k()) {
+                if (std::isnan(k[p])) {
+                    Abort("conductors: at the intensity point " + m_im.point(p).name + " the density is not positive or rho k is not finite");
+                }
+                s[p].k = k[p];
+            }
+        }
+    }
+    m_im.sample(s, dt, time + dt);
+}
+
+void
+Conductors::record_capacity (std::size_t id, double demand, double capacity, double t, std::vector<std::size_t>& fresh)
+{
+    const auto& c = m_cap.component(id);
+    const bool was_seen = c.seen;
+    const double before = c.peak_ratio;
+    const bool first = m_cap.record(id, demand, capacity, t);
+    if (m_in.intensity_on()) {
+        if (!was_seen || m_cap.component(id).peak_ratio > before) { m_im.at_peak(id); }
+        if (first) { m_im.at_first(id); }
+    }
+    if (first) { fresh.push_back(id); }
+}
+
+void
+Conductors::write_intensity () const
+{
+    if (!m_in.intensity_on() || !ParallelDescriptor::IOProcessor()) { return; }
+    m_im.write_demand_table(m_in.diagnostics_dir + "/demand_table.csv", m_cap);
+    m_im.write_points(m_in.diagnostics_dir + "/intensity.csv");
+}
+
+void
 Conductors::check_line_capacities (std::size_t i, double t, std::vector<std::size_t>& fresh)
 {
     if (m_cap.empty()) { return; }
     const LineInputs& s = m_placed[i];
     const ConductorLine& c = *m_lines[i];
     auto record = [&] (std::size_t id, double demand, double capacity) {
-        if (id != no_component && m_cap.record(id, demand, capacity, t)) { fresh.push_back(id); }
+        if (id != no_component) { record_capacity(id, demand, capacity, t, fresh); }
     };
     for (int k = 0; k < c.num_spans(); ++k) {
         record(m_cap_span[i][static_cast<std::size_t>(k)], static_cast<double>(c.max_tension(k)),
@@ -1339,7 +1489,7 @@ Conductors::check_tower_capacities (std::size_t tw, double t, std::vector<std::s
 {
     if (m_cap.empty()) { return; }
     auto record = [&] (std::size_t id, double demand, double capacity) {
-        if (id != no_component && m_cap.record(id, demand, capacity, t)) { fresh.push_back(id); }
+        if (id != no_component) { record_capacity(id, demand, capacity, t, fresh); }
     };
     const auto& type = m_towers[tw].type();
     if (m_cap_footing[tw][0] != no_component || m_cap_footing[tw][1] != no_component) {
@@ -1399,6 +1549,7 @@ Conductors::report_failures (const std::vector<std::size_t>& fresh)
         if (!out) { Abort("cannot write '" + m_in.diagnostics_dir + "/failures.dat'"); }
         m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv");
     }
+    write_intensity();
     // a few lines a step on the console (a frame tower can have dozens of members over their strength at once);
     // failures.dat has every one
     constexpr std::size_t shown = 5;
@@ -1917,6 +2068,34 @@ Conductors::restore (const std::string& dir)
         // the table as of the checkpoint, not as the run being restarted left it after it
         if (ParallelDescriptor::IOProcessor()) { m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv"); }
     }
+    // the intensity beside the peaks: the averaging window, the run's maxima and the winds kept at the peaks and
+    // first exceedances; a checkpoint without them starts afresh at the restart
+    build_intensity();
+    if (m_in.intensity_on()) {
+        if (erf_actuator::file_exists_everywhere(dir + "/intensity")) {
+            Vector<char> ichars;
+            ParallelDescriptor::ReadAndBcastFile(dir + "/intensity", ichars);
+            std::vector<std::string> dropped;
+            const std::string err = m_im.restore(std::string(ichars.dataPtr()), m_cap, dropped);
+            if (!err.empty()) { Abort("the conductor checkpoint '" + dir + "/intensity': " + err); }
+            for (const auto& n : dropped) { Print() << "conductors: the checkpoint's intensity record " << n << " is not kept in this run\n"; }
+        } else {
+            Print() << "conductors: the checkpoint '" << dir << "' holds no intensity records; the averaged wind and its "
+                    << "maxima start at the restart\n";
+        }
+        write_intensity();
+    } else {
+        // the run being restarted left its tables: they are not this run's
+        if (erf_actuator::file_exists_everywhere(dir + "/intensity")) {
+            Print() << "conductors: the checkpoint's intensity records are not kept in this run (conductors.intensity_measure = none); "
+                    << "demand_table.csv and intensity.csv of the run being restarted are removed\n";
+        }
+        if (ParallelDescriptor::IOProcessor()) {
+            std::error_code ec;
+            std::filesystem::remove(m_in.diagnostics_dir + "/demand_table.csv", ec);
+            std::filesystem::remove(m_in.diagnostics_dir + "/intensity.csv", ec);
+        }
+    }
     // the spans' ground contacts; a checkpoint without them (or a span it does not hold) starts afresh
     build_ground_log();
     if (!m_ground_log.empty()) {
@@ -2040,6 +2219,12 @@ Conductors::write_checkpoint (const std::string& chkdir) const
             for (std::size_t p = 0; p < m_gust_z.size(); ++p) { gz << m_process_names[p] << " " << m_gust_z[p] << "\n"; }
             if (!gz) { Abort("cannot write the conductor checkpoint '" + dir + "/gust_processes'"); }
         }
+    }
+    if (m_in.intensity_on() && ParallelDescriptor::IOProcessor()) {
+        std::ofstream im(dir + "/intensity", std::ios::trunc);
+        im << m_im.state(m_cap);
+        im.close();
+        if (!im) { Abort("cannot write the conductor checkpoint '" + dir + "/intensity'"); }
     }
     ParallelDescriptor::Barrier();
     for (const auto& line : m_stats) { for (const auto& st : line) { st.write_state(dir); } }
@@ -2218,6 +2403,12 @@ Conductors::advance (int lev, double time, double dt,
                 std::filesystem::remove(m_in.diagnostics_dir + "/failures.dat", ec);
                 std::filesystem::remove(m_in.diagnostics_dir + "/capacities.csv", ec);
             }
+            if (!m_in.intensity_on()) {
+                // nor the demand table and intensity points of an earlier run with the intensity measure
+                std::error_code ec;
+                std::filesystem::remove(m_in.diagnostics_dir + "/demand_table.csv", ec);
+                std::filesystem::remove(m_in.diagnostics_dir + "/intensity.csv", ec);
+            }
             if (m_ground_log.empty()) {
                 // nor a ground-contact table or seafloor files of an earlier run
                 std::error_code ec;
@@ -2251,6 +2442,8 @@ Conductors::advance (int lev, double time, double dt,
     }
     std::vector<Real> twind, tpos;
     if (!m_towers.empty()) { twind = tower_wind(U, V, W, z_phys_nd, geom, gusts_in_wind ? &tpos : nullptr); }
+    // the wind at the intensity points, the flow's alone (no gust model's part): the step's loads come from this wind
+    sample_intensity(time, dt, U, V, W, z_phys_nd, geom, cons);
     std::vector<double> node_k, tower_k;
     if (need_k) {
         std::vector<Real> all;
@@ -2442,6 +2635,7 @@ Conductors::advance (int lev, double time, double dt,
     if (m_in.drag_on_flow) { spread_drag(U, z_phys_nd, detJ_cc, geom); }
     if (write) { write_total_load(time + dt, first); }
     if (write && !m_cap.empty() && ParallelDescriptor::IOProcessor()) { m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv"); }
+    if (write) { write_intensity(); }
 }
 
 std::vector<double>

@@ -1,4 +1,5 @@
 #include "ERF_ConductorInputs.H"
+#include "ERF_Intensity.H"
 #include "ERF_ASCE74.H"
 #include "ERF_Gusts.H"
 
@@ -698,6 +699,21 @@ ConductorInputs ConductorInputs::read ()
     }
     pp.query("flashover_distance", in.flashover_distance);
     pp.query("failure_stop", in.failure_stop);
+    pp.query("intensity_measure", in.intensity_measure);
+    if (in.intensity_measure != "none" && in.intensity_measure != "wind") {
+        Abort("conductors.intensity_measure must be none or wind, got '" + in.intensity_measure + "'");
+    }
+    {
+        const bool has_h = pp.query("intensity_height", in.intensity_height) != 0;
+        const bool has_t = pp.query("intensity_averaging_time", in.intensity_averaging_time) != 0;
+        if (!in.intensity_on() && (has_h || has_t)) {
+            Abort(std::string("conductors.") + (has_h ? "intensity_height" : "intensity_averaging_time") +
+                  " needs conductors.intensity_measure = wind");
+        }
+        const std::string err = erf_conductors::IntensityRecorder::check(static_cast<double>(in.intensity_height),
+                                                                         static_cast<double>(in.intensity_averaging_time));
+        if (in.intensity_on() && !err.empty()) { Abort(err); }
+    }
     pp.query("ground_contact", in.ground_contact);
     pp.query("asce74_wind", in.asce74_wind);
     pp.query("asce74_exposure", in.asce74_exposure);

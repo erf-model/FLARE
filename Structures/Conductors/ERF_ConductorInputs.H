@@ -325,6 +325,16 @@ std::string first_nonfinite (const std::vector<T>& v, std::size_t per_point, con
  *                                                   default true, false: the level span's swing, sag and tension
  *                                                   under the whole weight W, the effective height's still-air
  *                                                   sag the inclined chord's either way; needs asce74_wind)
+ *   conductors.intensity_measure = none        (none or wind. wind: beside every component checked against a capacity,
+ *                                                   record the wind at conductors.intensity_height above the ground
+ *                                                   where the component stands (a span's middle, a line's attachment,
+ *                                                   a tower's base), averaged over conductors.intensity_averaging_time:
+ *                                                   its value at the component's peak demand-to-capacity ratio and at
+ *                                                   its first exceedance, and its largest value in the run. Writes
+ *                                                   <diagnostics_dir>/demand_table.csv and intensity.csv; needs a
+ *                                                   capacity to check. Default none)
+ *   conductors.intensity_height = 10.          (m above the ground, in (0, 500]; needs intensity_measure = wind)
+ *   conductors.intensity_averaging_time = 3.   (s, in [0, 600]; 0 keeps the last sample; needs intensity_measure = wind)
  *   conductors.failure_stop     = false        (stop the run, with an abort naming the component, at the first
  *                                                   coupling step where a component's demand exceeds its capacity:
  *                                                   a conductor's rated_breaking_strength, an insulator string's or the
@@ -406,6 +416,10 @@ struct ConductorInputs
     amrex::Real epsilon{2.0};                           //!< (units of the anchor level's dx)
     amrex::Real flashover_distance{1.0};                //!< (m)
     bool failure_stop{false};                           //!< stop the run at the first capacity exceedance
+    std::string intensity_measure{"none"};              //!< none or wind: the wind beside each component's peak demand
+    amrex::Real intensity_height{10.0};                 //!< the height above the ground the wind is taken at (m)
+    amrex::Real intensity_averaging_time{3.0};          //!< the time the wind is averaged over (s); 0: the last sample
+    bool intensity_on () const { return intensity_measure == "wind"; }
     bool ground_contact{false};                         //!< the terrain holds the lines up (MoorDyn's 3-D seafloor)
     /**
      * The ground's contact stiffness per unit area of conductor on it (Pa/m), MoorDyn's own default:
