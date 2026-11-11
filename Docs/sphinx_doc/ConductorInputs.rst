@@ -269,6 +269,18 @@ wind, which bend under their loads when the type has a ``frequency`` or a frame
 |                                                           |                                                          | frame's member       |                          |
 |                                                           |                                                          | design data          |                          |
 +-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
+| **conductors.failure_break**                              | a line's component that exceeds its capacity lets go of  | true or false; true  | false                    |
+|                                                           | the line at the end of that step and the run goes on: a  | needs                |                          |
+|                                                           | conductor's span at its end with the higher tension, an  | ground_contact =     |                          |
+|                                                           | insulator string at its cross-arm, the hardware at a     | true and a line's    |                          |
+|                                                           | dead end or a tower (breaks.dat; theory: Release of a    | rated_breaking_stren |                          |
+|                                                           | line at a capacity exceedance)                           | gth,                 |                          |
+|                                                           |                                                          | insulator_rated_load |                          |
+|                                                           |                                                          | or                   |                          |
+|                                                           |                                                          | hardware_rated_load; |                          |
+|                                                           |                                                          | not with             |                          |
+|                                                           |                                                          | failure_stop         |                          |
++-----------------------------------------------------------+----------------------------------------------------------+----------------------+--------------------------+
 | **conductors.intensity_measure**                          | wind: beside every component checked against a capacity, | none or wind; wind   | none                     |
 |                                                           | keep the wind at intensity_height above the ground where | needs a capacity (as |                          |
 |                                                           | it stands (a span's middle, an attachment, a tower's     | failure_stop)        |                          |

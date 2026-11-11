@@ -57,6 +57,7 @@ int DECLDIR MoorDyn_ExternalWaveKinSet (MoorDyn system, const double* U, const d
 
 int DECLDIR MoorDyn_GetNumberPoints (MoorDyn system, unsigned int* n);
 MoorDynPoint DECLDIR MoorDyn_GetPoint (MoorDyn system, unsigned int c);
+int DECLDIR MoorDyn_BreakLine (MoorDyn system, MoorDynPoint point, MoorDynLine line);
 int DECLDIR MoorDyn_GetNumberLines (MoorDyn system, unsigned int* n);
 MoorDynLine DECLDIR MoorDyn_GetLine (MoorDyn system, unsigned int l);
 int DECLDIR MoorDyn_GetDt (MoorDyn system, double* dt);

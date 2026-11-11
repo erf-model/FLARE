@@ -1391,6 +1391,18 @@ TEST(ConductorInputs, CapacitiesOutsideTheirRangeAreRefusedByName)
     EXPECT_DOUBLE_EQ(in.lines.front().rated_breaking_strength, 1.401e5);
     EXPECT_DOUBLE_EQ(in.lines.front().hardware_rated_load, 1.5e5);
     EXPECT_FALSE(in.lines.front().insulator_rated_load_given);
+    // failure_break: off by default, read as given, and refused with failure_stop or without ground_contact
+    EXPECT_FALSE(in.failure_break);
+    pp.add("failure_break", true);
+    std::string refused = erf_gtest::abort_message([] { ConductorInputs::read(); });
+    EXPECT_NE(refused.find("conductors.failure_break and conductors.failure_stop cannot both be true"), std::string::npos) << refused;
+    pp.remove("failure_stop");
+    refused = erf_gtest::abort_message([] { ConductorInputs::read(); });
+    EXPECT_NE(refused.find("conductors.failure_break = true needs conductors.ground_contact = true"), std::string::npos) << refused;
+    pp.add("ground_contact", true);
+    EXPECT_TRUE(ConductorInputs::read().failure_break);
+    pp.remove("ground_contact");
+    pp.remove("failure_break");
     ps.remove("rated_breaking_strength");
     ps.remove("hardware_rated_load");
     pp.remove("failure_stop");

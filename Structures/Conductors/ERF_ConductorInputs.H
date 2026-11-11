@@ -343,6 +343,15 @@ std::string first_nonfinite (const std::vector<T>& v, std::size_t per_point, con
  *                                                   peaks go to <diagnostics_dir>/capacities.csv and each component's
  *                                                   first exceedance to <diagnostics_dir>/failures.dat with or without
  *                                                   it; default false; true needs at least one capacity)
+ *   conductors.failure_break    = false        (a line's component that exceeds its capacity lets go of the line at
+ *                                                   the end of that step, and the run goes on with the end free: a
+ *                                                   conductor's span at its end with the higher tension, an insulator
+ *                                                   string at its cross-arm, the hardware at a dead end or at a tower
+ *                                                   (there the string, or without strings the span with the higher
+ *                                                   tension). Each release goes to <diagnostics_dir>/breaks.dat.
+ *                                                   Default false; true needs conductors.ground_contact = true and a
+ *                                                   line's rated_breaking_strength, insulator_rated_load or
+ *                                                   hardware_rated_load, and cannot be combined with failure_stop)
  *   conductors.ground_contact   = false        (the terrain holds the lines up: each line's MoorDyn system takes the
  *                                                   anchor level's terrain under it as its seafloor
  *                                                   (<diagnostics_dir>/<line>.seafloor.txt), so a conductor that sags
@@ -416,6 +425,7 @@ struct ConductorInputs
     amrex::Real epsilon{2.0};                           //!< (units of the anchor level's dx)
     amrex::Real flashover_distance{1.0};                //!< (m)
     bool failure_stop{false};                           //!< stop the run at the first capacity exceedance
+    bool failure_break{false};                          //!< a line's component over its capacity lets go of the line
     std::string intensity_measure{"none"};              //!< none or wind: the wind beside each component's peak demand
     amrex::Real intensity_height{10.0};                 //!< the height above the ground the wind is taken at (m)
     amrex::Real intensity_averaging_time{3.0};          //!< the time the wind is averaged over (s); 0: the last sample

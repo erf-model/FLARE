@@ -100,6 +100,20 @@
 // CapacityRecordsContinueAcrossARestart: peaks and first exceedances come back from the checkpoint and are not reported
 //     again (nor stop a run restarted with failure_stop), a capacity added at the restart starts there (the trimming of rows after the checkpoint is the CTest
 //     Conductors_Capacities_Restart's).
+// FailureBreakLetsGoAtTheHigherEndAndTheRunGoesOn: an inclined span whose conductor is over its strength at the first
+//     step lets go at its higher end (the higher tension) at that step's end, once; breaks.dat and failures.dat hold one
+//     row each, the run goes on, the span comes to hang from its lower end with most of it on the ground.
+// FailureBreakNeedsGroundContactALineCapacityAndNoFailureStop: the three refusals, each naming its input.
+// ASpanIsReleasedOnceInAStepAndADeadEndReleasesItsOwnEnd: the conductor's and both dead ends' exceedances in one step
+//     release the span once; with the hardware's capacity alone, end a's exceedance (the first logged) releases end a.
+// ReleasesContinueAcrossARestart: a checkpoint written at the release's step and one written later both restart
+//     into the uninterrupted run's positions, with the release made again, logged once, also with failure_break off;
+//     without ground_contact the restart is refused; a restart that first sets failure_break after the exceedance
+//     releases nothing.
+// StringsOverTheirLoadLetGoAndTheirTowersTakeNothing: a section on strings over two standing towers, the strings'
+//     rated load below what they carry: both let go at the first step and the towers carry no line load.
+// LinesOnMovingTowersLetGoAtTheEndOfTheLevelsStep: on towers that bend the exceedances are found after the first
+//     coupling step inside the level's step; the releases are made at that step's end, one per span.
 // AStandingTowersFootingsAndAttachmentsAreChecked: in still air each standing tower's legs carry (W - F_z) / 4, which
 //     exceeds a lower allowable_compression, no uplift; the hardware at a tower carries the line's pull there.
 // AStandingTowerIsCheckedUnderTheLinesPullAtTheStepsEnd: a tower that stands still is checked under the lines' pull at
@@ -3421,4 +3435,325 @@ TEST(Conductors, AFrameTowersMembersAreCheckedAgainstTheirStrength)
     for (const char* k : {"frame_panels", "leg_angle", "brace_angle", "damping_ratio"}) { pt.remove(k); }
     clear_capacities("Tfm");
     clear_towered_section("Tfm");
+}
+
+namespace {
+// an inclined span in still air over a flat mesh, its end b 10 m above its end a: with MoorDyn-C the tension at b is
+// higher by the conductor's weight over those 10 m (160 N), so the choice of the end does not hang on roundoff. The
+// stub's parabola carries the same tension at both ends, a tie, which releases end a
+int higher_end () { return erf_moordyn::is_stub() ? 0 : 1; }
+std::string higher_end_name () { return erf_moordyn::is_stub() ? "span1_end_a" : "span1_end_b"; }
+void set_break (const std::string& dir, const std::string& name)
+{
+    set_inputs(dir, name, false, {{300.0, 500.0, 30.0}}, {{600.0, 500.0, 40.0}});
+    amrex::ParmParse pp("conductors");
+    pp.addarr("prescribed_velocity", std::vector<Real>{0.0, 0.0, 0.0});
+    pp.add("ground_contact", true);
+    pp.add("failure_break", true);
+}
+void clear_break (const std::string& name)
+{
+    clear_capacities(name);
+    amrex::ParmParse pp("conductors");
+    pp.remove("ground_contact");
+    pp.remove("failure_break");
+}
+} // namespace
+
+TEST(Conductors, FailureBreakLetsGoAtTheHigherEndAndTheRunGoesOn)
+{
+    const std::string dir = scratch("break");
+    set_break(dir, "Tbr");
+    // the span pulls about 13 kN: a strength of 5 kN is exceeded at the first step
+    amrex::ParmParse("conductors.Tbr").add("rated_breaking_strength", 5000.0);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    EXPECT_TRUE(data_rows(dir + "/breaks.dat").empty());
+    const double dt = 0.25;
+    c->advance(0, 0.0, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    const auto& line = *c->lines().front();
+    ASSERT_EQ(c->breaks().size(), 1u);
+    const auto& b = c->breaks().record(0);
+    EXPECT_EQ(b.time, dt) << "the end of the step of the exceedance";
+    EXPECT_EQ(b.line, "Tbr");
+    EXPECT_EQ(b.component, "Tbr");
+    EXPECT_EQ(b.release.name(), higher_end_name()) << "the higher end carries the higher tension (the stub: a tie, end a)";
+    EXPECT_GT(b.tension, 10000.0);
+    if (!erf_moordyn::is_stub()) {
+        // the tensions are still those of the step of the exceedance: b's is the higher, by the weight of 10 m of conductor
+        EXPECT_NEAR(b.tension - static_cast<double>(line.tension_a()), 15.96 * 10.0, 25.0);
+    }
+    EXPECT_EQ(b.tension, static_cast<double>(higher_end() == 0 ? line.tension_a() : line.tension_b()));
+    EXPECT_TRUE(line.span_end_attached(0, 1 - higher_end()));
+    EXPECT_FALSE(line.span_end_attached(0, higher_end()));
+    auto rows = data_rows(dir + "/breaks.dat");
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0].rfind("0.25 Tbr " + higher_end_name() + " Tbr ", 0), 0u) << rows[0];
+    {
+        std::ifstream f(dir + "/breaks.dat");
+        std::string header;
+        std::getline(f, header);
+        EXPECT_EQ(header, "time line released component tension");
+    }
+    // the run goes on: the span falls and comes to hang from end a
+    const int nsteps = erf_moordyn::is_stub() ? 4 : 160;
+    for (int s = 1; s <= nsteps; ++s) { c->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+    EXPECT_EQ(c->breaks().size(), 1u) << "no second release";
+    EXPECT_EQ(data_rows(dir + "/breaks.dat").size(), 1u);
+    EXPECT_EQ(data_rows(dir + "/failures.dat").size(), 1u) << "the conductor's exceedance, once";
+    EXPECT_LT(line.max_tension(), Real(1500.0)) << "30 or 40 m of conductor hang from the other end: 480 or 640 N";
+    EXPECT_GE(line.nodes_on_ground(0), 15) << "most of the span lies on the ground";
+    EXPECT_TRUE(c->ground_contacts().span(0).touched);
+    const auto& comp = c->capacities().component(0);
+    EXPECT_TRUE(comp.exceeded);
+    EXPECT_EQ(comp.first_time, dt);
+    EXPECT_GT(comp.peak_ratio, 2.0) << "the peak is the whole span's, before it let go";
+    clear_break("Tbr");
+}
+
+TEST(Conductors, FailureBreakNeedsGroundContactALineCapacityAndNoFailureStop)
+{
+    const std::string dir = scratch("break_needs");
+    set_break(dir, "Tbn");
+    Mesh m(false);
+    // no capacity on a line
+    auto c = Conductors::create(0);
+    std::string msg = erf_gtest::abort_message([&] { c->set_ground(nullptr, m.geom); });
+    EXPECT_NE(msg.find("conductors.failure_break = true needs a line's capacity to check"), std::string::npos) << msg;
+    amrex::ParmParse("conductors.Tbn").add("rated_breaking_strength", 5000.0);
+    amrex::ParmParse pp("conductors");
+    pp.remove("ground_contact");
+    msg = erf_gtest::abort_message([&] { Conductors::create(0); });
+    EXPECT_NE(msg.find("conductors.failure_break = true needs conductors.ground_contact = true"), std::string::npos) << msg;
+    pp.add("ground_contact", true);
+    pp.add("failure_stop", true);
+    msg = erf_gtest::abort_message([&] { Conductors::create(0); });
+    EXPECT_NE(msg.find("conductors.failure_break and conductors.failure_stop cannot both be true"), std::string::npos) << msg;
+    pp.remove("failure_stop");
+    // off by default: with the capacity alone the span stays whole and no release log is kept
+    pp.remove("failure_break");
+    auto o = Conductors::create(0);
+    o->set_ground(nullptr, m.geom);
+    o->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    EXPECT_TRUE(o->breaks().empty());
+    EXPECT_TRUE(o->lines().front()->span_end_attached(0, 0) && o->lines().front()->span_end_attached(0, 1));
+    EXPECT_TRUE(o->capacities().component(0).exceeded);
+    EXPECT_FALSE(std::filesystem::exists(dir + "/breaks.dat"));
+    clear_break("Tbn");
+}
+
+TEST(Conductors, ASpanIsReleasedOnceInAStepAndADeadEndReleasesItsOwnEnd)
+{
+    Mesh m(false);
+    {
+        // the conductor and both dead ends over their capacities in the same step: the conductor's exceedance (the
+        // first logged) releases the higher end; the dead end's at the other end would release the same span again,
+        // the one at the released end finds it gone
+        const std::string dir = scratch("break_once");
+        set_break(dir, "Tbo");
+        amrex::ParmParse ps("conductors.Tbo");
+        ps.add("rated_breaking_strength", 5000.0);
+        ps.add("hardware_rated_load", 5000.0);
+        auto c = Conductors::create(0);
+        c->set_ground(nullptr, m.geom);
+        c->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+        EXPECT_EQ(data_rows(dir + "/failures.dat").size(), 3u);
+        ASSERT_EQ(c->breaks().size(), 1u);
+        EXPECT_EQ(c->breaks().record(0).release.name(), higher_end_name());
+        EXPECT_EQ(c->breaks().record(0).component, "Tbo");
+        EXPECT_TRUE(c->lines().front()->span_end_attached(0, 1 - higher_end()));
+        c->advance(0, 0.25, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+        EXPECT_EQ(c->breaks().size(), 1u);
+        clear_break("Tbo");
+    }
+    {
+        // the hardware's capacity alone: end a's exceedance is logged first and releases end a, though b pulls harder
+        const std::string dir = scratch("break_end");
+        set_break(dir, "Tbd");
+        amrex::ParmParse("conductors.Tbd").add("hardware_rated_load", 5000.0);
+        auto c = Conductors::create(0);
+        c->set_ground(nullptr, m.geom);
+        c->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+        ASSERT_EQ(c->breaks().size(), 1u);
+        EXPECT_EQ(c->breaks().record(0).release.name(), "span1_end_a");
+        EXPECT_EQ(c->breaks().record(0).component, "Tbd_end_a");
+        EXPECT_FALSE(c->lines().front()->span_end_attached(0, 0));
+        EXPECT_TRUE(c->lines().front()->span_end_attached(0, 1));
+        clear_break("Tbd");
+    }
+}
+
+TEST(Conductors, ReleasesContinueAcrossARestart)
+{
+    const std::string dir = scratch("break_restart");
+    set_break(dir, "Tbrr");
+    amrex::ParmParse("conductors.Tbrr").add("rated_breaking_strength", 5000.0);
+    Mesh m(false);
+    const double dt = 0.25;
+    auto step = [&] (Conductors& c, int s) { c.advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); };
+    auto a = Conductors::create(0);
+    a->set_ground(nullptr, m.geom);
+    step(*a, 0);
+    ASSERT_EQ(a->breaks().size(), 1u);
+    // checkpoints at the step of the release, before the released span has moved, and four steps later
+    const std::string chk1 = dir + "/chk00001", chk5 = dir + "/chk00005";
+    std::filesystem::create_directories(chk1);
+    a->write_checkpoint(chk1);
+    ASSERT_TRUE(std::filesystem::exists(chk1 + "/conductors/breaks"));
+    for (int s = 1; s < 5; ++s) { step(*a, s); }
+    std::filesystem::create_directories(chk5);
+    a->write_checkpoint(chk5);
+    const int last = 12;
+    for (int s = 5; s < last; ++s) { step(*a, s); }
+    const std::vector<Real> pa = a->lines().front()->node_positions();
+    const Real ta = a->lines().front()->tension_a();
+    struct Case { std::string chk; int from; bool with_break; };
+    for (const Case& k : {Case{chk1, 1, true}, Case{chk5, 5, true}, Case{chk5, 5, false}}) {
+        amrex::ParmParse pp("conductors");
+        pp.remove("failure_break");
+        if (k.with_break) { pp.add("failure_break", true); }
+        auto b = Conductors::create(0);
+        b->set_ground(nullptr, m.geom, k.chk);
+        ASSERT_TRUE(b->restored());
+        ASSERT_EQ(b->breaks().size(), 1u) << k.chk;
+        const auto& ra = a->breaks().record(0);
+        const auto& rb = b->breaks().record(0);
+        EXPECT_EQ(rb.time, ra.time);
+        EXPECT_EQ(rb.line, ra.line);
+        EXPECT_TRUE(rb.release == ra.release);
+        EXPECT_EQ(rb.component, ra.component);
+        EXPECT_EQ(rb.tension, ra.tension) << "to the last bit";
+        const auto& line = *b->lines().front();
+        EXPECT_FALSE(line.span_end_attached(0, higher_end())) << "the release is made again";
+        EXPECT_EQ(line.num_kinematics_points(), a->lines().front()->num_kinematics_points());
+        for (int s = k.from; s < last; ++s) { step(*b, s); }
+        const std::vector<Real> pb = line.node_positions();
+        ASSERT_EQ(pb.size(), pa.size());
+        Real worst = 0.0;
+        for (std::size_t i = 0; i < pa.size(); ++i) { worst = std::max(worst, std::abs(pa[i] - pb[i])); }
+        EXPECT_LE(worst, roundoff * Real(1000.0)) << "restarted from " << k.chk << (k.with_break ? "" : " without failure_break");
+        EXPECT_NEAR(line.tension_a(), ta, roundoff * std::max(ta, Real(1.0)) * Real(100.0));
+        EXPECT_EQ(b->breaks().size(), 1u) << "not released again";
+    }
+    // a released span needs the ground: a restart without ground_contact is refused, naming it
+    {
+        amrex::ParmParse pp("conductors");
+        pp.remove("ground_contact");
+        auto g = Conductors::create(0);
+        const std::string msg = erf_gtest::abort_message([&] { g->set_ground(nullptr, m.geom, chk5); });
+        EXPECT_NE(msg.find("holds 1 release(s) of the lines"), std::string::npos) << msg;
+        EXPECT_NE(msg.find("the restart needs conductors.ground_contact = true"), std::string::npos) << msg;
+        pp.add("ground_contact", true);
+    }
+    clear_break("Tbrr");
+    // failure_break first set at a restart, after the conductor went over its strength: nothing is released
+    const std::string dir2 = scratch("break_late");
+    set_break(dir2, "Tbl");
+    amrex::ParmParse("conductors.Tbl").add("rated_breaking_strength", 5000.0);
+    amrex::ParmParse("conductors").remove("failure_break");
+    auto w = Conductors::create(0);
+    w->set_ground(nullptr, m.geom);
+    step(*w, 0);
+    ASSERT_TRUE(w->capacities().component(0).exceeded);
+    const std::string chkw = dir2 + "/chk00001";
+    std::filesystem::create_directories(chkw);
+    w->write_checkpoint(chkw);
+    EXPECT_FALSE(std::filesystem::exists(chkw + "/conductors/breaks")) << "no release log without the option";
+    amrex::ParmParse("conductors").add("failure_break", true);
+    auto l = Conductors::create(0);
+    l->set_ground(nullptr, m.geom, chkw);
+    for (int s = 1; s < 4; ++s) { step(*l, s); }
+    EXPECT_TRUE(l->breaks().empty()) << "a release is made at a first exceedance only";
+    EXPECT_TRUE(l->lines().front()->span_end_attached(0, 0) && l->lines().front()->span_end_attached(0, 1));
+    clear_break("Tbl");
+}
+
+TEST(Conductors, StringsOverTheirLoadLetGoAndTheirTowersTakeNothing)
+{
+    const std::string dir = scratch("break_strings");
+    set_towered_section(dir, "Tbs");
+    amrex::ParmParse ps("conductors.Tbs");
+    ps.add("insulator_length", 2.5);
+    ps.add("insulator_mass", 60.0);
+    // each string carries a span's weight, about 5 kN
+    ps.add("insulator_rated_load", 1000.0);
+    amrex::ParmParse pp("conductors");
+    pp.remove("prescribed_velocity");
+    pp.addarr("prescribed_velocity", std::vector<Real>{0.0, 0.0, 0.0});
+    pp.add("ground_contact", true);
+    pp.add("failure_break", true);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    const double dt = 0.25;
+    c->advance(0, 0.0, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    ASSERT_EQ(c->breaks().size(), 2u);
+    EXPECT_EQ(c->breaks().record(0).release.name(), "string1");
+    EXPECT_EQ(c->breaks().record(0).component, "Tbs_string1");
+    EXPECT_EQ(c->breaks().record(1).release.name(), "string2");
+    EXPECT_EQ(c->breaks().record(1).component, "Tbs_string2");
+    EXPECT_GT(c->breaks().record(0).tension, 4000.0) << "the string's tension when it let go";
+    const auto& line = *c->lines().front();
+    EXPECT_FALSE(line.string_attached(0));
+    EXPECT_FALSE(line.string_attached(1));
+    EXPECT_TRUE(line.span_end_attached(0, 0) && line.span_end_attached(2, 1)) << "the dead ends hold";
+    const int nsteps = erf_moordyn::is_stub() ? 2 : 12;
+    for (int s = 1; s <= nsteps; ++s) { c->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+    // the towers stand with no line on them
+    for (std::size_t t = 0; t < 2; ++t) {
+        const auto& F = c->towers()[t].line_force();
+        EXPECT_EQ(F[0], Real(0.0)) << "tower " << t + 1;
+        EXPECT_EQ(F[1], Real(0.0)) << "tower " << t + 1;
+        EXPECT_EQ(F[2], Real(0.0)) << "tower " << t + 1;
+    }
+    EXPECT_EQ(c->breaks().size(), 2u);
+    ps.remove("insulator_length"); ps.remove("insulator_mass");
+    pp.remove("ground_contact"); pp.remove("failure_break");
+    clear_capacities("Tbs");
+    clear_towered_section("Tbs");
+}
+
+TEST(Conductors, LinesOnMovingTowersLetGoAtTheEndOfTheLevelsStep)
+{
+    const std::string dir = scratch("break_moving");
+    set_towered_section(dir, "Tbm");
+    make_towers_move(0.3);
+    // the clamped section pulls about 13 kN on its dead ends and a span's weight, 4.8 kN, down on each tower
+    amrex::ParmParse("conductors.Tbm").add("hardware_rated_load", 4000.0);
+    amrex::ParmParse pp("conductors");
+    pp.remove("prescribed_velocity");
+    pp.addarr("prescribed_velocity", std::vector<Real>{0.0, 0.0, 0.0});
+    pp.add("ground_contact", true);
+    pp.add("failure_break", true);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    ASSERT_TRUE(c->lines().front()->towers_move());
+    const double dt = 0.25;
+    c->advance(0, 0.0, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    // the four attachments are over their load after the first coupling step, before the level's step ends
+    int exceeded = 0;
+    for (const auto& comp : c->capacities().components()) {
+        if (comp.kind != erf_conductors::ComponentKind::Hardware) { continue; }
+        ++exceeded;
+        EXPECT_TRUE(comp.exceeded) << comp.name;
+        EXPECT_GT(comp.first_time, 0.0) << comp.name;
+        EXPECT_LT(comp.first_time, dt) << comp.name << ": found inside the step";
+    }
+    EXPECT_EQ(exceeded, 4);
+    // end_a releases span 1 there; tower 1 would release span 1 again (a tie: the span before it); tower 2 releases
+    // span 2 at it; end_b releases span 3
+    ASSERT_EQ(c->breaks().size(), 3u);
+    const char* expected[3] = {"span1_end_a", "span2_end_b", "span3_end_b"};
+    for (std::size_t b = 0; b < 3; ++b) {
+        EXPECT_EQ(c->breaks().record(b).time, dt) << "made at the end of the level's step";
+        EXPECT_EQ(c->breaks().record(b).release.name(), expected[b]);
+    }
+    // the run goes on with the lines released and the towers free of them where they let go
+    for (int s = 1; s <= 3; ++s) { c->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+    EXPECT_EQ(c->breaks().size(), 3u);
+    pp.remove("ground_contact"); pp.remove("failure_break");
+    clear_capacities("Tbm");
+    clear_towered_section("Tbm");
 }

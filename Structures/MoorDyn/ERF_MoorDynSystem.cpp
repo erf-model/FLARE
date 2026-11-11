@@ -382,6 +382,23 @@ void MoorDynSystem::save (const std::string& path) { check(MoorDyn_Save(m_sys, p
 
 void MoorDynSystem::load (const std::string& path) { check(MoorDyn_Load(m_sys, path.c_str()), "MoorDyn_Load"); }
 
+unsigned MoorDynSystem::break_line (unsigned p, unsigned l)
+{
+    const unsigned before = num_points();
+    check(MoorDyn_BreakLine(m_sys, point(p), line(l)), "MoorDyn_BreakLine");
+    if (num_points() != before + 1) {
+        amrex::Abort("MoorDyn_BreakLine: line " + std::to_string(l) + " does not end on point " + std::to_string(p) +
+                     " of the system from '" + m_file + "'");
+    }
+    // the state is larger by the new point: the size of an earlier serialize() no longer applies
+    m_serial_words = 0;
+    // MoorDyn-C 2.7.1 adds the new point to its kinematics points but reports the old count until they are set up again
+    std::string err;
+    const unsigned n = external_kinematics_init(err);
+    if (n == 0) { amrex::Abort("MoorDyn_BreakLine: " + err); }
+    return n;
+}
+
 std::vector<std::uint64_t> MoorDynSystem::serialize () const
 {
     std::size_t bytes = 0;

@@ -418,6 +418,85 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
   add_test_abort(Conductors_GroundContactOffAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind
       Conductors_PrescribedWind.i "has left the domain" "conductors.S1.length=330")
   set_tests_properties(Conductors_GroundContactStepAbort Conductors_GroundContactOffAbort PROPERTIES LABELS "regression;conductors")
+  # conductors.failure_break: a line's component over its capacity lets go of the line at the end of that step and
+  # the run goes on. Conductors_TwoLevel's level span against a rated_breaking_strength of 5 kN (it pulls 13.4 kN):
+  # the conductor is over it at the end of the first level-1 step, 0.125 s, with either library, and the span lets
+  # go at end a (its two end tensions are a tie). check_break.py requires the one row of breaks.dat at that time
+  # with S1.dat's tension there, the released end to carry next to nothing afterwards, the span to reach the ground,
+  # and after 6 s the tension at the held end to be below half the capacity (the span has fallen). With the stub,
+  # which places the rest state, it must be the weight of the 30 m of conductor that hang from the support, w h
+  # (closed form); MoorDyn-C's span still swings then (476 N in this run; its 15 m segments would rest at 241 N,
+  # the weight of the one node clear of the ground). With the stub the capacity of Conductors_Capacities_TwoLevel, 13892 N, is first passed at
+  # 1.875 s, between two level-0 steps: the release must carry that time (the run ends 0.625 s later, before rest).
+  if(ERF_MOORDYN_USE_STUB)
+    set(_br_suffix "")
+  else()
+    set(_br_suffix "_MoorDyn")
+  endif()
+  set(_br_opts "conductors.ground_contact=true conductors.failure_break=true")
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(NOT Python3_Interpreter_FOUND)
+    message(STATUS "Conductors_Break_TwoLevel${_br_suffix} needs Python 3 and is not registered")
+  else()
+    set(_br_src ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TwoLevel)
+    resolve_test_exe("" "erf_exec" _br_exe)
+    set(_br_mpi "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}")
+    set(_br_names Conductors_Break_TwoLevel${_br_suffix})
+    set(_br_run_0 "conductors.S1.rated_breaking_strength=5000 max_step=24 stop_time=100")
+    set(_br_check_0 "--time 0.125 --capacity 5000 --end a")
+    if(ERF_MOORDYN_USE_STUB)
+      set(_br_check_0 "${_br_check_0} --rest-rtol 1e-6")
+      list(APPEND _br_names Conductors_Break_MidRun)
+      set(_br_run_1 "conductors.S1.rated_breaking_strength=13892.0")
+      set(_br_check_1 "--time 1.875 --capacity 13892 --end a --no-rest")
+    endif()
+    set(_br_i 0)
+    foreach(_br_name ${_br_names})
+      set(_br_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/${_br_name})
+      file(MAKE_DIRECTORY ${_br_dir})
+      file(COPY ${_br_src}/Conductors_TwoLevel.i ${_br_src}/input_sounding DESTINATION ${_br_dir})
+      add_test(NAME ${_br_name}
+               COMMAND sh -c "rm -rf plt0* conductors S1.dat && ${_br_mpi} ${_br_exe} Conductors_TwoLevel.i ${_br_opts} ${_br_run_${_br_i}} amrex.call_addr2line=0 > run.log 2>&1 && \"${Python3_EXECUTABLE}\" -I ${_br_src}/check_break.py ${_br_check_${_br_i}}"
+               WORKING_DIRECTORY ${_br_dir})
+      set_tests_properties(${_br_name} PROPERTIES LABELS "regression;conductors;multilevel" TIMEOUT 900
+                           PROCESSORS 2 ATTACHED_FILES_ON_FAIL "${_br_dir}/run.log")
+      math(EXPR _br_i "${_br_i} + 1")
+    endforeach()
+  endif()
+  # The release across a checkpoint: made before it (0.125 s; the checkpoint at step 5, 1.25 s, finds the span
+  # falling) the restart must make it again before it loads the line's MoorDyn state and continue the fall; with
+  # the stub also made after it (1.875 s). On the hills of Conductors_Terrain, L1's dead ends pull 20 kN on
+  # hardware rated 15 kN: both let go at the end of the first step and the section hangs from its two insulator
+  # strings; with MoorDyn-C the swing then overloads the hardware at tower 1, whose string lets go at 4.5 s, the
+  # step the checkpoint is written at. The restarted runs' logs must be the straight runs'.
+  add_test_restart_parity(Conductors_Break_Restart${_br_suffix} Conductors_TwoLevel 5 10
+      COMMON_OPTIONS "${_br_opts} conductors.S1.rated_breaking_strength=5000"
+      DATALOG "conductors/breaks.dat conductors/failures.dat conductors/ground_contact.csv S1.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
+  add_test_restart_parity(Conductors_Break_Terrain_Restart${_br_suffix} Conductors_Terrain 5 10
+      COMMON_OPTIONS "${_br_opts} conductors.L1.hardware_rated_load=15000"
+      DATALOG "conductors/breaks.dat conductors/failures.dat conductors/ground_contact.csv conductors/L1_span1.dat conductors/L1_span2.dat conductors/towers.dat conductors/transformers.dat"
+      DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
+  set_tests_properties(Conductors_Break_Restart${_br_suffix} Conductors_Break_Terrain_Restart${_br_suffix}
+                       PROPERTIES LABELS "regression;restart-parity;conductors")
+  if(ERF_MOORDYN_USE_STUB)
+    add_test_restart_parity(Conductors_Break_AfterRestart Conductors_TwoLevel 5 10
+        COMMON_OPTIONS "${_br_opts} conductors.S1.rated_breaking_strength=13892.0"
+        DATALOG "conductors/breaks.dat conductors/failures.dat S1.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
+    set_tests_properties(Conductors_Break_AfterRestart PROPERTIES LABELS "regression;restart-parity;conductors;multilevel")
+  endif()
+  # failure_break's refusals: without ground_contact, with failure_stop, and without a line's capacity
+  set(_br_pw ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind)
+  add_test_abort(Conductors_Break_NeedsGroundContactAbort ${_br_pw} Conductors_PrescribedWind.i
+      "conductors.failure_break = true needs conductors.ground_contact = true"
+      "conductors.S1.rated_breaking_strength=1.0e4 conductors.failure_break=true")
+  add_test_abort(Conductors_Break_WithFailureStopAbort ${_br_pw} Conductors_PrescribedWind.i
+      "conductors.failure_break and conductors.failure_stop cannot both be true"
+      "conductors.S1.rated_breaking_strength=1.0e4 conductors.failure_break=true conductors.failure_stop=true conductors.ground_contact=true")
+  add_test_abort(Conductors_Break_NeedsLineCapacityAbort ${_br_pw} Conductors_PrescribedWind.i
+      "conductors.failure_break = true needs a line's capacity to check"
+      "conductors.failure_break=true conductors.ground_contact=true")
+  set_tests_properties(Conductors_Break_NeedsGroundContactAbort Conductors_Break_WithFailureStopAbort
+                       Conductors_Break_NeedsLineCapacityAbort PROPERTIES LABELS "regression;conductors;abort")
   # A circuit: three phases 6 m apart hanging from insulator strings over two suspension towers,
   # and a shield wire clamped above them, across the same sheared crosswind. The middle phase's
   # middle span, its strings and their statistics, the shield wire's middle span and the

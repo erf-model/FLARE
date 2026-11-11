@@ -20,7 +20,8 @@ constexpr Real rad2deg = Real(180.0 / 3.14159265358979323846);
 }
 
 ConductorLine::ConductorLine (const LineInputs& s, const ConductorInputs& in, Real gravity, const std::string& input_file,
-                              const std::string& saved_state, const std::vector<Real>& tower_displacement)
+                              const std::string& saved_state, const std::vector<Real>& tower_displacement,
+                              const std::vector<Release>& releases)
     : m_in(s), m_offset(in.surface_offset), m_rho(in.air_density), m_g(gravity), m_substeps(in.substeps), m_file(input_file),
       m_coupled(in.towers_move(s))
 {
@@ -88,6 +89,11 @@ ConductorLine::ConductorLine (const LineInputs& s, const ConductorInputs& in, Re
     for (unsigned l = 1; l <= nlines; ++l) { m_first.push_back(m_first.back() + m_sys->line_num_nodes(l)); }
     m_nkin = m_sys->external_kinematics_init(err);
     if (m_nkin == 0) { Abort("conductors." + s.name + ": " + err); }
+    // the releases the saved state was written after: MoorDyn's state holds a free point per release
+    if (!releases.empty() && !restoring) {
+        Abort("conductors." + s.name + ": releases are made again only for a saved state (a new line starts whole)");
+    }
+    for (const Release& r : releases) { make_release(r); }
     if (m_nkin < num_nodes()) {
         Abort("conductors." + s.name + ": MoorDyn asks for the wind at " + std::to_string(m_nkin) +
               " points but the line has " + std::to_string(num_nodes()) + " nodes");
@@ -95,6 +101,69 @@ ConductorLine::ConductorLine (const LineInputs& s, const ConductorInputs& in, Re
     // after the external kinematics are set up: MoorDyn's state holds the line, not the wind points
     if (restoring) { m_sys->load(saved_state); }
 }
+
+unsigned ConductorLine::span_end_point (int k, int end) const
+{
+    // as ERF_MoorDynInputWriter.cpp numbers them: the attachment points 1 .. N+1, then the strings' free lower
+    // ends, which the spans hang from at the towers of a line with strings
+    const int N = num_spans();
+    const int a = k + end;
+    return static_cast<unsigned>((m_in.has_insulators() && a > 0 && a < N) ? N + 1 + a : a + 1);
+}
+
+bool ConductorLine::span_end_attached (int k, int end) const
+{
+    check_span(k);
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(end == 0 || end == 1, "ConductorLine::span_end_attached: end must be 0 or 1");
+    const Release r{Release::Kind::SpanEnd, k, end};
+    return std::find(m_releases.begin(), m_releases.end(), r) == m_releases.end();
+}
+
+bool ConductorLine::string_attached (int j) const
+{
+    check_string(j);
+    const Release r{Release::Kind::String, j, 0};
+    return std::find(m_releases.begin(), m_releases.end(), r) == m_releases.end();
+}
+
+void ConductorLine::make_release (const Release& r)
+{
+    unsigned point = 0, line = 0;
+    if (r.kind == Release::Kind::SpanEnd) {
+        if (r.index < 0 || r.index >= num_spans() || (r.end != 0 && r.end != 1)) {
+            Abort("conductors." + m_in.name + ": no span " + std::to_string(r.index) + " with an end " + std::to_string(r.end) + " to release");
+        }
+        if (!span_end_attached(r.index, r.end)) {
+            Abort("conductors." + m_in.name + ": span " + std::to_string(r.index + 1) + " was already released at its end " +
+                  (r.end == 0 ? "a" : "b"));
+        }
+        point = span_end_point(r.index, r.end);
+        line = static_cast<unsigned>(r.index) + 1;
+    } else {
+        if (r.index < 0 || r.index >= num_insulators()) {
+            Abort("conductors." + m_in.name + ": no insulator string " + std::to_string(r.index) + " to release");
+        }
+        if (!string_attached(r.index)) {
+            Abort("conductors." + m_in.name + ": insulator string " + std::to_string(r.index + 1) + " was already released");
+        }
+        // string j hangs from tower j+1's point, j+2, and is MoorDyn line num_spans + j + 1
+        point = static_cast<unsigned>(r.index) + 2;
+        line = static_cast<unsigned>(num_spans() + r.index) + 1;
+    }
+    const unsigned n = m_sys->break_line(point, line);
+    if (n != m_nkin + 1) {
+        Abort("conductors." + m_in.name + ": after a release MoorDyn asks for the wind at " + std::to_string(n) + " points, " +
+              std::to_string(m_nkin + 1) + " expected");
+    }
+    // the new point is MoorDyn's last point, listed before the entry at its origin: no wind there
+    if (m_wind.size() == 3 * static_cast<std::size_t>(m_nkin)) { m_wind.insert(m_wind.end() - 3, 3, Real(0.0)); }
+    m_nkin = n;
+    m_releases.push_back(r);
+}
+
+void ConductorLine::release_span_end (int k, int end) { make_release(Release{Release::Kind::SpanEnd, k, end}); }
+
+void ConductorLine::release_string (int j) { make_release(Release{Release::Kind::String, j, 0}); }
 
 void ConductorLine::save (const std::string& path) const
 {
@@ -406,6 +475,7 @@ std::array<Real,3> ConductorLine::end_force (int end) const
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(end == 0 || end == 1, "ConductorLine::end_force: end must be 0 (end_a) or 1 (end_b)");
     // end_a is the first node of the first span's MoorDyn line, end_b the last of the last span's
     const int k = (end == 0) ? 0 : num_spans() - 1;
+    if (!span_end_attached(k, end)) { return {{0.0, 0.0, 0.0}}; }   // released: the support takes nothing
     const unsigned node = (end == 0) ? 0 : span_num_nodes(k) - 1;
     const auto f = m_sys->line_node_force(static_cast<unsigned>(k) + 1, node);
     return {{static_cast<Real>(f[0]), static_cast<Real>(f[1]), static_cast<Real>(f[2])}};
@@ -418,11 +488,11 @@ std::array<Real,3> ConductorLine::tower_force (int j) const
     auto add = [&F] (const std::array<double,3>& f) { for (int d = 0; d < 3; ++d) { F[d] += static_cast<Real>(f[d]); } };
     if (m_in.has_insulators()) {
         // the string of tower j+1 is MoorDyn line num_spans + j + 1, its node 0 at the tower
-        add(m_sys->line_node_force(static_cast<unsigned>(num_spans() + j) + 1, 0));
+        if (string_attached(j)) { add(m_sys->line_node_force(static_cast<unsigned>(num_spans() + j) + 1, 0)); }
     } else {
-        // span j ends at the tower and span j+1 starts there
-        add(m_sys->line_node_force(static_cast<unsigned>(j) + 1, span_num_nodes(j) - 1));
-        add(m_sys->line_node_force(static_cast<unsigned>(j) + 2, 0));
+        // span j ends at the tower and span j+1 starts there; a released end pulls on nothing
+        if (span_end_attached(j, 1)) { add(m_sys->line_node_force(static_cast<unsigned>(j) + 1, span_num_nodes(j) - 1)); }
+        if (span_end_attached(j + 1, 0)) { add(m_sys->line_node_force(static_cast<unsigned>(j) + 2, 0)); }
     }
     return F;
 }
