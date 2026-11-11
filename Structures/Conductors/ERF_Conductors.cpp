@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <numeric>
 #include <map>
 #include <sstream>
 
@@ -1143,8 +1144,11 @@ Conductors::write_seafloors (const MultiFab* z_phys_nd, const Geometry& geom)
     const auto plo = geom.ProbLoArray();
     const auto dx = geom.CellSizeArray();
     for (const LineInputs& s : m_placed) {
-        // the line and one span length (and its string) around it: where a span that lets go of one end can swing
+        // the line and one span length (and its string) around it: where a span that lets go of one end can swing.
+        // With failure_break more than one release can leave several spans hanging from one support as one
+        // conductor: the margin is then the line's whole length
         Real margin = *std::max_element(s.lengths.begin(), s.lengths.end());
+        if (m_in.failure_break) { margin = std::accumulate(s.lengths.begin(), s.lengths.end(), Real(0.0)); }
         if (s.has_insulators()) { margin += s.insulator_length; }
         std::array<Real,2> lo{{s.point(0)[0], s.point(0)[1]}}, hi = lo;
         for (int k = 1; k <= s.num_spans(); ++k) {
@@ -1407,7 +1411,7 @@ Conductors::build_intensity ()
     const bool with_k = m_keqn && !m_in.has_prescribed_velocity;
     const std::string err = m_im.configure(static_cast<double>(m_in.intensity_height),
                                            static_cast<double>(m_in.intensity_averaging_time), with_k);
-    m_im.set_maximum_start(static_cast<double>(m_in.capacity_check_start));
+    m_im.set_maximum_start(m_in.check_start_time());
     if (!err.empty()) { Abort(err); }
     for (const auto& p : m_im_place) {
         m_im.add_point(p.name, static_cast<double>(p.pos[0]), static_cast<double>(p.pos[1]), static_cast<double>(p.pos[2]));
@@ -1500,7 +1504,7 @@ void
 Conductors::check_line_capacities (std::size_t i, double t, std::vector<std::size_t>& fresh)
 {
     // (nothing is checked before capacity_check_start: no record, no exceedance, no release)
-    if (m_cap.empty() || t < static_cast<double>(m_in.capacity_check_start)) { return; }
+    if (m_cap.empty() || t < m_in.check_start_time()) { return; }
     const LineInputs& s = m_placed[i];
     const ConductorLine& c = *m_lines[i];
     auto record = [&] (std::size_t id, double demand, double capacity) {
@@ -1529,7 +1533,7 @@ Conductors::check_line_capacities (std::size_t i, double t, std::vector<std::siz
 void
 Conductors::check_tower_capacities (std::size_t tw, double t, std::vector<std::size_t>& fresh)
 {
-    if (m_cap.empty() || t < static_cast<double>(m_in.capacity_check_start)) { return; }
+    if (m_cap.empty() || t < m_in.check_start_time()) { return; }
     auto record = [&] (std::size_t id, double demand, double capacity) {
         if (id != no_component) { record_capacity(id, demand, capacity, t, fresh); }
     };
@@ -2298,7 +2302,11 @@ Conductors::restore (const std::string& dir)
     // the capacities' peaks and first exceedances; a checkpoint without them (or a component it does not hold) starts afresh
     build_capacities();
     if (m_cap.empty() && erf_actuator::file_exists_everywhere(dir + "/capacities")) {
-        Print() << "conductors: the checkpoint's capacity records are not checked in this run (no capacity is given)\n";
+        Print() << "conductors: the checkpoint's capacity records are not checked in this run (no capacity is given); "
+                << "capacities.csv of the run being restarted is removed\n";
+        // the table of the run being restarted is not this run's (its failures.dat is cut at the checkpoint's time below)
+        std::error_code ec;
+        if (ParallelDescriptor::IOProcessor()) { std::filesystem::remove(m_in.diagnostics_dir + "/capacities.csv", ec); }
     }
     if (!m_cap.empty()) {
         if (erf_actuator::file_exists_everywhere(dir + "/capacities")) {
@@ -2434,6 +2442,35 @@ Conductors::restore (const std::string& dir)
             }
         }
     }
+    // the release and tower-failure logs as the checkpoint holds them, and the failure log's header: a restart into
+    // a new diagnostics directory, or one that first sets an option, then has the same files a run from the start has
+    if (ParallelDescriptor::IOProcessor()) {
+        if (m_in.failure_break || !m_breaks.empty()) {
+            std::ofstream out;
+            erf_actuator::open_log(out, m_in.diagnostics_dir + "/breaks.dat", true);
+            out << erf_conductors::BreakLog::log_header() << "\n";
+            for (std::size_t i = 0; i < m_breaks.size(); ++i) { out << m_breaks.log_row(i) << "\n"; }
+            if (!out) { Abort("cannot write '" + m_in.diagnostics_dir + "/breaks.dat'"); }
+        }
+        if (m_in.tower_release_on() || !m_tower_failures.empty()) {
+            std::ofstream out;
+            erf_actuator::open_log(out, m_in.diagnostics_dir + "/tower_failures.dat", true);
+            out << erf_conductors::TowerFailureLog::log_header() << "\n";
+            for (std::size_t i = 0; i < m_tower_failures.size(); ++i) { out << m_tower_failures.log_row(i) << "\n"; }
+            if (!out) { Abort("cannot write '" + m_in.diagnostics_dir + "/tower_failures.dat'"); }
+        }
+        if (!m_cap.empty()) {
+            // every first exceedance the checkpoint holds, in time order
+            std::vector<std::size_t> ids;
+            for (std::size_t c = 0; c < m_cap.size(); ++c) { if (m_cap.component(c).exceeded) { ids.push_back(c); } }
+            m_cap.order_by_first_time(ids);
+            std::ofstream out;
+            erf_actuator::open_log(out, m_in.diagnostics_dir + "/failures.dat", true);
+            out << erf_conductors::CapacityMonitor::failure_log_header() << "\n";
+            for (const std::size_t id : ids) { out << m_cap.failure_row(id) << "\n"; }
+            if (!out) { Abort("cannot write '" + m_in.diagnostics_dir + "/failures.dat'"); }
+        }
+    }
     write_member_tables();
     ParallelDescriptor::Barrier();
     m_restored = true;
@@ -2482,6 +2519,8 @@ Conductors::write_checkpoint (const std::string& chkdir) const
             if (!cp) { Abort("cannot write the conductor checkpoint '" + dir + "/capacities'"); }
             // the table as checkpointed, so that a run ending here, off the diagnostics cadence, has its last peaks
             m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv");
+            // and the demand table and the intensity points with it, which hold the same peaks
+            write_intensity();
         }
         if (m_in.tower_release_on() || !m_tower_failures.empty()) {
             std::ofstream tf(dir + "/tower_failures", std::ios::trunc);

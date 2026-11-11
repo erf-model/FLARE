@@ -153,6 +153,14 @@
 // ALineTakesAnotherLinesGustsAndAChangedSharingDrawsAfresh: a line naming another in gust_with takes its random
 //     gust, each along its span's mean horizontal wind in a wind that veers with the height; a restart whose lines
 //     share differently, with as many processes, draws them afresh.
+// ARestartWritesItsLogsFromTheCheckpoint: breaks.dat and failures.dat of a restarted run are the checkpoint's, also in
+//     a new diagnostics directory and header-only when an option is first set at the restart; a restart without a
+//     capacity removes capacities.csv.
+// TheChecksStartAtAStartTimeThatIsASumOfSteps: capacity_check_start = 1 s is met by the tenth step of 0.1 s.
+// TheSeafloorCoversTheWholeLineAroundItWhenALineCanLetGo: with failure_break the seafloor reaches the line's whole
+//     length around it, without it one span.
+// AFrameTowerOverAMembersStrengthLetsGoOfItsLines: with tower_failure = release a frame tower fails at its first
+//     member over its strength and lets go of its spans.
 
 #include <algorithm>
 #include <array>
@@ -3955,9 +3963,17 @@ TEST(Conductors, FailedTowersStayFailedAcrossARestart)
     ASSERT_TRUE(std::filesystem::exists(chk + "/conductors/tower_failures"));
     const int last = 8;
     for (int s = 1; s < last; ++s) { step(*a, s); }
+    // the restart writes the two logs again from the checkpoint: also when the files are gone
+    const auto tower_rows = data_rows(dir + "/tower_failures.dat"), break_rows = data_rows(dir + "/breaks.dat");
+    ASSERT_EQ(tower_rows.size(), 2u);
+    ASSERT_EQ(break_rows.size(), 4u);
+    std::filesystem::remove(dir + "/tower_failures.dat");
+    std::filesystem::remove(dir + "/breaks.dat");
     auto b = Conductors::create(0);
     b->set_ground(nullptr, m.geom, chk);
     ASSERT_TRUE(b->restored());
+    EXPECT_EQ(data_rows(dir + "/tower_failures.dat"), tower_rows);
+    EXPECT_EQ(data_rows(dir + "/breaks.dat"), break_rows);
     ASSERT_EQ(b->tower_failures().size(), 2u);
     ASSERT_EQ(b->breaks().size(), 4u);
     for (std::size_t t = 0; t < 2; ++t) {
@@ -4348,4 +4364,178 @@ TEST(Conductors, CapacityChecksStartAtTheirStartTime)
     EXPECT_NE(msg.find("conductors.capacity_check_start needs a capacity to check"), std::string::npos) << msg;
     pp.remove("capacity_check_start");
     clear_break("Tcs");
+}
+
+TEST(Conductors, ARestartWritesItsLogsFromTheCheckpoint)
+{
+    // the release log, the failure log and the capacity table of a restarted run are the checkpoint's: also in a
+    // new diagnostics directory, and with only a header when an option is first set at the restart
+    const std::string dir = scratch("restart_logs");
+    set_break(dir, "Trl");
+    amrex::ParmParse("conductors.Trl").add("rated_breaking_strength", 5000.0);
+    Mesh m(false);
+    const double dt = 0.25;
+    auto step = [&] (Conductors& c, int s) { c.advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); };
+    auto a = Conductors::create(0);
+    a->set_ground(nullptr, m.geom);
+    step(*a, 0);
+    ASSERT_EQ(a->breaks().size(), 1u);
+    const std::string chk = dir + "/chk00001";
+    std::filesystem::create_directories(chk);
+    a->write_checkpoint(chk);
+    for (int s = 1; s < 4; ++s) { step(*a, s); }
+    const auto rows = data_rows(dir + "/breaks.dat");
+    const auto frows = data_rows(dir + "/failures.dat");
+    ASSERT_EQ(rows.size(), 1u);
+    ASSERT_EQ(frows.size(), 1u);
+    amrex::ParmParse pp("conductors");
+    {
+        // into another directory: the rows of before the checkpoint are there
+        const std::string dir2 = scratch("restart_logs_moved");
+        pp.remove("diagnostics_dir");
+        pp.add("diagnostics_dir", dir2);
+        auto b = Conductors::create(0);
+        b->set_ground(nullptr, m.geom, chk);
+        ASSERT_TRUE(b->restored());
+        EXPECT_EQ(data_rows(dir2 + "/breaks.dat"), rows);
+        EXPECT_EQ(data_rows(dir2 + "/failures.dat"), frows);
+        EXPECT_TRUE(std::filesystem::exists(dir2 + "/capacities.csv"));
+        step(*b, 1);
+        EXPECT_EQ(data_rows(dir2 + "/breaks.dat"), rows) << "nothing more is released";
+        pp.remove("diagnostics_dir");
+        pp.add("diagnostics_dir", dir);
+    }
+    {
+        // without any capacity: the table of the run being restarted is removed; the releases stay
+        amrex::ParmParse("conductors.Trl").remove("rated_breaking_strength");
+        pp.remove("failure_break");
+        ASSERT_TRUE(std::filesystem::exists(dir + "/capacities.csv"));
+        auto b = Conductors::create(0);
+        b->set_ground(nullptr, m.geom, chk);
+        EXPECT_FALSE(std::filesystem::exists(dir + "/capacities.csv"));
+        EXPECT_EQ(data_rows(dir + "/breaks.dat"), rows);
+        EXPECT_EQ(b->breaks().size(), 1u);
+    }
+    clear_break("Trl");
+    // the options first set at a restart: the logs exist, with their headers only
+    const std::string dir3 = scratch("restart_logs_late");
+    set_break(dir3, "Trn");
+    pp.remove("failure_break");
+    auto w = Conductors::create(0);
+    w->set_ground(nullptr, m.geom);
+    step(*w, 0);
+    const std::string chkw = dir3 + "/chk00001";
+    std::filesystem::create_directories(chkw);
+    w->write_checkpoint(chkw);
+    EXPECT_FALSE(std::filesystem::exists(dir3 + "/breaks.dat"));
+    EXPECT_FALSE(std::filesystem::exists(dir3 + "/failures.dat"));
+    amrex::ParmParse("conductors.Trn").add("rated_breaking_strength", 1.0e6);
+    pp.add("failure_break", true);
+    auto l = Conductors::create(0);
+    l->set_ground(nullptr, m.geom, chkw);
+    for (const char* f : {"/breaks.dat", "/failures.dat"}) {
+        EXPECT_TRUE(std::filesystem::exists(dir3 + f)) << f;
+        EXPECT_TRUE(data_rows(dir3 + f).empty()) << f;
+    }
+    clear_break("Trn");
+}
+
+TEST(Conductors, TheChecksStartAtAStartTimeThatIsASumOfSteps)
+{
+    // ten steps of 0.1 s end at 0.9999999999999999 s: the check stamped there is the one meant by a start of 1 s
+    const std::string dir = scratch("check_start_sum");
+    set_still_air(dir, "Tss");
+    amrex::ParmParse("conductors.Tss").add("rated_breaking_strength", 0.99 * still_air_end_tension());
+    amrex::ParmParse pp("conductors");
+    pp.add("capacity_check_start", 1.0);
+    Mesh m(false);
+    const double dt = 0.1;
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    double t = 0.0;
+    for (int s = 0; s < 9; ++s) { c->advance(0, t, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); t += dt; }
+    EXPECT_FALSE(c->capacities().component(0).seen) << "nothing before the start, at " << t << " s";
+    ASSERT_LT(t + dt, 1.0) << "the sum of the steps is just below 1 s";
+    c->advance(0, t, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    EXPECT_TRUE(c->capacities().component(0).seen) << "checked at the step that ends at the start time";
+    EXPECT_TRUE(c->capacities().component(0).exceeded);
+    pp.remove("capacity_check_start");
+    clear_capacities("Tss");
+}
+
+TEST(Conductors, TheSeafloorCoversTheWholeLineAroundItWhenALineCanLetGo)
+{
+    // three spans of 301.5 m along x from 100 to 1000 m at y = 500 (100 m cells, 1200 m by 1000 m). One span
+    // around the line reaches y from 198.5 to 801.5 m: nodes 100 to 900, nine ticks. With failure_break two
+    // releases can leave the three spans hanging from one support, so the margin is their sum, 904.5 m, and the
+    // seafloor covers the domain's whole width: eleven ticks
+    for (const bool with_break : {false, true}) {
+        const std::string dir = scratch(with_break ? "seafloor_break" : "seafloor_no_break");
+        set_towered_section(dir, "Tsm");
+        amrex::ParmParse pp("conductors");
+        pp.add("ground_contact", true);
+        if (with_break) {
+            pp.add("failure_break", true);
+            amrex::ParmParse("conductors.Tsm").add("rated_breaking_strength", 1.0e9);
+        }
+        Mesh m(false);
+        auto c = Conductors::create(0);
+        ASSERT_TRUE(c);
+        c->set_ground(nullptr, m.geom);
+        pp.remove("ground_contact");
+        pp.remove("failure_break");
+        clear_capacities("Tsm");
+        clear_towered_section("Tsm");
+        const SeafloorFile sf(dir + "/Tsm.seafloor.txt");
+        EXPECT_EQ(sf.x.size(), 13u) << "the line's length and a span either side: the domain's length";
+        EXPECT_EQ(sf.y.size(), with_break ? 11u : 9u) << (with_break ? "with" : "without") << " failure_break";
+    }
+}
+
+TEST(Conductors, AFrameTowerOverAMembersStrengthLetsGoOfItsLines)
+{
+    // the generated frame towers of AFrameTowersMembersAreCheckedAgainstTheirStrength with a yield strength of
+    // 4 MPa (at 12 MPa the largest utilisation in still air is 0.63, in a leg): members are over their strength
+    // under the towers' own weight and the lines' at the first step, each
+    // tower fails once, at its first member over its strength, and lets go of the spans clamped to it
+    const std::string dir = scratch("tower_failure_member");
+    set_towered_section(dir, "Tfr");
+    amrex::ParmParse pt("conductors.lat");
+    pt.remove("weight");
+    pt.add("frame_panels", 8);
+    pt.addarr("leg_angle", std::vector<Real>{0.15, 0.012});
+    pt.addarr("brace_angle", std::vector<Real>{0.10, 0.008});
+    pt.add("damping_ratio", 0.02);
+    pt.add("yield_strength", 4.0e6);
+    set_tower_failure();
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    c->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    ASSERT_EQ(c->tower_failures().size(), 2u);
+    ASSERT_EQ(c->breaks().size(), 4u) << "two span ends at each tower";
+    const auto& cap = c->capacities();
+    for (std::size_t t = 0; t < 2; ++t) {
+        const auto& f = c->tower_failures().record(t);
+        const std::string tower = c->towers()[t].name();
+        EXPECT_EQ(f.tower, tower);
+        EXPECT_EQ(f.component.rfind(tower + "_m", 0), 0u) << f.component << ": a member of that tower";
+        EXPECT_EQ(f.releases, 2);
+        // the member named is one over its strength, and none of the tower's exceeded earlier
+        double first = std::numeric_limits<double>::max(), named = -1.0;
+        for (const auto& comp : cap.components()) {
+            if (comp.name.rfind(tower + "_m", 0) != 0 || !comp.exceeded) { continue; }
+            first = std::min(first, comp.first_time);
+            if (comp.name == f.component) { named = comp.first_time; }
+        }
+        EXPECT_GE(named, 0.0) << f.component << " is over its strength";
+        EXPECT_EQ(named, first) << "the tower fails at its first member over its strength";
+    }
+    const auto& line = *c->lines().front();
+    EXPECT_FALSE(line.span_end_attached(0, 1) || line.span_end_attached(1, 0) || line.span_end_attached(1, 1) || line.span_end_attached(2, 0));
+    EXPECT_EQ(data_rows(dir + "/tower_failures.dat").size(), 2u);
+    for (const char* k : {"frame_panels", "leg_angle", "brace_angle", "damping_ratio", "yield_strength"}) { pt.remove(k); }
+    clear_tower_failure("Tfr");
+    clear_capacities("Tfr");
+    clear_towered_section("Tfr");
 }

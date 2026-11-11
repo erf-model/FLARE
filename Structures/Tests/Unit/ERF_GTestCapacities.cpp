@@ -6,7 +6,7 @@
 // ThePeakIsTheLargestRatioNotTheLargestDemand: with a capacity that changes between records (a member's strength at
 //     its temperature), the peak follows demand / capacity.
 // TheRunsFirstFailureIsTheEarliestExceedance: first_failure() over components exceeding at different times, the
-//     first added on a tie, size() when none has; order_by_first_time sorts a step's exceedances, ties kept in order.
+//     first added on a tie, size() when none has; order_by_first_time sorts a step's exceedances, the first added first on a tie.
 // TheStateComesBackByNameAndKind: state() and restore() round trip to the bit; a component without a record starts
 //     afresh, a record without a component (or of another kind) is dropped and named, a malformed one refused.
 // TheTableAndTheFailureRowCarryEveryField: capacities.csv's header and rows, empty fields before a record and
@@ -84,10 +84,11 @@ TEST(Capacities, TheRunsFirstFailureIsTheEarliestExceedance)
     EXPECT_EQ(m.first_failure(), b);
     m.record(c, 2.0, 1.0, 2.0);   // the same time as b: the first added wins
     EXPECT_EQ(m.first_failure(), b);
-    // a step's exceedances in the order the groups stepped, logged in time order, ties as they came
+    // a step's exceedances in the order the groups stepped, logged in time order; at one time the component added
+    // first (capacities.csv's order), whichever group stepped first
     std::vector<std::size_t> ids{a, c, b};
     m.order_by_first_time(ids);
-    EXPECT_EQ(ids, (std::vector<std::size_t>{c, b, a}));
+    EXPECT_EQ(ids, (std::vector<std::size_t>{b, c, a}));
 }
 
 TEST(Capacities, TheStateComesBackByNameAndKind)

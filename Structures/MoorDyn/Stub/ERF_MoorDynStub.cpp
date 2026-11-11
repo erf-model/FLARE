@@ -829,7 +829,8 @@ int MoorDyn_ExternalWaveKinInit (MoorDyn system, unsigned int* n)
     // unlike MoorDyn-C 2.7.1, which counts the points whatever WaveKin is: the stub reports 0 so
     // that a missing WaveKin = 1 is caught where only the stub runs
     s.nkin = (s.wave_kin == 1) ? kin_points(s) : 0;
-    s.U.assign(3 * static_cast<std::size_t>(s.nkin), 0.0);
+    // (a point added by MoorDyn_BreakLine comes last: the velocities set before it are kept, as MoorDyn-C keeps them)
+    s.U.resize(3 * static_cast<std::size_t>(s.nkin), 0.0);
     *n = s.nkin;
     return MOORDYN_SUCCESS;
 }

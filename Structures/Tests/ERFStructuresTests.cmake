@@ -947,7 +947,11 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_MPI AND ERF_ENABLE_FCOMPARE AND NOT WIN3
       "erf.terrain_type=EB")
   set_tests_properties(Conductors_Abort_FinerLevelCoversLines Conductors_Abort_FinerLevelCoversDragTail
                        PROPERTIES LABELS "regression;conductors;multilevel")
-  set_tests_properties(Conductors_Abort_EBTerrain PROPERTIES LABELS "regression;conductors")
+  # a name with a comma: names are file stems and fields of the comma-separated tables
+  add_test_abort(Conductors_Abort_CommaInName ${_cmb_src} Conductors_MomentumBudget.i
+      "conductors.lines: the name .S1,S2. holds a comma"
+      "conductors.lines=S1,S2")
+  set_tests_properties(Conductors_Abort_EBTerrain Conductors_Abort_CommaInName PROPERTIES LABELS "regression;conductors")
 
   # lines without drag_on_flow on level 0 under a finer level: nothing goes into the flow, so the
   # run goes on and its flow is the flow without the model, to the last bit
@@ -960,4 +964,26 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_MPI AND ERF_ENABLE_FCOMPARE AND NOT WIN3
            WORKING_DIRECTORY ${_cow_dir})
   set_tests_properties(Conductors_OneWayUnderFinerLevel PROPERTIES LABELS "regression;conductors;multilevel" TIMEOUT 600 PROCESSORS 2
                        ATTACHED_FILES_ON_FAIL "${_cow_dir}/run.log;${_cow_dir}/nomodel/run.log")
+  # A broken wire through ERF, against the independent force balance (Structures/Tools/broken_wire):
+  # Structures/Exec/BrokenWire/run_study.py writes four sections in still air with make_case.py (equal
+  # spans on 2.5 m and 4 m strings, unequal spans, a span cut at its dead end), runs each deck to the
+  # release (conductors.failure_break, capacity_check_start) and its restart to 600 s, and requires the
+  # towers' pulls, averaged over the last 240 s, within 0.2 % of the force balance's (they agree to
+  # 0.02 %; a force balance without the half-link weight at a chain's ends is off by 1.3 %, one without
+  # the hanging span's weight on its support by 9 %). MoorDyn-C
+  # only: the stub has no dynamics and does not move the strings.
+  if(NOT ERF_MOORDYN_USE_STUB)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+      resolve_test_exe("" "erf_exec" _bw_exe)
+      add_test(NAME BrokenWire_ThroughERF
+               COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/Structures/Exec/BrokenWire/run_study.py"
+                       --exe "${_bw_exe}" --out "${CMAKE_CURRENT_BINARY_DIR}/test_files/BrokenWire_ThroughERF"
+                       --launcher "${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}"
+                       --study residual --check 0.2)
+      set_tests_properties(BrokenWire_ThroughERF PROPERTIES LABELS "regression;conductors;failure" TIMEOUT 900 PROCESSORS 2)
+    else()
+      message(STATUS "BrokenWire_ThroughERF needs Python 3 and is not registered")
+    endif()
+  endif()
 endif()

@@ -373,9 +373,11 @@ conductors.lattice.leg_spacing      = 0.0     # Real >= 0 (m). The four footings
                                                   #   Default: base_width
 conductors.lattice.allowable_uplift      = 0.0  # Real >= 0 (N). A footing's pull-out capacity, flagged above it and
                                                     #   checked after every coupling step (capacities.csv, failures.dat);
+                                                    #   a capacity for failure_stop and tower_failure.
                                                     #   0: not checked. Default: 0
 conductors.lattice.allowable_compression = 0.0  # Real >= 0 (N). A footing's bearing capacity, flagged above it and
                                                     #   checked after every coupling step (capacities.csv, failures.dat);
+                                                    #   a capacity for failure_stop and tower_failure.
                                                     #   0: not checked. Default: 0
 conductors.lattice.damping_ratio    = 0.02    # Real in [0, 1). Of the one mode with frequency; of a frame, its
                                                   #   Rayleigh damping at its first frequency and ten times it.

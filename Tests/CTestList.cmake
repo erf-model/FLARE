@@ -6047,6 +6047,8 @@ if(ERF_ENABLE_STRUCTURES)
   include(${PROJECT_SOURCE_DIR}/Structures/Tools/fragility_ensemble/FragilityEnsembleTests.cmake)
   # the fragility fit's own tests (Python only)
   include(${PROJECT_SOURCE_DIR}/Structures/Tools/fragility_fit/FragilityFitTests.cmake)
+  # the broken-wire state at rest: the independent reference's own tests (Python only)
+  include(${PROJECT_SOURCE_DIR}/Structures/Tools/broken_wire/BrokenWireTests.cmake)
 endif()
 
 # The structure coupling (erf.structures.model, Source/MovingBodies/Coupling) with the

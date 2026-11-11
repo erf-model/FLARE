@@ -71,7 +71,7 @@ public:
      * the first added), or size() when none has.
      */
     std::size_t first_failure () const;
-    /** Order component indices by their first exceedance time, keeping the given order among equal times. */
+    /** Order component indices by their first exceedance time; at equal times the component added first comes first. */
     void order_by_first_time (std::vector<std::size_t>& ids) const;
 
     /**

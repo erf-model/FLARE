@@ -77,6 +77,9 @@ function(erf_structures_unit_tests target)
   # at the end of that step, carry no line afterwards and stay failed across a restart; on MoorDyn-C the next tower,
   # which then carries more of the conductor, must fail after it (ERF_GTestTowerFailures.cpp holds the rule's and
   # the log's own tests).
+  # After a release the section's state at rest must be the one the balance of forces gives: the residual tension in
+  # the spans that stay, the lean of the strings and the towers' pulls, against an independent solver
+  # (Structures/Tools/broken_wire; ERF_GTestBrokenWire.cpp, MoorDyn-C only).
   target_sources(${target} PRIVATE
     ${_erf_structures_tests_dir}/ERF_GTestConductorInputsReset.cpp
     ${_erf_structures_tests_dir}/ERF_GTestConductorGeometry.cpp
@@ -91,6 +94,7 @@ function(erf_structures_unit_tests target)
     ${_erf_structures_tests_dir}/ERF_GTestGroundContact.cpp
     ${_erf_structures_tests_dir}/ERF_GTestLineBreaks.cpp
     ${_erf_structures_tests_dir}/ERF_GTestTowerFailures.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestBrokenWire.cpp
     ${_erf_structures_tests_dir}/ERF_GTestTransformer.cpp
   )
   # Motivation: a conductor's temperature under a fire (conductors.thermal_model = ieee738) must use the

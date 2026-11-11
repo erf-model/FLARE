@@ -31,6 +31,9 @@
 //     after the tower has moved on continues in a new line.
 // LineRelease.TheStubStillLoadsAStateSavedBeforeItKnewReleases: the stub's earlier saved-state format (stub only).
 // LineRelease.ReleasingTwiceOrOutsideTheLineIsRefused
+// LineRelease.AStateTakenBeforeAReleaseIsRefusedAfterIt: set_state() with a state from before a release aborts.
+// LineRelease.TheLargestTensionOfASpanIncludesItsEndB: max_tension() is at least both end tensions on an inclined span.
+// LineRelease.TheWindOnTheOtherSpansIsKeptAcrossARelease: a release leaves the wind held for the other nodes.
 
 #include <cmath>
 #include <filesystem>
@@ -679,14 +682,81 @@ TEST(LineRelease, ReleasingTwiceOrOutsideTheLineIsRefused)
     std::string msg = erf_gtest::abort_message([&] { c->release_span_end(0, 1); });
     EXPECT_NE(msg.find("conductors.twice: span 1 was already released at its end b"), std::string::npos) << msg;
     msg = erf_gtest::abort_message([&] { c->release_span_end(2, 0); });
-    EXPECT_NE(msg.find("conductors.twice: no span 2"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("conductors.twice: no span 3"), std::string::npos) << "counted from 1, as breaks.dat does: " << msg;
     msg = erf_gtest::abort_message([&] { c->release_span_end(0, 2); });
-    EXPECT_NE(msg.find("conductors.twice: no span 0 with an end 2"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("conductors.twice: no span 1 with an end 2"), std::string::npos) << msg;
     msg = erf_gtest::abort_message([&] { c->release_string(0); });
-    EXPECT_NE(msg.find("conductors.twice: no insulator string 0"), std::string::npos) << "a line without strings: " << msg;
+    EXPECT_NE(msg.find("conductors.twice: no insulator string 1"), std::string::npos) << "a line without strings: " << msg;
     EXPECT_EQ(c->releases().size(), 1u);
     auto s = make(level_line("twice_s", 3, 2.5), in);
     s->release_string(1);
     msg = erf_gtest::abort_message([&] { s->release_string(1); });
     EXPECT_NE(msg.find("conductors.twice_s: insulator string 2 was already released"), std::string::npos) << msg;
+}
+
+TEST(LineRelease, AStateTakenBeforeAReleaseIsRefusedAfterIt)
+{
+    // the system has one more point after a release: a state from before it does not fit
+    const ConductorInputs in = settings();
+    auto c = make(level_line("stale_state", 2), in);
+    still(*c, 0.0, 0.1);
+    const auto before = c->state();
+    c->release_span_end(0, 0);
+    const std::string msg = erf_gtest::abort_message([&] { c->set_state(before); });
+    EXPECT_FALSE(msg.empty()) << "a state taken before the release was accepted";
+    // one taken after it is
+    const auto after = c->state();
+    still(*c, 0.1, 0.1);
+    c->set_state(after);
+    still(*c, 0.1, 0.1);
+}
+
+TEST(LineRelease, TheLargestTensionOfASpanIncludesItsEndB)
+{
+    // an inclined span whose end b is 40 m higher: its tension is largest at end b, the last node of the line,
+    // which MoorDyn-C's own largest-tension call leaves out
+    const ConductorInputs in = settings();
+    LineInputs s = level_line("max_at_b", 1);
+    s.end_b = {{400.0, 500.0, 70.0}};
+    s.lengths.assign(1, 304.0);
+    auto c = make(s, in);
+    still(*c, 0.0, 0.1);
+    EXPECT_GE(c->max_tension(0), c->tension_b(0));
+    EXPECT_GE(c->max_tension(0), c->tension_a(0));
+    if (!erf_moordyn::is_stub()) { EXPECT_GT(c->tension_b(0), c->tension_a(0) + 0.5 * weight * 40.0) << "the higher end carries more"; }
+}
+
+TEST(LineRelease, TheWindOnTheOtherSpansIsKeptAcrossARelease)
+{
+    // two spans clamped at a tower in a crosswind: releasing span 1 must leave span 2 blown out as it was
+    const ConductorInputs in = settings();
+    auto c = make(level_line("wind_kept", 2), in);
+    auto blow = [&] (double t, double dt) {
+        std::vector<amrex::Real> uvw(3 * static_cast<std::size_t>(c->num_kinematics_points()), amrex::Real(0.0));
+        for (std::size_t p = 0; p < uvw.size() / 3; ++p) { uvw[3 * p + 1] = amrex::Real(20.0); }
+        c->set_wind(uvw, t + 0.5 * dt);
+        c->step(t, dt);
+        std::vector<amrex::Real> h(c->num_nodes(), amrex::Real(0.0));
+        c->set_ground_under_nodes(h);
+    };
+    const int nsteps = erf_moordyn::is_stub() ? 3 : 300;
+    double t = 0.0;
+    for (int n = 0; n < nsteps; ++n) { blow(t, 0.1); t += 0.1; }
+    const double offset = static_cast<double>(c->mid_offset(1));
+    ASSERT_GT(std::abs(offset), 1.0) << "span 2 is blown out";
+    c->release_span_end(0, 0);
+    // the wind MoorDyn holds for the nodes it had: unchanged by the release
+    const unsigned mid = c->span_first_node(1) + (c->span_num_nodes(1) - 1) / 2;
+    EXPECT_NEAR(static_cast<double>(c->wind_at_point(mid)[1]), 20.0, 1.0e-12);
+    EXPECT_NEAR(static_cast<double>(c->mid_offset(1)), offset, 1.0e-9 * std::abs(offset)) << "until the line steps";
+    // a step with the wind MoorDyn holds, none set again: span 2 stays blown out. The stub moves a span towards
+    // the shape its wind gives, so after three steps it is still moving out, and with a wind zeroed at the release
+    // it would move back; MoorDyn-C moves it little in 0.1 s
+    c->step(t, 0.1);
+    const double after = static_cast<double>(c->mid_offset(1));
+    if (erf_moordyn::is_stub()) {
+        EXPECT_GT(std::abs(after), std::abs(offset)) << "span 2 still moves out in the wind held across the release";
+    } else {
+        EXPECT_NEAR(after, offset, 0.2 * std::abs(offset)) << "span 2 after a step in the wind held across the release";
+    }
 }
