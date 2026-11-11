@@ -1762,8 +1762,8 @@ This section describes how the terrain holds up a conductor that sags or
 falls to the ground. Without it a conductor has no ground: MoorDyn's bottom is
 placed far below the domain, and a node that reaches the terrain leaves the
 grids or the domain and stops the run. Ground contact is therefore needed
-before a conductor can be broken and followed to the ground (the next stage of
-the line-failure work), and it lets a run continue when a slack or heated span
+before a conductor can be released and followed to the ground (see
+`Release of a line at a capacity exceedance`_), and it lets a run continue when a slack or heated span
 sags onto the terrain. It is switched on with ``conductors.ground_contact``
 and off by default, in which case every result is unchanged. The terrain
 reaches MoorDyn through its 3-D seafloor; the record of which spans lie on the
@@ -1953,6 +1953,10 @@ Assumptions and limitations
   within 15 s.
 * **Strings.** The insulator strings share the conductor's contact damping
   (one value per MoorDyn system) and rest on the same raised seafloor.
+* **A node pressed below the terrain.** A conductor that lands at speed sinks
+  below the terrain for an instant (Eq. :eq:`br-sink`). The flow is then
+  sampled, and the drag spread, at :math:`d/2` above the terrain under that
+  node.
 * **Capacities.** Ground contact changes the loads the components carry and
   so their demands (see `Component capacities and first failure`_); it adds
   no capacity of its own.
@@ -2043,6 +2047,364 @@ References
   104, 590-603.
 * MoorDyn-C v2 documentation, input file options ``SeafloorFile``, ``kbot``
   and ``cbot``. https://moordyn.readthedocs.io
+
+Release of a line at a capacity exceedance
+------------------------------------------
+
+This section describes what happens to a line when one of its components
+exceeds its capacity and the run is to go on. The capacity check of
+`Component capacities and first failure`_ only records an exceedance; with
+``conductors.failure_stop`` it stops the run there. With
+``conductors.failure_break = true`` the line instead lets go at that
+component: a span's end leaves its support, or an insulator string leaves its
+cross-arm, and the line is followed as it falls, swings and comes to rest on
+the terrain. The option is off by default, in which case every result is
+unchanged. It needs ``conductors.ground_contact = true`` (`Ground contact`_)
+and at least one capacity on a line. The rule and the log are
+``Structures/Conductors/ERF_LineBreaks.{H,cpp}`` (``decide_break``, class
+``BreakLog``); the line makes the release in MoorDyn
+(``ConductorLine::release_span_end``, ``release_string``).
+
+Trigger and timing
+~~~~~~~~~~~~~~~~~~
+
+Let :math:`D_c(t_n)` (N) be the demand on component :math:`c` and
+:math:`C_c` (N) its capacity, both as defined in `Component capacities and
+first failure`_, checked at the end :math:`t_n` (s) of every step of the
+lines' level. The component's first exceedance is at
+
+.. math::
+   :label: br-trigger
+
+   t_c^{*} = \min \{\, t_n : D_c(t_n) > C_c \,\} .
+
+A release is made once per component, at :math:`t_c^{*}`, after the step's
+exceedances have been logged in time order. The line is whole during the step
+that ends at :math:`t_c^{*}` and released from the next step on. In the rows
+written at :math:`t_c^{*}` the tensions, positions and drag are therefore
+those of the whole line (the span logs, ``failures.dat``, the tension in
+``breaks.dat``), while the pull on the support that was let go is already
+zero (``towers.dat``, ``transformers.dat``, the hardware's demand from the
+next check on).
+
+For lines on towers that bend, the check runs after every coupling step inside
+the level's step (`Component capacities and first failure`_). An exceedance
+found there carries its own time in ``failures.dat``, and the release is made
+at the end of the level's step that contains it. The tensions of Eq.
+:eq:`br-end`, and the tension written to ``breaks.dat``, are those at the end
+of that step.
+
+What lets go
+~~~~~~~~~~~~
+
+Spans are numbered :math:`k = 1 \dots N` from ``end_a``, attachments
+:math:`a = 0 \dots N` (0 at ``end_a``, :math:`N` at ``end_b``, the towers
+between). :math:`T_k^a` and :math:`T_k^b` (N) are the tensions at span
+:math:`k`'s ends towards ``end_a`` and ``end_b``.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Component over its capacity
+     - Release
+   * - Conductor of span :math:`k`
+     - Span :math:`k` leaves its support at the end with the higher tension,
+       Eq. :eq:`br-end`
+   * - Insulator string at tower :math:`j`
+     - The string leaves the cross-arm; the conductor it carried goes with it
+   * - Hardware at a dead end
+     - The span there leaves the dead end
+   * - Hardware at a tower with strings
+     - The string leaves the cross-arm
+   * - Hardware at a tower the spans are clamped to
+     - Of the two spans meeting there, the one with the higher tension at the
+       tower leaves it
+   * - Tower footing or member
+     - Nothing (a tower failure is not part of this model)
+
+The end of a span that lets go is
+
+.. math::
+   :label: br-end
+
+   e_k = \begin{cases} b & \text{if } T_k^b > (1 + \epsilon) \, T_k^a , \\
+   a & \text{otherwise,} \end{cases} \qquad \epsilon = 10^{-6} .
+
+**Why a tolerance.** On a level span in still air the two end tensions are
+equal up to the line solver's residual (one part in :math:`10^8` with
+MoorDyn-C). Without :math:`\epsilon` that residual would choose the end. A
+height difference of 1 m between the ends changes the tensions by the
+conductor's weight over 1 m, about one part in :math:`10^3`, far above
+:math:`\epsilon`.
+
+An end already released is not a candidate: a span with one end free can only
+let go at the other, and a component with nothing left to release does
+nothing. A span released in a step is not released again in the same step by
+another component's exceedance, since its tension has not fallen yet.
+
+After the release
+~~~~~~~~~~~~~~~~~
+
+MoorDyn-C detaches the line's end from its point and puts it on a new free
+point at the same place (``MoorDyn_BreakLine``). The end then moves under the
+conductor's tension, weight, drag and the ground's contact force. Nothing
+else in the line changes: the nodes, their numbering and the span's logs are
+the same.
+
+**Rest state.** A span released at one end comes to rest hanging from the
+other. With the held support at height :math:`h` (m) above the ground under
+it and the span longer than :math:`h`, the hanging length is :math:`h` less
+the conductor's radius and the tension at the held end is its weight,
+
+.. math::
+   :label: br-rest
+
+   T_{\mathrm{rest}} = w \left( h - \tfrac{1}{2} d \right) ,
+
+where :math:`w` (N/m) is the conductor's weight per unit length less
+buoyancy and :math:`d` (m) its diameter. The rest of the span lies on the
+ground. Equation :eq:`br-rest` holds in still air. In a wind the ground,
+which has no friction, lets the fallen length add its drag to the held end.
+
+**What MoorDyn-C gives.** MoorDyn-C lumps the line at its nodes. At rest the
+tension at the held end is the weight of the nodes that hang clear of the
+ground,
+
+.. math::
+   :label: br-lumped
+
+   T_{\mathrm{rest}}^{\mathrm{MD}} = w \, l \, n , \qquad
+   w \left( h - \tfrac{1}{2} d \right) - w \, l \;\le\; T_{\mathrm{rest}}^{\mathrm{MD}} \;\le\; w \left( h - \tfrac{1}{2} d \right) ,
+
+with :math:`l` (m) the segment length and :math:`n` the number of such nodes
+below the support. It is below Eq. :eq:`br-rest` by up to one segment's
+weight: 3 % for 1 m segments on a 30 m support, 50 % for 15 m segments. A
+span that hangs free of the ground puts its whole weight :math:`w L` on its
+support whatever the segment length. In still air a released span swings for
+minutes before it rests, since only the air's drag damps it.
+
+**Wind and drag on a fallen conductor.** The ground's contact is a spring and
+a damper (Eq. :eq:`gc-force`), so a conductor that lands at speed sinks below
+the seafloor of Eq. :eq:`gc-seafloor` for an instant. With the critical
+damping of Eq. :eq:`gc-damping`, a node landing at speed :math:`v` (m/s)
+sinks at most
+
+.. math::
+   :label: br-sink
+
+   \delta_{\max} = \frac{v}{e \, \omega_g} ,
+
+where :math:`\omega_g` is the contact's frequency of Eq. :eq:`gc-freq` and
+:math:`e` is Euler's number: 39 mm at 24 m/s, the speed after a 30 m fall
+without drag, and 34 mm at the 21 m/s the conductor above reaches in air
+(:math:`\omega_g` = 228 rad/s; 34.0 to 34.5 mm in MoorDyn-C runs of a
+conductor dropped flat). That is more than
+the 14 mm the seafloor is raised by, so the node's axis passes below the
+terrain. A node below the terrain is on no grid. For sampling the wind and the
+air's state, and for spreading the drag, a node whose axis is below the
+terrain is therefore taken at :math:`d/2` above it. The line's own positions
+are not changed. This applies whenever ``ground_contact`` is on. A node at or
+above the terrain, which includes every node at rest on it, is sampled where
+it is; before, a node below the terrain stopped the run.
+
+**Supports.** A support that was let go takes no load from that end. A tower
+keeps the pull of what is still attached to it, which is no longer balanced
+between its two sides; the footing and member checks see that load.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 16 50
+
+   * - Input or constant
+     - Default
+     - Effect
+   * - ``conductors.failure_break``
+     - ``false``
+     - ``true``: a line's component over its capacity lets go of the line at
+       the end of that step; needs ``ground_contact = true`` and a line's
+       capacity; not with ``failure_stop``
+   * - :math:`\epsilon`
+     - :math:`10^{-6}`
+     - tie tolerance of Eq. :eq:`br-end` (``break_tie_tolerance``)
+
+Assumptions and limitations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* **Where a conductor breaks.** A conductor over its strength is released at a
+  support, not cut in the span. A conductor parted in mid-span would leave two
+  pieces, each hanging from its own support; here one support keeps the whole
+  span.
+* **One release per component.** A component is released at its first
+  exceedance only. A later, larger load on a component already over its
+  capacity releases nothing more. This includes a component whose release was
+  not made because its span had let go at its other end in the same step, and
+  a component already over its capacity in a checkpoint when a restart first
+  sets ``failure_break``; the restart names each such component.
+* **Towers do not fail.** A footing or member over its capacity is logged and
+  releases nothing. The cascade followed here is through the lines: a release
+  changes the loads on what remains, which may then exceed its own capacity.
+* **Nominal capacities.** As for the capacity check, the capacities are the
+  inputs' values with no strength factor and no scatter.
+* **Timing.** The release is made at the end of the step that finds the
+  exceedance, so the time of a release is resolved to one step of the lines'
+  level.
+* **Dynamic loads after a release.** The whip of a falling span is resolved by
+  MoorDyn-C's internal step, but the demand is checked once per step of the
+  lines' level: a peak shorter than that step may be missed (see the runs
+  under `Verification of the release`_).
+* **Sensitivity of a fall.** A falling conductor that lands and whips
+  amplifies small differences. Two MoorDyn-C runs of the same case on 2 and
+  on 3 MPI ranks, whose flows differ in the last digits, made the same
+  releases at the same times; their span logs agreed to :math:`10^{-13}` until
+  the span landed, to :math:`10^{-8}` for 2 s after, and differed by 10 %
+  later. Read the motion after a landing as one realisation, and a release
+  that follows from it (a cascade) as one that may differ between runs when
+  its demand is close to the capacity. A restart on the same number of ranks
+  reproduces the uninterrupted run.
+* **Coarse segments.** The tension of a span that has come to rest on the
+  ground is that of Eq. :eq:`br-lumped`, below Eq. :eq:`br-rest` by up to one
+  segment's weight.
+* **Refined levels.** The grids of the lines' level must cover the ground
+  under the lines, with the reach of the sampler, since that is where a
+  released conductor goes. A run stops, naming the node, when one leaves
+  those grids or the domain.
+* **No electrical model.** A conductor on the ground or swinging near another
+  is only reported (``ground_contact.csv``, ``separation.dat``).
+* **The stub.** The bundled MoorDyn stand-in has no dynamics: a released span
+  is placed at once in the rest state of Eq. :eq:`br-rest`, so a stub run
+  shows that state by construction and only the MoorDyn-C runs test it. A tie in Eq.
+  :eq:`br-end` is the rule there, since its span carries the same tension at
+  both ends. Release times agree between the stub and MoorDyn-C when the
+  demand passes the capacity at the same step.
+
+Outputs and restart
+~~~~~~~~~~~~~~~~~~~
+
+``<diagnostics_dir>/breaks.dat`` holds one row per release:
+``time line released component tension``. ``released`` is
+``span<k>_end_a``, ``span<k>_end_b`` or ``string<j>``; ``component`` is the
+name in ``capacities.csv`` of the component whose exceedance released it;
+``tension`` (N) is the tension at the released end, or at the string's top,
+when it let go. The run prints a line per release.
+
+A checkpoint stores the releases in order (17 significant digits) under
+``<chk>/conductors/breaks``. MoorDyn-C's saved state holds one free point per
+release and fits only a system with the same releases. On a restart each line
+therefore makes its releases again, in order, before it loads its state. This
+is done whether or not the restart sets ``failure_break``; without it no
+further release is made. A restart from a checkpoint that holds releases
+needs ``ground_contact = true`` and is refused without it. Rows of ``breaks.dat`` after the checkpoint's time
+are dropped, as for the other logs.
+
+Verification of the release
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 42 58
+
+   * - Test
+     - What is pinned
+   * - ``DecideBreak.*``
+     - The table above and Eq. :eq:`br-end`: the higher end, end a within
+       :math:`\epsilon` and end b beyond it, the one end still attached,
+       nothing when none is; refused indices.
+   * - ``BreakLog.*``
+     - The rows of ``breaks.dat``, the releases of one line in order, a
+       bit-exact round trip of the checkpoint text, refused records.
+   * - ``LineRelease.AReleasedSpanHangsFromItsOtherEndAndItsSupportTakesNothing``
+     - Eqs. :eq:`br-rest` and :eq:`br-lumped`: 31 m of conductor in 1 m
+       segments from a support 30 m above flat ground, released at its low
+       end, in still air. :math:`w (h - d/2)` = 478.68 N: the stub gives it
+       exactly; MoorDyn-C must lie within one segment's weight below it
+       (478.9 N while the node at the foot still hovers above the ground,
+       462.9 N once it rests on it). One more kinematics point; the released
+       support takes nothing at once.
+   * - ``LineRelease.ASpanShorterThanItsSupportsHeightHangsFree``
+     - 21.35 m of conductor from a support 30 m up, released at its low end,
+       hangs clear of the ground: the support carries :math:`w L` = 340.8 N
+       (stub exactly; MoorDyn-C 340.8 N, within 2 %) and the free end stays
+       clear of the ground (8.65 m above it at rest, where the stub places it).
+   * - ``LineRelease.AStateAfterAReleaseFitsOnlyALineThatMakesItAgain``
+     - A state saved at the release and one saved ten steps later both
+       continue in a new line that makes the release again; without it the
+       load is refused; a step redone from an in-memory state is identical.
+   * - ``LineRelease.AClampedTowerKeepsOnlyTheSpanStillOnIt``, ``LineRelease.AReleasedStringDropsItsConductorAndItsTowerTakesNothing``
+     - A tower's pull is that of what is still attached: one span's horizontal
+       tension and half its weight, then nothing; a released string's tower
+       takes nothing and the next tower takes more.
+   * - ``LineRelease.ASpanOnStringsLeavesTheStringsLowerEnd``, ``LineRelease.AReleaseAtAMovingTowersCrossArmContinuesFromASavedState``
+     - On a line with strings a span's end at a tower is released from the
+       string's lower end, and the string stays on its tower. At a tower that
+       moves, MoorDyn's force on the cross-arm is the pull of what is still on
+       it, and a state saved after the tower has moved on continues in a new
+       line.
+   * - ``LineRelease.ReleasingTwiceOrOutsideTheLineIsRefused``
+     - A second release of the same end or string, and an index outside the
+       line, stop naming the line.
+   * - ``Conductors.FailureBreakLetsGoAtTheHigherEndAndTheRunGoesOn``
+     - An inclined span, end b 10 m higher: with MoorDyn-C the tension at b
+       is higher by :math:`w \times` 10 m and b lets go, at the end of the
+       step of the exceedance, once; the span comes to lie on the ground.
+   * - ``Conductors.ASpanIsReleasedOnceInAStepAndADeadEndReleasesItsOwnEnd``
+     - Three exceedances in one step release the span once; the hardware at a
+       dead end releases that end.
+   * - ``Conductors.ReleasesContinueAcrossARestart``
+     - Checkpoints at the step of the release and four steps later restart
+       into the uninterrupted run's positions, also without
+       ``failure_break``; without ``ground_contact`` the restart is refused.
+       A restart that first sets ``failure_break`` after the exceedance
+       releases nothing.
+   * - ``Conductors.StringsOverTheirLoadLetGoAndTheirTowersTakeNothing``, ``Conductors.LinesOnMovingTowersLetGoAtTheEndOfTheLevelsStep``
+     - Through the whole model: both strings of a section let go and their
+       standing towers carry no line load; on towers that bend, exceedances
+       found inside the step are released at its end, one release per span.
+   * - ``Conductors.FailureBreakNeedsGroundContactALineCapacityAndNoFailureStop``
+     - The three refusals; off by default.
+   * - ``Conductors_Break_TwoLevel`` (CTest, stub and MoorDyn-C)
+     - A level 300 m span 30 m above flat ground in a sheared crosswind, the
+       line on a refined level, strength 5 kN against 13.4 kN: released at
+       0.125 s, the first step of the lines' level, with either library; the
+       released end then carries next to nothing, the span reaches the ground
+       (MoorDyn-C: at 2.125 s), and after 6 s the held end carries less than
+       half the strength. The stub's held end must carry Eq. :eq:`br-rest`,
+       478.71 N, which it places by construction. MoorDyn-C's span, in 15 m
+       segments, still swings then (476 N in this run; Eq. :eq:`br-lumped`
+       gives 241 N at rest).
+   * - ``Conductors_Break_MidRun`` (CTest, stub)
+     - The strength of ``Conductors_Capacities_TwoLevel``: the release is at
+       1.875 s, between two steps of the coarse level.
+   * - ``Conductors_Break_Restart``, ``Conductors_Break_Terrain_Restart`` (CTests, stub and MoorDyn-C), ``Conductors_Break_AfterRestart`` (stub)
+     - The restarted runs' ``breaks.dat``, ``failures.dat``, ground records
+       and span, tower and transformer logs equal the uninterrupted runs' to
+       ten digits. On the hills both dead ends of a line let go at 0.9 s;
+       with MoorDyn-C the swing then overloads the hardware at a tower, whose
+       string lets go at 4.5 s, the step of the checkpoint.
+   * - ``Conductors_Break_NeedsGroundContactAbort``, ``_WithFailureStopAbort``, ``_NeedsLineCapacityAbort`` (CTests)
+     - The three refusals at start-up.
+
+**Observed, not pinned.** In the MoorDyn-C run of ``Conductors_Break_TwoLevel``
+the falling span's largest tension after the release is 7.7 kN at 3 s, 57 % of
+the tension before it, as the span lands and pulls taut on its remaining
+support. In 27 further MoorDyn-C runs of this span alone (10, 20 and 40
+segments; internal steps of 0.1, 0.2 and 0.5 ms; crosswinds of 0, 15 and
+30 m/s) every run stayed finite, the peak was 41 to 59 % of the tension
+before the release, 1.1 to 2.5 s after it, and 15 to 105 ms wide at half its
+height. A check every 0.125 s therefore sees 41 to 67 % of such a peak at the
+worst phase, and one every 0.9 s 10 to 27 %. On the hills the hardware at tower 1, rated 15 kN, sees 17.3 kN at
+4.5 s after the dead ends let go at 0.9 s. These are single runs on coarse
+lines (15 m and 16 m segments).
+
+References
+~~~~~~~~~~
+
+* MoorDyn-C v2 documentation, C API (``MoorDyn_BreakLine``).
+  https://moordyn.readthedocs.io
+
+No published formula or data set is used in this section: Eq. :eq:`br-rest`
+is a balance of forces at rest, and the rule of Eq. :eq:`br-end` is this
+model's own.
 
 Conductor temperature under a fire
 ----------------------------------

@@ -50,6 +50,17 @@
 //    and coupled points in a text format; MoorDyn_Load restarts the node velocities from rest;
 //    MoorDyn_Serialize stores the whole stub state as doubles in its own format, the fluid velocity
 //    excluded;
+//  - MoorDyn_BreakLine detaches a line's end from a point onto a new free point, as MoorDyn-C does, and
+//    the kinematics points grow by one at the next MoorDyn_ExternalWaveKinInit. What the detached line
+//    does is a quasi-static stand-in for MoorDyn-C's fall: a span with one end detached hangs plumb
+//    from its held end down to the seafloor (its whole length without a SeafloorFile) and lies on the
+//    seafloor beyond, towards where its other end was, with the tension of the hanging length's
+//    weight below each node and none on the seafloor, and no drag; a span with both ends detached lies
+//    on the seafloor where it was; a string detached from its held point hangs below its free point
+//    with no tension, and that free point moves onto the elastic parabola the two spans it joins make
+//    together between their far ends, where the first span's length ends (it does not slide along the
+//    line, so two spans of unequal length carry unequal tensions there). A saved or serialized state fits only a system with the same
+//    breaks (the caller repeats them before MoorDyn_Load or MoorDyn_Deserialize, as with MoorDyn-C);
 //  - input: v2 or v1 LINE TYPES columns; point types fixed/anchor, coupled/vessel/cpld and
 //    free/connect; line ends on rods or bodies (R1, B1) are not supported, and a malformed
 //    number makes MoorDyn_Create fail.
@@ -61,8 +72,10 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <exception>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -86,6 +99,7 @@ struct Point {
     double force[3] = {0.0, 0.0, 0.0};    // net force of the lines' ends on the point (N)
     int hang_line = -1;   // a free point: the MoorDyn line it hangs from (0-based index into lines)
     int swing_line = -1;  // a free point: the MoorDyn line whose swing direction it follows (0-based)
+    bool loose = false;   // made by MoorDyn_BreakLine: it follows the end of the line detached onto it
 };
 
 struct Line {
@@ -102,6 +116,10 @@ struct Line {
     double es[3] = {0.0, 0.0, -1.0}; // unit direction of the sag, as last placed
     double across[3] = {0.0, 1.0, 0.0};  // unit horizontal normal of its chord, as last placed
     double phi_across = 0.0;             // the angle the across-line wind swings a string it hangs from (rad)
+    // a span with a detached end: the horizontal unit direction from its held end to where the other was. It is in
+    // the saved file (MoorDyn_Save), which a new system loads; not in the serialized state, which returns to this system
+    double drop[2] = {1.0, 0.0};
+    double drop_load = 0.0;              // a span with a detached end: the weight of its hanging length (N)
 };
 
 struct StubSystem;
@@ -179,7 +197,7 @@ struct StubSystem {
     // one handle per MoorDyn line and point, made once the input is read: MoorDyn_GetLine and
     // MoorDyn_GetPoint return these, so repeated calls allocate nothing
     std::vector<LineHandle> line_handles;
-    std::vector<PointHandle> point_handles;
+    std::deque<PointHandle> point_handles;   // a deque: MoorDyn_BreakLine adds a point and the handles given out stay valid
 };
 
 std::string lower (std::string s)
@@ -468,6 +486,10 @@ void place_hanging (StubSystem& s, Line& l, const double* U_nodes)
     double load = (ty.mass - s.rho * 0.25 * pi * ty.diam * ty.diam) * s.g * l.length;
     for (const auto& o : s.lines) {
         if (&o == &l || (o.attachA != bot_id && o.attachB != bot_id)) { continue; }
+        if (s.points[static_cast<std::size_t>(o.attachA - 1)].loose || s.points[static_cast<std::size_t>(o.attachB - 1)].loose) {
+            load += o.drop_load;   // a span with its other end detached hangs from here
+            continue;
+        }
         double c = 0.0;
         for (int d = 0; d < 3; ++d) {
             const double dd = s.points[static_cast<std::size_t>(o.attachB - 1)].pos[d] - s.points[static_cast<std::size_t>(o.attachA - 1)].pos[d];
@@ -500,15 +522,163 @@ void place_hanging (StubSystem& s, Line& l, const double* U_nodes)
     l.w_eff = 0.0;
 }
 
+// The seafloor under (x, y) (m, MoorDyn's frame); without a SeafloorFile there is none (-infinity).
+double floor_at (const StubSystem& s, double x, double y)
+{
+    return s.seafloor.active() ? s.seafloor.depth_at(x, y) : -std::numeric_limits<double>::infinity();
+}
+
+bool is_loose (const StubSystem& s, int point_id) { return s.points[static_cast<std::size_t>(point_id - 1)].loose; }
+
+// A span with a detached end (MoorDyn_BreakLine): from its held end it hangs plumb down to the seafloor and
+// lies on it beyond, along l.drop; the tension at a hanging node is the weight of the hanging length
+// below it, zero on the seafloor. With both ends detached it lies on the seafloor where it was. The
+// loose points follow its ends. No drag.
+void place_dropped (StubSystem& s, Line& l, double dt)
+{
+    const LineType& ty = s.types[static_cast<std::size_t>(l.type_index)];
+    const unsigned nn = l.nseg + 1;
+    const double w = std::max(0.0, (ty.mass - s.rho * 0.25 * pi * ty.diam * ty.diam) * s.g);
+    Point& A = s.points[static_cast<std::size_t>(l.attachA - 1)];
+    Point& B = s.points[static_cast<std::size_t>(l.attachB - 1)];
+    std::vector<double> newpos(3 * nn);
+    l.ten.assign(3 * nn, 0.0);
+    l.drag.assign(3 * nn, 0.0);
+    l.drop_load = 0.0;
+    if (A.loose && B.loose) {
+        if (l.pos.size() != newpos.size()) {
+            for (unsigned i = 0; i < nn; ++i) {
+                const double xi = static_cast<double>(i) / l.nseg;
+                for (int d = 0; d < 3; ++d) { newpos[3*i+d] = A.pos[d] + xi * (B.pos[d] - A.pos[d]); }
+            }
+        } else {
+            newpos = l.pos;
+        }
+        for (unsigned i = 0; i < nn; ++i) {
+            const double f = floor_at(s, newpos[3*i], newpos[3*i+1]);
+            if (std::isfinite(f)) { newpos[3*i+2] = f; }
+        }
+    } else {
+        const bool a_held = !A.loose;
+        const Point& held = a_held ? A : B;
+        const double f0 = floor_at(s, held.pos[0], held.pos[1]);
+        const double h = std::isfinite(f0) ? std::min(l.length, std::max(0.0, held.pos[2] - f0)) : l.length;
+        l.drop_load = w * h;
+        for (unsigned i = 0; i < nn; ++i) {
+            const unsigned m = a_held ? i : l.nseg - i;   // the node at arc length sarc from the held end
+            // the last node at the length itself: length * nseg / nseg may round above it, and a span that hangs
+            // free (h = length) would then lay its end on a seafloor it does not reach
+            const double sarc = (i == l.nseg) ? l.length : l.length * static_cast<double>(i) / l.nseg;
+            if (sarc <= h || !std::isfinite(f0)) {
+                newpos[3*m] = held.pos[0]; newpos[3*m+1] = held.pos[1]; newpos[3*m+2] = held.pos[2] - sarc;
+                // MoorDyn's tension points from A to B: down the line from a held A, up it to a held B
+                l.ten[3*m+2] = (a_held ? -1.0 : 1.0) * w * (h - sarc);
+            } else {
+                newpos[3*m] = held.pos[0] + l.drop[0] * (sarc - h);
+                newpos[3*m+1] = held.pos[1] + l.drop[1] * (sarc - h);
+                newpos[3*m+2] = floor_at(s, newpos[3*m], newpos[3*m+1]);
+            }
+        }
+    }
+    for (int d = 0; d < 3; ++d) {
+        if (A.loose) { A.pos[d] = newpos[d]; }
+        if (B.loose) { B.pos[d] = newpos[3*l.nseg+d]; }
+    }
+    l.vel.assign(3 * nn, 0.0);
+    if (dt > 0.0 && l.pos.size() == newpos.size()) {
+        for (std::size_t k = 0; k < newpos.size(); ++k) { l.vel[k] = (newpos[k] - l.pos[k]) / dt; }
+    }
+    l.pos = newpos;
+    l.sag = 0.0; l.H = 0.0; l.w_eff = 0.0;
+}
+
+// A string detached from its held point: it hangs below its free point, down to the seafloor at most,
+// with no tension and no drag; its loose point is its lower end.
+void place_released (StubSystem& s, Line& l)
+{
+    const unsigned nn = l.nseg + 1;
+    Point& A = s.points[static_cast<std::size_t>(l.attachA - 1)];
+    Point& B = s.points[static_cast<std::size_t>(l.attachB - 1)];
+    const bool a_loose = A.loose;
+    const Point& from = a_loose ? B : A;
+    const double f = floor_at(s, from.pos[0], from.pos[1]);
+    l.pos.assign(3 * nn, 0.0);
+    for (unsigned i = 0; i < nn; ++i) {
+        const unsigned m = a_loose ? l.nseg - i : i;   // the node at arc length sarc below the free point
+        const double sarc = l.length * static_cast<double>(i) / l.nseg;
+        l.pos[3*m] = from.pos[0]; l.pos[3*m+1] = from.pos[1];
+        l.pos[3*m+2] = std::max(from.pos[2] - sarc, std::min(f, from.pos[2]));
+    }
+    Point& end = a_loose ? A : B;
+    const unsigned e = a_loose ? 0 : l.nseg;
+    for (int d = 0; d < 3; ++d) { end.pos[d] = l.pos[3*e+d]; }
+    l.ten.assign(3 * nn, 0.0);
+    l.drag.assign(3 * nn, 0.0);
+    l.vel.assign(3 * nn, 0.0);
+    l.w_eff = 0.0;
+}
+
+// Where the free point of a string detached from its held point goes: the two spans it joins make one
+// parabola between their far ends, as long as both together, and the point sits on it where the first
+// span's length ends, on the seafloor at the lowest. With other than two whole spans at the point it
+// drops onto the seafloor where it is.
+void place_released_point (StubSystem& s, Point& p, int id, const Line& string)
+{
+    const Line* sp[2] = {nullptr, nullptr};
+    int n = 0;
+    for (const auto& o : s.lines) {
+        if (&o == &string || (o.attachA != id && o.attachB != id)) { continue; }
+        if (n < 2) { sp[n] = &o; }
+        ++n;
+    }
+    bool whole = (n == 2);
+    for (int k = 0; whole && k < 2; ++k) { whole = !is_loose(s, sp[k]->attachA) && !is_loose(s, sp[k]->attachB); }
+    if (whole) {
+        const double* P0 = s.points[static_cast<std::size_t>((sp[0]->attachA == id ? sp[0]->attachB : sp[0]->attachA) - 1)].pos;
+        const double* P2 = s.points[static_cast<std::size_t>((sp[1]->attachA == id ? sp[1]->attachB : sp[1]->attachA) - 1)].pos;
+        const double Lt = sp[0]->length + sp[1]->length;
+        double C = 0.0;
+        for (int d = 0; d < 3; ++d) { C += (P2[d] - P0[d]) * (P2[d] - P0[d]); }
+        C = std::sqrt(C);
+        // the sag of the elastic parabola of both spans together, as place() finds a span's: stretched to
+        // Lt (1 + H / EA) under H = w C^2 / (8 S), by bisection on log H (the first span's type for both)
+        const LineType& ty = s.types[static_cast<std::size_t>(sp[0]->type_index)];
+        const double w = std::max(0.0, (ty.mass - s.rho * 0.25 * pi * ty.diam * ty.diam) * s.g);
+        double S = 0.0;
+        if (C > 0.0 && w > 0.0) {
+            auto excess = [&] (double H) {
+                const double sag = w * C * C / (8.0 * H);
+                return C + 8.0 * sag * sag / (3.0 * C) - Lt * (1.0 + H / ty.EA);
+            };
+            double lo = std::log(1.0e-6), hi = std::log(1.0e3 * ty.EA);
+            for (int it = 0; it < 200; ++it) {
+                const double mid = 0.5 * (lo + hi);
+                if (excess(std::exp(mid)) > 0.0) { lo = mid; } else { hi = mid; }
+            }
+            S = w * C * C / (8.0 * std::exp(0.5 * (lo + hi)));
+        }
+        const double xi = sp[0]->length / Lt;
+        for (int d = 0; d < 3; ++d) { p.pos[d] = P0[d] + xi * (P2[d] - P0[d]); }
+        p.pos[2] -= 4.0 * S * xi * (1.0 - xi);
+    }
+    const double f = floor_at(s, p.pos[0], p.pos[1]);
+    if (std::isfinite(f)) { p.pos[2] = whole ? std::max(p.pos[2], f) : f; }
+}
+
 // Place every line: the free points first (hanging plumb below their held point, swung across by the
 // angle phi_across that the span attached to them had when last placed) unless move_free_points is
 // false, then the other lines, then the hanging ones.
 void place_all (StubSystem& s, double dt, bool move_free_points)
 {
     if (move_free_points) {
-        for (auto& p : s.points) {
-            if (p.type != 0) { continue; }
+        for (std::size_t ip = 0; ip < s.points.size(); ++ip) {
+            Point& p = s.points[ip];
+            if (p.type != 0 || p.loose) { continue; }   // a loose point follows its line's end
             const Line& h = s.lines[static_cast<std::size_t>(p.hang_line)];
+            if (is_loose(s, h.attachA) || is_loose(s, h.attachB)) {
+                place_released_point(s, p, static_cast<int>(ip) + 1, h);   // its string was detached from its held point
+                continue;
+            }
             const Point& top = s.points[static_cast<std::size_t>((s.points[static_cast<std::size_t>(h.attachA - 1)].type != 0 ? h.attachA : h.attachB) - 1)];
             // a string hangs plumb, swung across the line by the wind across the line it carries: on a
             // sloping span the sag direction leans along the chord, and a string hung along it would
@@ -523,11 +693,16 @@ void place_all (StubSystem& s, double dt, bool move_free_points)
     std::vector<unsigned> off(s.lines.size(), 0);
     for (std::size_t i = 1; i < s.lines.size(); ++i) { off[i] = off[i-1] + s.lines[i-1].nseg + 1; }
     const bool wind = (s.nkin > 0 && !s.U.empty());
+    auto detached = [&s] (const Line& l) { return is_loose(s, l.attachA) || is_loose(s, l.attachB); };
     for (std::size_t i = 0; i < s.lines.size(); ++i) {
-        if (!s.lines[i].hanging) { place(s, s.lines[i], wind ? &s.U[3 * off[i]] : nullptr, dt); }
+        Line& l = s.lines[i];
+        if (l.hanging) { continue; }
+        if (detached(l)) { place_dropped(s, l, dt); } else { place(s, l, wind ? &s.U[3 * off[i]] : nullptr, dt); }
     }
     for (std::size_t i = 0; i < s.lines.size(); ++i) {
-        if (s.lines[i].hanging) { place_hanging(s, s.lines[i], wind ? &s.U[3 * off[i]] : nullptr); }
+        Line& l = s.lines[i];
+        if (!l.hanging) { continue; }
+        if (detached(l)) { place_released(s, l); } else { place_hanging(s, l, wind ? &s.U[3 * off[i]] : nullptr); }
     }
     update_point_forces(s);
 }
@@ -704,6 +879,50 @@ MoorDynPoint MoorDyn_GetPoint (MoorDyn system, unsigned int c)
     return reinterpret_cast<MoorDynPoint>(&s.point_handles[c - 1]);
 }
 
+int MoorDyn_BreakLine (MoorDyn system, MoorDynPoint point, MoorDynLine line)
+{
+    if (system == nullptr || point == nullptr || line == nullptr) { return MOORDYN_INVALID_VALUE; }
+    StubSystem& s = *sys(system);
+    const auto* ph = reinterpret_cast<PointHandle*>(point);
+    const auto* lh = reinterpret_cast<LineHandle*>(line);
+    if (ph->s != &s || lh->s != &s) { return MOORDYN_INVALID_VALUE; }
+    Line& l = s.lines[lh->index];
+    const int id = static_cast<int>(ph->index) + 1;
+    if (l.attachA != id && l.attachB != id) { return MOORDYN_INVALID_VALUE; }   // the line does not end on the point
+    const bool at_a = (l.attachA == id);
+    // the new free point, a copy of the one the line leaves
+    Point np;
+    np.type = 0;
+    np.loose = true;
+    for (int d = 0; d < 3; ++d) { np.pos[d] = s.points[ph->index].pos[d]; }
+    s.points.push_back(np);
+    s.point_handles.push_back(PointHandle{&s, static_cast<unsigned>(s.points.size()) - 1});
+    const int new_id = static_cast<int>(s.points.size());
+    const int other = at_a ? l.attachB : l.attachA;
+    (at_a ? l.attachA : l.attachB) = new_id;
+    if (!l.hanging) {
+        // a span: it will lie towards where this end was
+        const double* from = s.points[static_cast<std::size_t>(other - 1)].pos;
+        const double dx = np.pos[0] - from[0], dy = np.pos[1] - from[1];
+        const double h = std::hypot(dx, dy);
+        l.drop[0] = (h > 0.0) ? dx / h : 1.0;
+        l.drop[1] = (h > 0.0) ? dy / h : 0.0;
+    }
+    // a free point that swung with this line and no longer holds it swings with another of its lines
+    for (std::size_t ip = 0; ip < s.points.size(); ++ip) {
+        Point& p = s.points[ip];
+        if (p.type != 0 || p.loose || p.swing_line != static_cast<int>(lh->index)) { continue; }
+        const int pid = static_cast<int>(ip) + 1;
+        if (l.attachA == pid || l.attachB == pid) { continue; }
+        p.swing_line = -1;
+        for (std::size_t il = 0; il < s.lines.size(); ++il) {
+            const Line& o = s.lines[il];
+            if (static_cast<int>(il) != p.hang_line && (o.attachA == pid || o.attachB == pid)) { p.swing_line = static_cast<int>(il); break; }
+        }
+    }
+    return MOORDYN_SUCCESS;
+}
+
 int MoorDyn_GetNumberLines (MoorDyn system, unsigned int* n)
 {
     if (system == nullptr || n == nullptr) { return MOORDYN_INVALID_VALUE; }
@@ -740,10 +959,10 @@ int MoorDyn_Save (MoorDyn system, const char* filepath)
     std::ofstream out(filepath, std::ios::trunc);
     if (!out) { return MOORDYN_INVALID_OUTPUT_FILE; }
     out.precision(17);
-    out << "moordyn-stub-state " << s.t << " " << s.lines.size() << " " << s.U.size() << "\n";
+    out << "moordyn-stub-state-2 " << s.t << " " << s.lines.size() << " " << s.U.size() << "\n";
     for (const auto& l : s.lines) {
         // the unstretched length too: it may have changed since the input (MoorDyn_SetLineUnstretchedLength)
-        out << l.phi << " " << l.phi_across << " " << l.length;
+        out << l.phi << " " << l.phi_across << " " << l.length << " " << l.drop[0] << " " << l.drop[1];
         for (double v : l.pos) { out << " " << v; }
         out << "\n";
     }
@@ -766,9 +985,14 @@ int MoorDyn_Load (MoorDyn system, const char* filepath)
     if (!in) { return MOORDYN_INVALID_INPUT_FILE; }
     std::string tag;
     std::size_t nl = 0, nu = 0;
-    if (!(in >> tag >> s.t >> nl >> nu) || tag != "moordyn-stub-state" || nl != s.lines.size()) { return MOORDYN_INVALID_INPUT; }
+    // "moordyn-stub-state": a file written before MoorDyn_BreakLine was added, without the drop directions (no line was detached)
+    if (!(in >> tag >> s.t >> nl >> nu) || (tag != "moordyn-stub-state-2" && tag != "moordyn-stub-state") || nl != s.lines.size()) {
+        return MOORDYN_INVALID_INPUT;
+    }
+    const bool with_drop = (tag == "moordyn-stub-state-2");
     for (auto& l : s.lines) {
         if (!(in >> l.phi >> l.phi_across >> l.length) || !(l.length > 0.0)) { return MOORDYN_INVALID_INPUT; }
+        if (with_drop && !(in >> l.drop[0] >> l.drop[1])) { return MOORDYN_INVALID_INPUT; }
         for (double& v : l.pos) { if (!(in >> v)) { return MOORDYN_INVALID_INPUT; } }
     }
     // the fluid velocity of the last step, for the points ExternalWaveKinInit set up

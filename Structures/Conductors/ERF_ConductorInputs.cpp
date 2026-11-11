@@ -561,7 +561,8 @@ std::string ConductorInputs::validate_settings (const ConductorInputs& in)
     // failures: the capacities' first-failure log (ERF_Capacities.H), reserved whether or not a capacity is given;
     // conductor_temperature: the thermal model's log (ERF_LineThermal.H), reserved whether or not it is selected, and
     // tower_temperature with tower_<tower>_member_temperature per frame tower: the towers' heating logs (ERF_TowerThermal.H), likewise
-    std::vector<std::string> own{"total_load", "separation", "transformers", "ground", "failures", "conductor_temperature",
+    // breaks: the releases' log (ERF_LineBreaks.H), reserved whether or not failure_break is set;
+    std::vector<std::string> own{"total_load", "separation", "transformers", "ground", "failures", "breaks", "conductor_temperature",
                                  "tower_temperature"};
     bool towers = false, moving = false;
     for (const LineInputs& s : in.lines) {
@@ -715,6 +716,14 @@ ConductorInputs ConductorInputs::read ()
         if (in.intensity_on() && !err.empty()) { Abort(err); }
     }
     pp.query("ground_contact", in.ground_contact);
+    pp.query("failure_break", in.failure_break);
+    if (in.failure_break && in.failure_stop) {
+        Abort("conductors.failure_break and conductors.failure_stop cannot both be true: failure_stop stops the run at the first "
+              "exceedance, failure_break lets go of the line there and goes on");
+    }
+    if (in.failure_break && !in.ground_contact) {
+        Abort("conductors.failure_break = true needs conductors.ground_contact = true: a released conductor falls onto the terrain");
+    }
     pp.query("asce74_wind", in.asce74_wind);
     pp.query("asce74_exposure", in.asce74_exposure);
     in.has_asce74_wire_height = pp.query("asce74_wire_height", in.asce74_wire_height) != 0;

@@ -69,6 +69,10 @@ function(erf_structures_unit_tests target)
   # node, and hold a slack span on the ground; the contact's damping must be critical for the
   # conductor and a MoorDyn step too long for it refused; the spans' ground records must survive a
   # restart (ERF_GTestGroundContact.cpp holds the log's own tests).
+  # With failure_break a line's component over its capacity must let go of the line at the end of that step, at
+  # the end the rule names, once; the released span must come to hang from its other end with the weight of its
+  # hanging length there, its support take nothing, and a restart make the release again and continue the run
+  # (ERF_GTestLineBreaks.cpp holds the rule's, the log's and the line's own tests).
   target_sources(${target} PRIVATE
     ${_erf_structures_tests_dir}/ERF_GTestConductorInputsReset.cpp
     ${_erf_structures_tests_dir}/ERF_GTestConductorGeometry.cpp
@@ -81,6 +85,7 @@ function(erf_structures_unit_tests target)
     ${_erf_structures_tests_dir}/ERF_GTestCapacities.cpp
     ${_erf_structures_tests_dir}/ERF_GTestIntensity.cpp
     ${_erf_structures_tests_dir}/ERF_GTestGroundContact.cpp
+    ${_erf_structures_tests_dir}/ERF_GTestLineBreaks.cpp
     ${_erf_structures_tests_dir}/ERF_GTestTransformer.cpp
   )
   # Motivation: a conductor's temperature under a fire (conductors.thermal_model = ieee738) must use the

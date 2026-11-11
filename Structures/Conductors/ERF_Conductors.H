@@ -237,6 +237,8 @@ public:
     const erf_conductors::CapacityMonitor& capacities () const { return m_cap; }
     /** With ground_contact, each span on the ground: first touch and the most nodes on it (empty otherwise). */
     const erf_conductors::GroundContactLog& ground_contacts () const { return m_ground_log; }
+    /** The releases made by conductors.failure_break, in order. */
+    const erf_conductors::BreakLog& breaks () const { return m_breaks; }
     /** The conductors' temperatures (conductors.thermal_model = ieee738), or null. */
     const erf_conductors::LineThermal* thermal () const { return m_thermal.get(); }
     /** The towers' member temperatures (conductors.thermal.towers = true), or null. */
@@ -260,10 +262,19 @@ private:
                                       std::vector<amrex::Real>* nodes = nullptr) const;
     /**
      * Abort, naming the line and the node (0-based over the line), when a line node lies outside the domain;
-     * periodic directions are not checked.
+     * periodic directions are not checked, and with horizontal_only neither is z.
      */
     void check_nodes_in_domain (const erf_conductors::ConductorLine& span, const std::vector<amrex::Real>& pos,
-                                const amrex::Geometry& geom) const;
+                                const amrex::Geometry& geom, bool horizontal_only = false) const;
+    /**
+     * With ground_contact: raise the nodes of span in pos (3 per node, the line's nodes first, m) that lie less
+     * than the conductor's radius above the terrain under them to that height, where the conductor rests. The
+     * ground's contact lets a conductor that lands at speed sink a few centimetres for an instant (MoorDyn's
+     * seafloor is a spring and a damper), and a node under the terrain is on no grid: the flow is sampled, and
+     * the drag spread, at the terrain's surface there. The line's own positions are not changed. It reads the
+     * terrain heights last given to the line (update_ground_under_nodes()), which must be those under pos.
+     */
+    void lift_onto_ground (const erf_conductors::ConductorLine& span, std::vector<amrex::Real>& pos) const;
     /**
      * The terrain height (m) under each point: pos holds 3 coordinates per point (m); h receives one
      * height per point, from the immersed surface when one was given, else from z_phys_nd's bottom
@@ -510,6 +521,13 @@ private:
      */
     void report_failures (const std::vector<std::size_t>& fresh);
     /**
+     * With conductors.failure_break: for each of the step's first exceedances (fresh, in time order) that is a
+     * line's conductor, insulator string or hardware, let go of the line as erf_conductors::decide_break() says,
+     * at time t (s, the end of the step), and log it in breaks.dat. A span released in this call is not released
+     * again in it: its tension has not fallen yet. Every rank makes the same releases on its own copy of the lines.
+     */
+    void apply_breaks (const std::vector<std::size_t>& fresh, double t);
+    /**
      * Append a row of the towers' drag and base moment to <diagnostics_dir>/towers.dat. first
      * truncates the file; the header is written after truncating, or when appending to a missing or
      * empty file.
@@ -615,6 +633,7 @@ private:
     std::vector<std::vector<std::size_t>> m_cap_member;             //!< per tower, per member: in m_cap (empty: members not checked)
     std::vector<std::size_t> m_step_fresh;                          //!< the components first exceeding in this step, every group's
     erf_conductors::GroundContactLog m_ground_log;                  //!< with ground_contact: each span on the ground
+    erf_conductors::BreakLog m_breaks;                              //!< breaks(): the releases made by failure_break, in order
     std::vector<std::vector<std::size_t>> m_ground_span;            //!< per line, per span: its index in m_ground_log
 };
 

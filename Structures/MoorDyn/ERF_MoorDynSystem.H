@@ -212,6 +212,17 @@ public:
      */
     std::array<double,3> point_force (unsigned point) const;
 
+    /**
+     * Detach MoorDyn line `line` (1-based) from point `point` (1-based), which one of its ends is on
+     * (MoorDyn_BreakLine): MoorDyn makes a new free point where the point is, the last of its points, and
+     * the line's end goes on it. MoorDyn then wants the fluid velocity at one more point, so the external
+     * kinematics are set up again here and the new number of kinematics points is returned. Set the
+     * velocities again before the next step: MoorDyn-C keeps those last set and gives the new point none, the
+     * stub clears them all. A state from save() or serialize() before
+     * the call no longer fits the system, and one from after it fits only a system with the same calls
+     * made in the same order. Aborts when the line does not end on the point.
+     */
+    unsigned break_line (unsigned point, unsigned line);
     /** Write the whole system state to a file (MoorDyn_Save). */
     void save (const std::string& path);
     /** Restore a state written by save() into a system created from the same input and initialised without an IC solve. */

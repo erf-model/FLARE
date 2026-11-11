@@ -1301,10 +1301,24 @@ Conductors::build_capacities ()
               "insulator_rated_load or hardware_rated_load, a tower type's allowable_uplift or allowable_compression, "
               "or a frame tower's member design data");
     }
+    if (m_in.failure_break) {
+        bool any = false;
+        for (std::size_t i = 0; i < m_lines.size() && !any; ++i) {
+            auto has = [] (const std::vector<std::size_t>& ids) {
+                return std::any_of(ids.begin(), ids.end(), [] (std::size_t id) { return id != no_component; });
+            };
+            any = has(m_cap_span[i]) || has(m_cap_string[i]) || has(m_cap_hardware[i]);
+        }
+        if (!any) {
+            Abort("conductors.failure_break = true needs a line's capacity to check: a line's rated_breaking_strength, "
+                  "insulator_rated_load or hardware_rated_load (a tower's footings and members release nothing)");
+        }
+    }
     if (!m_cap.empty()) {
         Print() << "conductors: " << m_cap.size() << " component(s) checked against their capacities after every coupling step"
-                << (m_in.failure_stop ? "; the first exceedance stops the run" : "") << " (" << m_in.diagnostics_dir
-                << "/capacities.csv, failures.dat)\n";
+                << (m_in.failure_stop ? "; the first exceedance stops the run" : "")
+                << (m_in.failure_break ? "; a line's component over its capacity lets go of the line (breaks.dat)" : "")
+                << " (" << m_in.diagnostics_dir << "/capacities.csv, failures.dat)\n";
     }
 }
 
@@ -1529,9 +1543,10 @@ Conductors::check_tower_capacities (std::size_t tw, double t, std::vector<std::s
 void
 Conductors::report_failures (const std::vector<std::size_t>& fresh)
 {
-    if (m_in.failure_stop && !m_cap.empty()) {
+    if ((m_in.failure_stop || m_in.failure_break) && !m_cap.empty()) {
         // every rank steps its own copy of the lines; the I/O rank's decision to stop is everyone's, so that no
-        // rank goes on into ERF's next collective while another stops
+        // rank goes on into ERF's next collective while another stops (and with failure_break, so that no rank
+        // goes on with a line whole that another released)
         int n = static_cast<int>(fresh.size());
         ParallelDescriptor::Bcast(&n, 1, ParallelDescriptor::IOProcessorNumber());
         if ((n > 0) != !fresh.empty()) {
@@ -1572,6 +1587,84 @@ Conductors::report_failures (const std::vector<std::size_t>& fresh)
             << " " << c.name << " at t = " << c.first_time << " s (demand " << c.first_demand << " N, capacity " << c.first_capacity
             << " N); see " << m_in.diagnostics_dir << "/failures.dat";
         Abort(msg.str());
+    }
+}
+
+void
+Conductors::apply_breaks (const std::vector<std::size_t>& fresh, double t)
+{
+    if (!m_in.failure_break || fresh.empty()) { return; }
+    std::vector<std::pair<std::size_t,int>> spans_now;   // the (line, span) released in this call
+    const std::size_t before = m_breaks.size();
+    for (const std::size_t id : fresh) {
+        // the line and the place on it the component is; a tower's footing or member is on no line
+        std::size_t line = m_lines.size();
+        int index = -1;
+        for (std::size_t i = 0; i < m_lines.size() && line == m_lines.size(); ++i) {
+            for (const auto* ids : {&m_cap_span[i], &m_cap_string[i], &m_cap_hardware[i]}) {
+                const auto it = std::find(ids->begin(), ids->end(), id);
+                if (it != ids->end()) { line = i; index = static_cast<int>(it - ids->begin()); break; }
+            }
+        }
+        if (line == m_lines.size()) { continue; }
+        ConductorLine& c = *m_lines[line];
+        erf_conductors::LineEnds e;
+        e.strings = c.num_insulators() > 0;
+        for (int k = 0; k < c.num_spans(); ++k) {
+            e.tension_a.push_back(static_cast<double>(c.tension_a(k)));
+            e.tension_b.push_back(static_cast<double>(c.tension_b(k)));
+            e.attached_a.push_back(c.span_end_attached(k, 0) ? 1 : 0);
+            e.attached_b.push_back(c.span_end_attached(k, 1) ? 1 : 0);
+        }
+        for (int j = 0; j < c.num_insulators(); ++j) { e.string_attached.push_back(c.string_attached(j) ? 1 : 0); }
+        const auto& comp = m_cap.component(id);
+        const erf_conductors::BreakDecision d = erf_conductors::decide_break(comp.kind, index, e);
+        if (!d.any) { continue; }
+        const erf_conductors::LineRelease& r = d.release;
+        double tension = 0.0;
+        if (r.kind == erf_conductors::LineRelease::Kind::SpanEnd) {
+            const std::pair<std::size_t,int> span{line, r.index};
+            // already released in this step by an earlier exceedance: its tension has not fallen yet
+            if (std::find(spans_now.begin(), spans_now.end(), span) != spans_now.end()) { continue; }
+            spans_now.push_back(span);
+            tension = (r.end == 0) ? e.tension_a[static_cast<std::size_t>(r.index)] : e.tension_b[static_cast<std::size_t>(r.index)];
+            c.release_span_end(r.index, r.end);
+        } else {
+            tension = static_cast<double>(c.insulator_tension(r.index));
+            c.release_string(r.index);
+        }
+        m_breaks.add(erf_conductors::BreakRecord{t, c.name(), r, comp.name, tension});
+    }
+    {
+        // every rank released its own copy of the lines: the I/O rank's releases must be everyone's (their number and
+        // an FNV-1a hash of each one's line, kind, index and end), or the ranks would go on with different lines
+        std::array<Long,2> mine{{static_cast<Long>(m_breaks.size() - before), 0}};
+        std::uint64_t hash = 1469598103934665603ULL;
+        for (std::size_t i = before; i < m_breaks.size(); ++i) {
+            const auto& b = m_breaks.record(i);
+            const std::string key = b.line + " " + b.release.name() + ";";
+            for (const char ch : key) { hash = (hash ^ static_cast<unsigned char>(ch)) * 1099511628211ULL; }
+        }
+        mine[1] = static_cast<Long>(hash & 0x7fffffffffffffffULL);
+        std::array<Long,2> theirs = mine;
+        ParallelDescriptor::Bcast(theirs.data(), 2, ParallelDescriptor::IOProcessorNumber());
+        if (theirs != mine) {
+            Abort("conductors.failure_break: the ranks disagree on the releases made at this step (their copies of the lines differ)");
+        }
+    }
+    if (m_breaks.size() == before) { return; }
+    if (ParallelDescriptor::IOProcessor()) {
+        std::ofstream out;
+        if (erf_actuator::open_log(out, m_in.diagnostics_dir + "/breaks.dat", false)) {
+            out << erf_conductors::BreakLog::log_header() << "\n";
+        }
+        for (std::size_t i = before; i < m_breaks.size(); ++i) { out << m_breaks.log_row(i) << "\n"; }
+        if (!out) { Abort("cannot write '" + m_in.diagnostics_dir + "/breaks.dat'"); }
+    }
+    for (std::size_t i = before; i < m_breaks.size(); ++i) {
+        const auto& b = m_breaks.record(i);
+        Print() << "conductors: LINE RELEASED at t = " << std::setprecision(10) << b.time << " s: " << b.line << " lets go at "
+                << b.release.name() << " (" << b.component << " over its capacity; tension there " << b.tension << " N)\n";
     }
 }
 
@@ -1789,6 +1882,7 @@ Conductors::log_files () const
     f.push_back(m_in.diagnostics_dir + "/transformers.dat");
     f.push_back(m_in.diagnostics_dir + "/coupling.dat");
     f.push_back(m_in.diagnostics_dir + "/failures.dat");
+    f.push_back(m_in.diagnostics_dir + "/breaks.dat");
     if (m_thermal) { f.push_back(m_thermal->log_file()); }
     if (m_tower_thermal) { for (const std::string& t : m_tower_thermal->log_files()) { f.push_back(t); } }
     return f;
@@ -1936,6 +2030,26 @@ Conductors::restore (const std::string& dir)
             move_tower(t);
         }
     }
+    // the releases made before the checkpoint, which the lines' saved MoorDyn states were written after: each line
+    // makes its own again, in order, before it loads its state (whether or not this run has failure_break)
+    m_breaks = erf_conductors::BreakLog();
+    if (erf_actuator::file_exists_everywhere(dir + "/breaks")) {
+        Vector<char> bchars;
+        ParallelDescriptor::ReadAndBcastFile(dir + "/breaks", bchars);
+        // ReadAndBcastFile ends the buffer with a NUL
+        const std::string err = m_breaks.restore(std::string(bchars.dataPtr()));
+        if (!err.empty()) { Abort("the conductor checkpoint '" + dir + "/breaks': " + err); }
+        // (a release of a line conductors.lines does not list cannot pass: the lines must be the checkpoint's, below)
+        if (!m_breaks.empty() && !m_in.ground_contact) {
+            Abort("the conductor checkpoint '" + dir + "' holds " + std::to_string(m_breaks.size()) + " release(s) of the lines "
+                  "(conductors.failure_break): the restart needs conductors.ground_contact = true, since a released conductor "
+                  "lies on or falls to the terrain");
+        }
+        if (!m_breaks.empty()) {
+            Print() << "conductors: the checkpoint holds " << m_breaks.size() << " release(s) of the lines, made again here"
+                    << (m_in.failure_break ? "" : " (conductors.failure_break is false in this run: no further ones)") << "\n";
+        }
+    }
     if (saved.size() != m_placed.size()) {
         Abort("the conductor checkpoint '" + dir + "' holds " + std::to_string(saved.size()) + " line(s) but conductors.lines lists " +
               std::to_string(m_placed.size()) + "; the conductors block must match the run being restarted");
@@ -1960,7 +2074,8 @@ Conductors::restore (const std::string& dir)
                 moved.insert(moved.end(), {x[0], x[1], x[2]});
             }
         }
-        m_lines.push_back(std::make_unique<ConductorLine>(s, m_in, CONST_GRAV, file, dir + "/" + s.name + ".moordyn", moved));
+        m_lines.push_back(std::make_unique<ConductorLine>(s, m_in, CONST_GRAV, file, dir + "/" + s.name + ".moordyn", moved,
+                                                          m_breaks.releases_of(s.name)));
         m_lines.back()->set_clock_offset(m_t0);
         add_stats(s);
         for (auto& st : m_stats.back()) {
@@ -2067,6 +2182,23 @@ Conductors::restore (const std::string& dir)
         }
         // the table as of the checkpoint, not as the run being restarted left it after it
         if (ParallelDescriptor::IOProcessor()) { m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv"); }
+        if (m_in.failure_break) {
+            // a release is made at a component's first exceedance only: one over its capacity before the checkpoint
+            // that released nothing then (failure_break first set at this restart, or its span let go at its other
+            // end in the same step) releases nothing later
+            for (const auto& comp : m_cap.components()) {
+                const bool on_a_line = comp.kind == erf_conductors::ComponentKind::Conductor ||
+                                       comp.kind == erf_conductors::ComponentKind::Insulator ||
+                                       comp.kind == erf_conductors::ComponentKind::Hardware;
+                bool released = false;
+                for (std::size_t b = 0; b < m_breaks.size() && !released; ++b) { released = m_breaks.record(b).component == comp.name; }
+                if (on_a_line && comp.exceeded && !released) {
+                    Print() << "conductors: " << erf_conductors::kind_name(comp.kind) << " " << comp.name << " first exceeded its capacity at t = "
+                            << comp.first_time << " s, before the checkpoint, and released nothing then: conductors.failure_break "
+                            << "acts at a first exceedance only, so it releases nothing in this run\n";
+                }
+            }
+        }
     }
     // the intensity beside the peaks: the averaging window, the run's maxima and the winds kept at the peaks and
     // first exceedances; a checkpoint without them starts afresh at the restart
@@ -2205,6 +2337,13 @@ Conductors::write_checkpoint (const std::string& chkdir) const
             // the table as checkpointed, so that a run ending here, off the diagnostics cadence, has its last peaks
             m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv");
         }
+        if (m_in.failure_break || !m_breaks.empty()) {
+            // the releases, in order: a restart makes them again before it loads the lines' MoorDyn states
+            std::ofstream br(dir + "/breaks", std::ios::trunc);
+            br << m_breaks.state();
+            br.close();
+            if (!br) { Abort("cannot write the conductor checkpoint '" + dir + "/breaks'"); }
+        }
         if (!m_ground_log.empty()) {
             std::ofstream gc(dir + "/ground_contact", std::ios::trunc);
             gc << m_ground_log.state();
@@ -2263,10 +2402,26 @@ Conductors::restore_sources (int lev, const MultiFab& U, const MultiFab* z_phys_
 }
 
 void
-Conductors::check_nodes_in_domain (const ConductorLine& span, const std::vector<Real>& pos, const Geometry& geom) const
+Conductors::lift_onto_ground (const ConductorLine& span, std::vector<Real>& pos) const
+{
+    if (!m_in.ground_contact) { return; }
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(pos.size() >= 3 * static_cast<std::size_t>(span.num_nodes()),
+                                     "Conductors::lift_onto_ground: the line's nodes come first in pos");
+    const Real r = Real(0.5) * span.inputs().diameter;
+    for (unsigned n = 0; n < span.num_nodes(); ++n) {
+        // only a node whose axis is under the terrain: one resting on it (its axis a radius above, less the contact's
+        // static sink) is sampled where it is, as before
+        const Real c = span.clearance(n);
+        if (c < Real(0.0)) { pos[3 * static_cast<std::size_t>(n) + 2] += r - c; }
+    }
+}
+
+void
+Conductors::check_nodes_in_domain (const ConductorLine& span, const std::vector<Real>& pos, const Geometry& geom,
+                                   bool horizontal_only) const
 {
     for (std::size_t p = 0; p < pos.size() / 3; ++p) {
-        for (int d = 0; d < 3; ++d) {
+        for (int d = 0; d < (horizontal_only ? 2 : 3); ++d) {
             const bool inside = geom.isPeriodic(d) ||
                                 (pos[3*p+d] >= geom.ProbLo(d) && pos[3*p+d] <= geom.ProbHi(d));
             if (!inside) {
@@ -2316,11 +2471,14 @@ void
 Conductors::update_ground_under_nodes (const MultiFab* z_phys_nd, const Geometry& geom)
 {
     for (auto& span : m_lines) {
-        const std::vector<Real> pos = span->node_positions();
-        check_nodes_in_domain(*span, pos, geom);
+        std::vector<Real> pos = span->node_positions();
+        check_nodes_in_domain(*span, pos, geom, true);
         std::vector<Real> h;
         ground_heights(z_phys_nd, geom, pos, h);
         span->set_ground_under_nodes(h);
+        // a node the ground's contact let sink for an instant is taken at the terrain's surface: it has not left the domain
+        lift_onto_ground(*span, pos);
+        check_nodes_in_domain(*span, pos, geom);
     }
 }
 
@@ -2342,7 +2500,8 @@ Conductors::wind_at (const ConductorLine& span,
     // only the line nodes carry a fluid load here, so the flow is sampled at the nodes and the entries
     // after them get zero wind
     const std::vector<Real> kin = span.kinematics_points();
-    const std::vector<Real> pos(kin.begin(), kin.begin() + 3 * static_cast<std::ptrdiff_t>(span.num_nodes()));
+    std::vector<Real> pos(kin.begin(), kin.begin() + 3 * static_cast<std::ptrdiff_t>(span.num_nodes()));
+    lift_onto_ground(span, pos);
     check_nodes_in_domain(span, pos, geom);
     // the sampler reads the cells around each point: on a refined anchor level they must be on its grids
     const Real reach = coverage_reach(geom, m_in.line_epsilon(span.inputs()));
@@ -2402,6 +2561,17 @@ Conductors::advance (int lev, double time, double dt,
                 std::error_code ec;
                 std::filesystem::remove(m_in.diagnostics_dir + "/failures.dat", ec);
                 std::filesystem::remove(m_in.diagnostics_dir + "/capacities.csv", ec);
+            }
+            if (m_in.failure_break) {
+                // a fresh run's release log: the header only, until a line lets go
+                std::ofstream out;
+                if (erf_actuator::open_log(out, m_in.diagnostics_dir + "/breaks.dat", true)) {
+                    out << erf_conductors::BreakLog::log_header() << "\n";
+                }
+            } else {
+                // nor a release log of an earlier run with failure_break
+                std::error_code ec;
+                std::filesystem::remove(m_in.diagnostics_dir + "/breaks.dat", ec);
             }
             if (!m_in.intensity_on()) {
                 // nor the demand table and intensity points of an earlier run with the intensity measure
@@ -2549,6 +2719,8 @@ Conductors::advance (int lev, double time, double dt,
         for (std::size_t t = 0; t < m_towers.size(); ++t) { if (!m_models[t]) { check_tower_capacities(t, time + dt, m_step_fresh); } }
         m_cap.order_by_first_time(m_step_fresh);
         report_failures(m_step_fresh);
+        // with failure_break the lines let go where a component went over its capacity: free from the next step on
+        apply_breaks(m_step_fresh, time + dt);
     }
     m_time = time + dt;
     if (std::any_of(m_models.begin(), m_models.end(), [] (const auto& m) { return m != nullptr; }) &&
@@ -2664,7 +2836,8 @@ Conductors::step_thermal (double time, double dt, const std::vector<std::vector<
     // the air's temperature at every line node and every heated member's Gauss points, from the equation of state (dry air)
     std::vector<Real> all;
     for (const auto& line : m_lines) {
-        const std::vector<Real> p = line->node_positions();
+        std::vector<Real> p = line->node_positions();
+        lift_onto_ground(*line, p);
         all.insert(all.end(), p.begin(), p.end());
     }
     const std::size_t line_values = all.size() / 3;
@@ -3121,7 +3294,8 @@ Conductors::spread_drag (const MultiFab& U, const MultiFab* z_phys_nd, const Mul
     std::vector<Real> reach;
     const Real dx = geom.CellSize(0);
     for (const auto& span : m_lines) {
-        const std::vector<Real> p = span->node_positions();
+        std::vector<Real> p = span->node_positions();
+        lift_onto_ground(*span, p);
         pos.insert(pos.end(), p.begin(), p.end());
         const Real e = m_in.line_epsilon(span->inputs());
         for (unsigned n = 0; n < span->num_nodes(); ++n) {

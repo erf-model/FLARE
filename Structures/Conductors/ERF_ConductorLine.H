@@ -14,6 +14,7 @@
 #include <AMReX_REAL.H>
 
 #include "ERF_ConductorInputs.H"
+#include "ERF_LineBreaks.H"
 #include "ERF_MoorDynSystem.H"
 
 namespace erf_conductors {
@@ -36,6 +37,9 @@ namespace erf_conductors {
 class ConductorLine
 {
 public:
+    /** A support letting go of the line (conductors.failure_break): a span's end, or an insulator string's top. */
+    using Release = LineRelease;
+
     /**
      * Create the line: writes <input_file>, creates the MoorDyn system and solves its initial
      * shape. The attachment points are at their absolute heights (the terrain already added).
@@ -43,11 +47,34 @@ public:
      * line continues from that state instead. When the line's towers move, their cross-arms are
      * MoorDyn's coupled points, displaced from where they stand unloaded by tower_displacement (3 per
      * tower, ERF's frame; empty: not displaced). The I/O rank writes <input_file>; every rank then
-     * reads it.
+     * reads it. releases are the releases the saved state was written after, in the order they were
+     * made: MoorDyn's saved state fits only a system with the same releases, so they are made again
+     * before it is loaded (only with a saved state).
      * Units: gravity (m/s^2); tower_displacement (m).
      */
     ConductorLine (const LineInputs& s, const ConductorInputs& in, amrex::Real gravity, const std::string& input_file,
-                   const std::string& saved_state = "", const std::vector<amrex::Real>& tower_displacement = {});
+                   const std::string& saved_state = "", const std::vector<amrex::Real>& tower_displacement = {},
+                   const std::vector<Release>& releases = {});
+
+    /**
+     * Let go of span k (from 0) at its end `end` (0 towards end_a, 1 towards end_b): the span's end leaves
+     * its support (the dead end, the tower's cross-arm, or the lower end of the tower's insulator string)
+     * and is free from the next step on; the support no longer takes that end's pull. MoorDyn then lists
+     * one more kinematics point (num_kinematics_points() grows by one, the new point before the last
+     * entry), and a State taken before the call no longer fits. Aborts when that end is already free.
+     */
+    void release_span_end (int k, int end);
+    /**
+     * Let go of insulator string j (from 0, at tower j+1) at the cross-arm: the string and the conductor
+     * it carries leave the tower, which no longer takes their pull. As release_span_end() otherwise.
+     */
+    void release_string (int j);
+    /** Whether span k's end (0 or 1) is still on its support. */
+    bool span_end_attached (int k, int end) const;
+    /** Whether insulator string j still hangs from its cross-arm. */
+    bool string_attached (int j) const;
+    /** The releases made so far, in order (those given at construction first). */
+    const std::vector<Release>& releases () const { return m_releases; }
 
     /** The line's name in conductors.lines. */
     const std::string& name () const { return m_in.name; }
@@ -187,7 +214,7 @@ public:
      * The pull of the line on its dead end at end_a (end 0) or end_b (end 1) (N): the net force
      * MoorDyn finds on the line's end node, which the fixed support takes, the end segment's tension
      * with the node's share of weight and drag.
-     * Frame: ERF (z up); the force ON the support BY the line.
+     * Frame: ERF (z up); the force ON the support BY the line. Zero once that end was released.
      */
     std::array<amrex::Real,3> end_force (int end) const;
     /**
@@ -195,7 +222,7 @@ public:
      * MoorDyn finds on the top node of the insulator string hanging there, or, clamped at the
      * tower, on the end nodes of the two spans meeting there. In still air it carries the weight
      * of the conductor between the mid-spans either side (and of the string); in a crosswind also
-     * the wind on that length.
+     * the wind on that length. A released string or span end adds nothing.
      */
     std::array<amrex::Real,3> tower_force (int j) const;
     /**
@@ -290,6 +317,10 @@ private:
     void check_node (unsigned node) const;
     /** Abort, naming the line, when MoorDyn's last step left a node position or a coupled force that is not finite. */
     void check_outputs_finite (double time) const;
+    /** Make release r in MoorDyn and note it; the wind last set stays as it was for the points before the new one. */
+    void make_release (const Release& r);
+    /** The MoorDyn point (numbered from 1) span k's end (0 or 1) was written on. */
+    unsigned span_end_point (int k, int end) const;
 
     LineInputs m_in;
     amrex::Real m_offset{0.0};   //!< the surface offset (m)
@@ -307,6 +338,7 @@ private:
     std::vector<std::array<amrex::Real,3>> m_mean_pull;   //!< per tower, the mean pull over the last step_coupled() (N)
     std::vector<amrex::Real> m_wind;   //!< 3*m_nkin, the wind last handed to MoorDyn (m/s)
     std::vector<amrex::Real> m_ground; //!< the terrain height under each node (m)
+    std::vector<Release> m_releases;   //!< the releases made, in order
 };
 
 } // namespace erf_conductors
