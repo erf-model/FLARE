@@ -484,6 +484,56 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
         DATALOG "conductors/breaks.dat conductors/failures.dat S1.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
     set_tests_properties(Conductors_Break_AfterRestart PROPERTIES LABELS "regression;restart-parity;conductors;multilevel")
   endif()
+  # conductors.tower_failure = release: a tower over a footing's or member's capacity lets go of every line on it.
+  # On the hills of Conductors_Terrain the lattice towers' legs carry more than a bearing capacity of 10 kN at the
+  # end of the first step: all three towers fail there and their lines' strings leave them. The restarted run's
+  # tower_failures.dat, breaks.dat and tower, span and transformer logs must be the straight run's.
+  add_test_restart_parity(Conductors_TowerFailure_Terrain_Restart${_br_suffix} Conductors_Terrain 5 10
+      COMMON_OPTIONS "${_br_opts} conductors.tower_failure=release conductors.lattice.allowable_compression=10000"
+      DATALOG "conductors/tower_failures.dat conductors/breaks.dat conductors/failures.dat conductors/ground_contact.csv conductors/L1_span2.dat conductors/towers.dat conductors/transformers.dat"
+      DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
+  set_tests_properties(Conductors_TowerFailure_Terrain_Restart${_br_suffix} PROPERTIES LABELS "regression;restart-parity;conductors")
+  # the same on towers that bend (Conductors_MovingTowers): the footings are found over their capacity after a coupling
+  # step inside the step, and the towers fail at its end
+  add_test_restart_parity(Conductors_TowerFailure_MovingTowers_Restart${_br_suffix} Conductors_MovingTowers 5 10
+      COMMON_OPTIONS "${_br_opts} conductors.tower_failure=release conductors.lattice.allowable_compression=10000"
+      DATALOG "conductors/tower_failures.dat conductors/breaks.dat conductors/failures.dat conductors/towers.dat"
+      DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
+  # conductors.capacity_check_interval: Conductors_TwoLevel's span against a strength of 5 kN, checked every 0.05 s
+  # inside the 0.125 s steps of the lines' level: the restarted run's logs must be the straight run's
+  add_test_restart_parity(Conductors_CheckInterval_Restart${_br_suffix} Conductors_TwoLevel 5 10
+      COMMON_OPTIONS "${_br_opts} conductors.S1.rated_breaking_strength=5000 conductors.capacity_check_interval=0.05"
+      DATALOG "conductors/breaks.dat conductors/failures.dat conductors/capacities.csv S1.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
+  set_tests_properties(Conductors_TowerFailure_MovingTowers_Restart${_br_suffix} Conductors_CheckInterval_Restart${_br_suffix}
+                       PROPERTIES LABELS "regression;restart-parity;conductors")
+  add_test_abort(Conductors_CheckInterval_RangeAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TwoLevel
+      Conductors_TwoLevel.i "conductors.capacity_check_interval must be in .0, 3600. s" "conductors.capacity_check_interval=-1")
+  add_test_abort(Conductors_CheckInterval_NeedsCapacityAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TwoLevel
+      Conductors_TwoLevel.i "conductors.capacity_check_interval needs a capacity to check" "conductors.capacity_check_interval=0.05")
+  # conductors.capacity_check_start: nothing is checked before it. Conductors_TwoLevel's span against a strength of
+  # 5 kN with the checks from 0.6 s: the release is at 0.625 s, the first step of the lines' level that ends after it
+  # (0.125 s without the start time); the restart, from a checkpoint at 1.25 s, must reproduce the straight run
+  add_test_restart_parity(Conductors_CheckStart_Restart${_br_suffix} Conductors_TwoLevel 5 10
+      COMMON_OPTIONS "${_br_opts} conductors.S1.rated_breaking_strength=5000 conductors.capacity_check_start=0.6"
+      DATALOG "conductors/breaks.dat conductors/failures.dat conductors/capacities.csv S1.dat" DATALOG_SIGDIGITS 10 CHK_LEG_END 10)
+  set_tests_properties(Conductors_CheckStart_Restart${_br_suffix} PROPERTIES LABELS "regression;restart-parity;conductors")
+  add_test_abort(Conductors_CheckStart_RangeAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TwoLevel
+      Conductors_TwoLevel.i "conductors.capacity_check_start must be finite and >= 0" "conductors.capacity_check_start=-1")
+  add_test_abort(Conductors_CheckStart_NeedsCapacityAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TwoLevel
+      Conductors_TwoLevel.i "conductors.capacity_check_start needs a capacity to check" "conductors.capacity_check_start=0.6")
+  set_tests_properties(Conductors_CheckInterval_RangeAbort Conductors_CheckInterval_NeedsCapacityAbort
+                       Conductors_CheckStart_RangeAbort Conductors_CheckStart_NeedsCapacityAbort
+                       PROPERTIES LABELS "regression;conductors;abort")
+  add_test_abort(Conductors_TowerFailure_NeedsFailureBreakAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_Terrain
+      Conductors_Terrain.i "conductors.tower_failure = release needs conductors.failure_break = true"
+      "conductors.tower_failure=release")
+  add_test_abort(Conductors_TowerFailure_UnknownAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_Terrain
+      Conductors_Terrain.i "conductors.tower_failure must be none or release" "conductors.tower_failure=collapse")
+  add_test_abort(Conductors_TowerFailure_NeedsTowerCapacityAbort ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind Conductors_PrescribedWind.i
+      "conductors.tower_failure = release needs a tower's capacity to check"
+      "conductors.S1.rated_breaking_strength=1.0e4 conductors.failure_break=true conductors.ground_contact=true conductors.tower_failure=release")
+  set_tests_properties(Conductors_TowerFailure_NeedsFailureBreakAbort Conductors_TowerFailure_UnknownAbort
+                       Conductors_TowerFailure_NeedsTowerCapacityAbort PROPERTIES LABELS "regression;conductors;abort")
   # failure_break's refusals: without ground_contact, with failure_stop, and without a line's capacity
   set(_br_pw ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_PrescribedWind)
   add_test_abort(Conductors_Break_NeedsGroundContactAbort ${_br_pw} Conductors_PrescribedWind.i

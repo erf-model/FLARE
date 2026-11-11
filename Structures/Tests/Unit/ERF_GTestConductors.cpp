@@ -114,6 +114,30 @@
 //     rated load below what they carry: both let go at the first step and the towers carry no line load.
 // LinesOnMovingTowersLetGoAtTheEndOfTheLevelsStep: on towers that bend the exceedances are found after the first
 //     coupling step inside the level's step; the releases are made at that step's end, one per span.
+// ATowerOverItsFootingsLoadLetsGoOfItsLines: standing towers whose footings are over their bearing capacity at the
+//     first step fail at its end: a clamped line leaves each on both sides, a line on strings loses the strings; each
+//     tower is logged once with its releases and carries no line afterwards.
+// ATowerFailsOnceThoughTwoOfItsComponentsAreOverTheirCapacity: uplift and compression over their capacities in one
+//     step fail the tower once.
+// TowerFailureNeedsFailureBreakAndATowersCapacity: the refusals, each naming its input; off by default.
+// FailedTowersStayFailedAcrossARestart: the failed towers and their releases come back from a checkpoint; the towers
+//     do not fail again and the restarted lines follow the uninterrupted run's.
+// ASharedTowerThatBendsLetsGoOfEveryCircuitOnIt: three phases on strings and a clamped shield wire on two shared towers
+//     that bend: each tower, its footings found over their capacity inside the step, fails at the step's end and lets
+//     go of all four lines, five releases.
+// AFailedTowerPassesItsLoadToTheNext: unequal spans on strings: the tower carrying more fails first; with MoorDyn-C the
+//     next tower then carries the conductor of both and fails after it (the stub's string load does not change).
+// CapacityChecksInsideTheStepStampTheFirstExceedanceThere: with capacity_check_interval the lines on fixed supports
+//     advance in equal pieces of the step and are checked after each: a strength below the still-air tension is first
+//     exceeded at the end of the first piece, not of the step; the release is still made at the step's end; lines on
+//     towers that bend take at least as many coupling steps.
+// CapacityChecksInsideTheStepSeeTheLoadAfterARelease: a section clamped to its towers lets go of both dead ends; the
+//     largest pull recorded on a tower afterwards with a check every 0.01 s is at least that seen with one check per
+//     0.25 s step (MoorDyn-C: more, the conductor's fall being shorter than the step).
+// CapacityCheckIntervalIsRefusedOutOfRangeOrWithoutACapacity
+// CapacityChecksStartAtTheirStartTime: with capacity_check_start nothing is recorded or released before it; the first
+//     check is the first stamped at or after it, also inside a step; a negative start and one without a capacity are
+//     refused.
 // AStandingTowersFootingsAndAttachmentsAreChecked: in still air each standing tower's legs carry (W - F_z) / 4, which
 //     exceeds a lower allowable_compression, no uplift; the hardware at a tower carries the line's pull there.
 // AStandingTowerIsCheckedUnderTheLinesPullAtTheStepsEnd: a tower that stands still is checked under the lines' pull at
@@ -3756,4 +3780,572 @@ TEST(Conductors, LinesOnMovingTowersLetGoAtTheEndOfTheLevelsStep)
     pp.remove("ground_contact"); pp.remove("failure_break");
     clear_capacities("Tbm");
     clear_towered_section("Tbm");
+}
+
+namespace {
+void set_tower_failure ()
+{
+    amrex::ParmParse pp("conductors");
+    pp.remove("prescribed_velocity");
+    pp.addarr("prescribed_velocity", std::vector<Real>{0.0, 0.0, 0.0});
+    pp.add("ground_contact", true);
+    pp.add("failure_break", true);
+    pp.add("tower_failure", std::string("release"));
+}
+void clear_tower_failure (const std::string& name)
+{
+    amrex::ParmParse pp("conductors");
+    pp.remove("ground_contact"); pp.remove("failure_break"); pp.remove("tower_failure");
+    amrex::ParmParse ps("conductors." + name);
+    ps.remove("insulator_length"); ps.remove("insulator_mass");
+    clear_capacities(name);
+    clear_towered_section(name);
+}
+} // namespace
+
+TEST(Conductors, ATowerOverItsFootingsLoadLetsGoOfItsLines)
+{
+    Mesh m(false);
+    const double dt = 0.25;
+    for (const bool strings : {false, true}) {
+        const std::string name = strings ? "Ttfs" : "Ttfc";
+        const std::string dir = scratch("tower_failure_" + name);
+        set_towered_section(dir, name);
+        if (strings) {
+            amrex::ParmParse ps("conductors." + name);
+            ps.add("insulator_length", 2.5);
+            ps.add("insulator_mass", 60.0);
+        }
+        set_tower_failure();
+        // each tower's legs carry about (9e4 + 4.8e3) / 4 = 2.37e4 N: over a bearing capacity of 2.3e4 N at the first step
+        amrex::ParmParse("conductors.lat").add("allowable_compression", 2.3e4);
+        auto c = Conductors::create(0);
+        c->set_ground(nullptr, m.geom);
+        EXPECT_TRUE(data_rows(dir + "/tower_failures.dat").empty());
+        c->advance(0, 0.0, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+        const auto& line = *c->lines().front();
+        ASSERT_EQ(c->tower_failures().size(), 2u) << name;
+        const std::size_t per_tower = strings ? 1 : 2;
+        ASSERT_EQ(c->breaks().size(), 2 * per_tower) << name;
+        for (std::size_t t = 0; t < 2; ++t) {
+            const auto& f = c->tower_failures().record(t);
+            const std::string tower = c->towers()[t].name();
+            EXPECT_EQ(f.time, dt) << "the end of the step of the exceedance";
+            EXPECT_EQ(f.tower, tower);
+            EXPECT_EQ(f.component, tower + "_footing_compression");
+            EXPECT_EQ(f.releases, static_cast<int>(per_tower));
+            for (std::size_t k = 0; k < per_tower; ++k) {
+                const auto& b = c->breaks().record(per_tower * t + k);
+                EXPECT_EQ(b.component, tower + "_footing_compression") << "the release names the footing that failed its tower";
+                EXPECT_EQ(b.line, name);
+                const std::string expected = strings ? "string" + std::to_string(t + 1)
+                                                     : (k == 0 ? "span" + std::to_string(t + 1) + "_end_b" : "span" + std::to_string(t + 2) + "_end_a");
+                EXPECT_EQ(b.release.name(), expected);
+                EXPECT_GT(b.tension, 1000.0);
+            }
+        }
+        if (strings) {
+            EXPECT_FALSE(line.string_attached(0) || line.string_attached(1));
+        } else {
+            EXPECT_FALSE(line.span_end_attached(0, 1) || line.span_end_attached(1, 0) || line.span_end_attached(1, 1) ||
+                         line.span_end_attached(2, 0));
+        }
+        EXPECT_TRUE(line.span_end_attached(0, 0) && line.span_end_attached(2, 1)) << "the dead ends hold";
+        const auto rows = data_rows(dir + "/tower_failures.dat");
+        ASSERT_EQ(rows.size(), 2u);
+        EXPECT_EQ(rows[0].rfind("0.25 " + c->towers()[0].name() + " " + c->towers()[0].name() + "_footing_compression ", 0), 0u) << rows[0];
+        // the towers stand with no line on them, and do not fail again
+        const int nsteps = erf_moordyn::is_stub() ? 2 : 8;
+        for (int s = 1; s <= nsteps; ++s) { c->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+        for (std::size_t t = 0; t < 2; ++t) {
+            const auto& F = c->towers()[t].line_force();
+            EXPECT_EQ(F[0], Real(0.0)); EXPECT_EQ(F[1], Real(0.0)); EXPECT_EQ(F[2], Real(0.0));
+        }
+        EXPECT_EQ(c->tower_failures().size(), 2u);
+        EXPECT_EQ(c->breaks().size(), 2 * per_tower);
+        EXPECT_EQ(data_rows(dir + "/tower_failures.dat").size(), 2u);
+        amrex::ParmParse("conductors.lat").remove("allowable_compression");
+        clear_tower_failure(name);
+    }
+}
+
+TEST(Conductors, ATowerFailsOnceThoughTwoOfItsComponentsAreOverTheirCapacity)
+{
+    // light towers (100 N) in a 30 m/s crosswind: the wind on the members and the lines lifts the windward legs and
+    // presses the others, so each tower's uplift and its compression are both over a capacity of 1 N at the first step.
+    // The tower fails at the first of them and is not failed again by the second
+    const std::string dir = scratch("tower_failure_once");
+    set_towered_section(dir, "Tto");
+    set_tower_failure();
+    amrex::ParmParse pp("conductors");
+    pp.remove("prescribed_velocity");
+    pp.addarr("prescribed_velocity", std::vector<Real>{0.0, 30.0, 0.0});
+    amrex::ParmParse pt("conductors.lat");
+    pt.remove("weight");
+    pt.add("weight", 100.0);
+    pt.add("allowable_uplift", 1.0);
+    pt.add("allowable_compression", 1.0);
+    Mesh m(false);
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    c->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    int over = 0;
+    for (const auto& k : c->capacities().components()) { if (k.exceeded) { ++over; } }
+    EXPECT_EQ(over, 4) << "both towers' uplift and compression";
+    ASSERT_EQ(c->tower_failures().size(), 2u) << "each tower once";
+    EXPECT_EQ(c->tower_failures().record(0).component, c->towers()[0].name() + "_footing_uplift") << "the first of its components logged";
+    EXPECT_EQ(c->breaks().size(), 4u);
+    c->advance(0, 0.25, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    EXPECT_EQ(c->tower_failures().size(), 2u);
+    pt.remove("allowable_uplift"); pt.remove("allowable_compression");
+    clear_tower_failure("Tto");
+}
+
+TEST(Conductors, TowerFailureNeedsFailureBreakAndATowersCapacity)
+{
+    const std::string dir = scratch("tower_failure_needs");
+    set_towered_section(dir, "Ttn");
+    set_tower_failure();
+    Mesh m(false);
+    amrex::ParmParse pp("conductors");
+    // no capacity on a tower
+    auto c = Conductors::create(0);
+    std::string msg = erf_gtest::abort_message([&] { c->set_ground(nullptr, m.geom); });
+    EXPECT_NE(msg.find("conductors.tower_failure = release needs a tower's capacity to check"), std::string::npos) << msg;
+    amrex::ParmParse("conductors.lat").add("allowable_compression", 2.3e4);
+    pp.remove("failure_break");
+    msg = erf_gtest::abort_message([&] { Conductors::create(0); });
+    EXPECT_NE(msg.find("conductors.tower_failure = release needs conductors.failure_break = true"), std::string::npos) << msg;
+    pp.add("failure_break", true);
+    pp.remove("tower_failure");
+    pp.add("tower_failure", std::string("collapse"));
+    msg = erf_gtest::abort_message([&] { Conductors::create(0); });
+    EXPECT_NE(msg.find("conductors.tower_failure must be none or release, got 'collapse'"), std::string::npos) << msg;
+    // off by default: the footings' exceedance is logged and the lines stay on their towers
+    pp.remove("tower_failure");
+    amrex::ParmParse("conductors.Ttn").add("hardware_rated_load", 1.0e6);
+    auto o = Conductors::create(0);
+    o->set_ground(nullptr, m.geom);
+    o->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    EXPECT_TRUE(o->tower_failures().empty());
+    EXPECT_TRUE(o->breaks().empty());
+    EXPECT_GE(data_rows(dir + "/failures.dat").size(), 2u) << "both towers' footings are over their capacity";
+    EXPECT_TRUE(o->lines().front()->span_end_attached(0, 1));
+    EXPECT_FALSE(std::filesystem::exists(dir + "/tower_failures.dat"));
+    amrex::ParmParse("conductors.lat").remove("allowable_compression");
+    clear_tower_failure("Ttn");
+}
+
+TEST(Conductors, FailedTowersStayFailedAcrossARestart)
+{
+    const std::string dir = scratch("tower_failure_restart");
+    set_towered_section(dir, "Ttr2");
+    set_tower_failure();
+    amrex::ParmParse("conductors.lat").add("allowable_compression", 2.3e4);
+    Mesh m(false);
+    const double dt = 0.25;
+    auto step = [&] (Conductors& c, int s) { c.advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); };
+    auto a = Conductors::create(0);
+    a->set_ground(nullptr, m.geom);
+    step(*a, 0);
+    ASSERT_EQ(a->tower_failures().size(), 2u);
+    const std::string chk = dir + "/chk00001";
+    std::filesystem::create_directories(chk);
+    a->write_checkpoint(chk);
+    ASSERT_TRUE(std::filesystem::exists(chk + "/conductors/tower_failures"));
+    const int last = 8;
+    for (int s = 1; s < last; ++s) { step(*a, s); }
+    auto b = Conductors::create(0);
+    b->set_ground(nullptr, m.geom, chk);
+    ASSERT_TRUE(b->restored());
+    ASSERT_EQ(b->tower_failures().size(), 2u);
+    ASSERT_EQ(b->breaks().size(), 4u);
+    for (std::size_t t = 0; t < 2; ++t) {
+        EXPECT_EQ(b->tower_failures().record(t).tower, a->tower_failures().record(t).tower);
+        EXPECT_EQ(b->tower_failures().record(t).time, a->tower_failures().record(t).time);
+        EXPECT_EQ(b->tower_failures().record(t).releases, 2);
+    }
+    for (int s = 1; s < last; ++s) { step(*b, s); }
+    EXPECT_EQ(b->tower_failures().size(), 2u) << "not failed again";
+    EXPECT_EQ(b->breaks().size(), 4u);
+    const std::vector<Real> pa = a->lines().front()->node_positions(), pb = b->lines().front()->node_positions();
+    ASSERT_EQ(pa.size(), pb.size());
+    Real worst = 0.0;
+    for (std::size_t i = 0; i < pa.size(); ++i) { worst = std::max(worst, std::abs(pa[i] - pb[i])); }
+    EXPECT_LE(worst, roundoff * Real(1000.0));
+    EXPECT_EQ(data_rows(dir + "/tower_failures.dat").size(), 2u) << "logged once";
+    // tower_failure first set at a restart, after the footings went over their capacity: the towers do not fail
+    amrex::ParmParse pp("conductors");
+    pp.remove("tower_failure");
+    amrex::ParmParse("conductors.Ttr2").add("hardware_rated_load", 1.0e6);
+    const std::string dir2 = scratch("tower_failure_late");
+    pp.add("diagnostics_dir", dir2);
+    auto w = Conductors::create(0);
+    w->set_ground(nullptr, m.geom);
+    step(*w, 0);
+    ASSERT_TRUE(w->tower_failures().empty());
+    const std::string chkw = dir2 + "/chk00001";
+    std::filesystem::create_directories(chkw);
+    w->write_checkpoint(chkw);
+    EXPECT_FALSE(std::filesystem::exists(chkw + "/conductors/tower_failures")) << "no log without the option";
+    pp.add("tower_failure", std::string("release"));
+    auto l = Conductors::create(0);
+    l->set_ground(nullptr, m.geom, chkw);
+    for (int s = 1; s < 4; ++s) { step(*l, s); }
+    EXPECT_TRUE(l->tower_failures().empty()) << "a tower fails at a first exceedance only";
+    EXPECT_TRUE(l->lines().front()->span_end_attached(0, 1));
+    amrex::ParmParse("conductors.lat").remove("allowable_compression");
+    clear_tower_failure("Ttr2");
+}
+
+TEST(Conductors, ASharedTowerThatBendsLetsGoOfEveryCircuitOnIt)
+{
+    // the circuit of set_circuit: three phases on strings and a shield wire clamped above them, on two shared towers
+    // that bend. The footings are over their capacity after the first coupling step, h = dt / 10; each tower fails at
+    // the end of the level's step and lets go of the three strings and of the shield wire on both sides
+    const std::string dir = scratch("tower_failure_circuit");
+    set_circuit(dir, 0.02);
+    amrex::ParmParse pp("conductors");
+    pp.add("ground_contact", true);
+    pp.add("failure_break", true);
+    pp.add("tower_failure", std::string("release"));
+    amrex::ParmParse("conductors.lat").add("allowable_compression", 1.0);
+    Mesh m(true);
+    const double dt = 0.25;
+    auto c = Conductors::create(0);
+    c->set_ground(m.znd.get(), m.geom);
+    c->advance(0, 0.0, dt, m.u, m.v, m.w, m.znd.get(), nullptr, m.geom);
+    ASSERT_EQ(c->tower_failures().size(), 2u);
+    for (std::size_t t = 0; t < 2; ++t) {
+        const auto& f = c->tower_failures().record(t);
+        EXPECT_EQ(f.time, dt) << "at the end of the level's step";
+        EXPECT_EQ(f.releases, 5) << "three strings and the shield wire's two sides";
+    }
+    for (const auto& comp : c->capacities().components()) {
+        EXPECT_NEAR(comp.first_time, dt / 10.0, 1.0e-12) << comp.name << ": found after the first coupling step";
+    }
+    ASSERT_EQ(c->breaks().size(), 10u);
+    int strings = 0, ends = 0;
+    for (std::size_t b = 0; b < 10; ++b) {
+        const auto& r = c->breaks().record(b);
+        (r.release.kind == erf_conductors::LineRelease::Kind::String ? strings : ends) += 1;
+        EXPECT_EQ(r.line == "CS", r.release.kind == erf_conductors::LineRelease::Kind::SpanEnd) << r.line << " " << r.release.name();
+    }
+    EXPECT_EQ(strings, 6);
+    EXPECT_EQ(ends, 4);
+    for (const auto& line : c->lines()) {
+        if (line->name() == "CS") {
+            EXPECT_FALSE(line->span_end_attached(0, 1) || line->span_end_attached(1, 0) || line->span_end_attached(1, 1) ||
+                         line->span_end_attached(2, 0));
+        } else {
+            EXPECT_FALSE(line->string_attached(0) || line->string_attached(1)) << line->name();
+        }
+    }
+    // the run goes on with the towers free of their lines
+    for (int s = 1; s <= 2; ++s) { c->advance(0, dt * s, dt, m.u, m.v, m.w, m.znd.get(), nullptr, m.geom); }
+    EXPECT_EQ(c->tower_failures().size(), 2u);
+    EXPECT_EQ(c->breaks().size(), 10u);
+    pp.remove("ground_contact"); pp.remove("failure_break"); pp.remove("tower_failure");
+    amrex::ParmParse("conductors.lat").remove("allowable_compression");
+    clear_circuit();
+}
+
+TEST(Conductors, AFailedTowerPassesItsLoadToTheNext)
+{
+    // spans of 300, 500 and 100 m on strings over two light towers (1 kN). By the elastic catenary (the dead ends
+    // are 2.5 m above the strings' feet, which moves the spans' low points) tower 1 carries the conductor of 397 m
+    // and tower 2 that of 282 m, plus a string of 0.59 kN each: legs of (W + F) / 4 = 1.98 and 1.52 kN. A bearing
+    // capacity of 1.8 kN per leg lies between them, so tower 1 alone fails at the first step. Its string gone, the
+    // conductor hangs 800 m from the dead end to tower 2, which then carries that of 423 m: 2.08 kN a leg at rest,
+    // and more while the conductor falls. Without the release tower 2's legs never pass 1.53 kN
+    const std::string dir = scratch("tower_failure_cascade");
+    // (the attachments 60 m up, so that the 800 m span, which sags about 54 m, is clear of the ground at rest; the spans'
+    // slack in proportion to the cube of their length, 1.5, 6.944 and 0.056 m, so that they pull equally along the
+    // line and the strings hang plumb; the towers' base 30 m wide, so that what is left of an unequal pull adds
+    // little to a leg's load: the towers then carry weight)
+    set_inputs(dir, "Ttc", true, {{100.0, 500.0, 60.0}}, {{1000.0, 500.0, 60.0}});
+    amrex::ParmParse ps("conductors.Ttc");
+    ps.remove("length");
+    ps.addarr("length", std::vector<Real>{301.5, 506.944, 100.056});
+    ps.addarr("towers", std::vector<Real>{400.0, 500.0, 60.0, 900.0, 500.0, 60.0});
+    ps.add("tower_type", std::string("lat"));
+    ps.add("insulator_length", 2.5);
+    ps.add("insulator_mass", 60.0);
+    amrex::ParmParse pp("conductors");
+    pp.addarr("tower_types", std::vector<std::string>{"lat"});
+    amrex::ParmParse pt("conductors.lat");
+    for (const char* k : {"base_width", "top_width", "solidity", "arm_length", "arm_depth", "weight", "allowable_uplift",
+                          "allowable_compression", "frequency", "damping_ratio"}) { pt.remove(k); }
+    pt.add("base_width", 30.0); pt.add("top_width", 1.5); pt.add("solidity", 0.2); pt.add("arm_length", 12.0); pt.add("arm_depth", 1.2);
+    pt.add("weight", 1000.0);
+    pt.add("allowable_compression", 1800.0);
+    set_tower_failure();
+    Mesh m(false);
+    const double dt = 0.25;
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    c->advance(0, 0.0, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    ASSERT_EQ(c->tower_failures().size(), 1u) << "tower 1 alone";
+    EXPECT_EQ(c->tower_failures().record(0).tower, c->towers()[0].name());
+    EXPECT_EQ(c->tower_failures().record(0).time, dt);
+    ASSERT_EQ(c->breaks().size(), 1u);
+    EXPECT_EQ(c->breaks().record(0).release.name(), "string1");
+    const int nsteps = erf_moordyn::is_stub() ? 4 : 60;
+    for (int s = 1; s <= nsteps && c->tower_failures().size() < 2; ++s) { c->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+    if (erf_moordyn::is_stub()) {
+        // the stub's string carries half of each span's chord, which the lost support hardly changes: no second failure
+        EXPECT_EQ(c->tower_failures().size(), 1u);
+    } else {
+        ASSERT_EQ(c->tower_failures().size(), 2u) << "tower 2 fails under the conductor tower 1 let go of";
+        const auto& f = c->tower_failures().record(1);
+        EXPECT_EQ(f.tower, c->towers()[1].name());
+        EXPECT_GT(f.time, dt) << "after tower 1";
+        EXPECT_LE(f.time, 3.0) << "within seconds, as the released conductor comes down (1.0 s in this run)";
+        EXPECT_EQ(f.releases, 1);
+        EXPECT_EQ(c->breaks().record(1).release.name(), "string2");
+        std::cout << "[ measured ] tower 1 failed at " << dt << " s, tower 2 at " << f.time << " s\n";
+    }
+    pt.remove("allowable_compression");
+    clear_tower_failure("Ttc");
+}
+
+TEST(Conductors, CapacityChecksInsideTheStepStampTheFirstExceedanceThere)
+{
+    const std::string dir = scratch("check_interval");
+    set_break(dir, "Tci");
+    amrex::ParmParse("conductors.Tci").add("rated_breaking_strength", 5000.0);
+    amrex::ParmParse pp("conductors");
+    // a step of 0.25 s in pieces no longer than 0.1 s: three pieces of 0.25 / 3 s
+    pp.add("capacity_check_interval", 0.1);
+    Mesh m(false);
+    const double dt = 0.25;
+    auto c = Conductors::create(0);
+    c->set_ground(nullptr, m.geom);
+    c->advance(0, 0.0, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    const auto& comp = c->capacities().component(0);
+    ASSERT_TRUE(comp.exceeded);
+    EXPECT_NEAR(comp.first_time, dt / 3.0, 1.0e-12) << "found at the end of the first piece";
+    ASSERT_EQ(c->breaks().size(), 1u);
+    EXPECT_EQ(c->breaks().record(0).time, dt) << "released at the end of the step";
+    const auto rows = data_rows(dir + "/failures.dat");
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0].rfind("0.08333333333 conductor Tci ", 0), 0u) << rows[0];
+    // the line's clock is the step's: the next step starts where this one ended
+    c->advance(0, dt, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    pp.remove("capacity_check_interval");
+    clear_break("Tci");
+    // towers that stand still are checked with their lines after each piece: footings over their capacity are found at
+    // the end of the first piece, and with tower_failure = release the towers fail at the end of the step
+    const std::string dir3 = scratch("check_interval_towers");
+    set_towered_section(dir3, "Tct");
+    set_tower_failure();
+    amrex::ParmParse("conductors.lat").add("allowable_compression", 2.3e4);
+    pp.add("capacity_check_interval", 0.1);
+    {
+        auto st = Conductors::create(0);
+        st->set_ground(nullptr, m.geom);
+        st->advance(0, 0.0, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+        int footings = 0;
+        for (const auto& k : st->capacities().components()) {
+            if (k.kind != erf_conductors::ComponentKind::FootingCompression) { continue; }
+            ++footings;
+            EXPECT_NEAR(k.first_time, dt / 3.0, 1.0e-12) << k.name;
+        }
+        EXPECT_EQ(footings, 2);
+        ASSERT_EQ(st->tower_failures().size(), 2u);
+        EXPECT_EQ(st->tower_failures().record(0).time, dt);
+    }
+    pp.remove("capacity_check_interval");
+    amrex::ParmParse("conductors.lat").remove("allowable_compression");
+    clear_tower_failure("Tct");
+    // lines on towers that bend: 0.25 s takes 10 coupling steps at 2 Hz (20 per period); an interval of 0.01 s makes it 25
+    const std::string dir2 = scratch("check_interval_moving");
+    set_towered_section(dir2, "Tcm");
+    make_towers_move(0.3);
+    amrex::ParmParse("conductors.Tcm").add("hardware_rated_load", 4000.0);
+    pp.remove("prescribed_velocity");
+    pp.addarr("prescribed_velocity", std::vector<Real>{0.0, 0.0, 0.0});
+    for (const double interval : {0.0, 0.01}) {
+        pp.remove("capacity_check_interval");
+        if (interval > 0.0) { pp.add("capacity_check_interval", interval); }
+        auto mv = Conductors::create(0);
+        mv->set_ground(nullptr, m.geom);
+        mv->advance(0, 0.0, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+        double first = 0.0;
+        for (const auto& k : mv->capacities().components()) { if (k.name == "Tcm_end_a") { first = k.first_time; } }
+        EXPECT_NEAR(first, interval > 0.0 ? dt / 25.0 : dt / 10.0, 1.0e-12) << "interval " << interval;
+    }
+    pp.remove("capacity_check_interval");
+    clear_capacities("Tcm");
+    clear_towered_section("Tcm");
+}
+
+TEST(Conductors, CapacityChecksInsideTheStepSeeTheLoadAfterARelease)
+{
+    // a section clamped to two standing towers; its dead ends, rated 5 kN, let go at the end of the first step; the
+    // hardware at the towers is only watched (rated 1 MN), and its largest pull is what the checks see of the fall
+    Mesh m(false);
+    const double dt = 0.25;
+    double peak[2] = {0.0, 0.0};
+    for (int run = 0; run < 2; ++run) {
+        const std::string name = run == 0 ? "Tpa" : "Tpb";
+        const std::string dir = scratch("check_peak_" + name);
+        set_towered_section(dir, name);
+        amrex::ParmParse pp("conductors");
+        pp.remove("prescribed_velocity");
+        pp.addarr("prescribed_velocity", std::vector<Real>{0.0, 0.0, 0.0});
+        pp.add("ground_contact", true);
+        pp.add("failure_break", true);
+        pp.remove("capacity_check_interval");
+        if (run == 1) { pp.add("capacity_check_interval", 0.01); }
+        amrex::ParmParse("conductors." + name).add("rated_breaking_strength", 1.0e6);
+        amrex::ParmParse("conductors." + name).add("hardware_rated_load", 1.0e6);
+        auto c = Conductors::create(0);
+        c->set_ground(nullptr, m.geom);
+        c->advance(0, 0.0, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+        // let go of both dead ends by hand, as their hardware would
+        auto& line = const_cast<erf_conductors::ConductorLine&>(*c->lines().front());
+        line.release_span_end(0, 0);
+        line.release_span_end(2, 1);
+        const int nsteps = erf_moordyn::is_stub() ? 3 : 24;
+        for (int s = 1; s <= nsteps; ++s) { c->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+        for (const auto& k : c->capacities().components()) {
+            if (k.name == name + "_tower1" || k.name == name + "_tower2") { peak[run] = std::max(peak[run], k.peak_demand); }
+        }
+        pp.remove("ground_contact"); pp.remove("failure_break"); pp.remove("capacity_check_interval");
+        clear_capacities(name);
+        clear_towered_section(name);
+    }
+    EXPECT_GT(peak[0], 1000.0);
+    if (erf_moordyn::is_stub()) {
+        // the stub has no fall to resolve: the two see the same largest pull, the one before the release
+        EXPECT_NEAR(peak[1], peak[0], 1.0e-6 * peak[0]);
+    } else {
+        EXPECT_GT(peak[1], 1.05 * peak[0]) << "the fall's peak lies between the steps' ends";
+    }
+    std::cout << "[ measured ] largest pull on a tower: one check per 0.25 s step " << peak[0] << " N, one per 0.01 s " << peak[1] << " N\n";
+}
+
+TEST(Conductors, CapacityCheckIntervalIsRefusedOutOfRangeOrWithoutACapacity)
+{
+    const std::string dir = scratch("check_interval_refused");
+    set_still_air(dir, "Tcr2");
+    amrex::ParmParse pp("conductors");
+    Mesh m(false);
+    pp.add("capacity_check_interval", -0.1);
+    std::string msg = erf_gtest::abort_message([&] { Conductors::create(0); });
+    EXPECT_NE(msg.find("conductors.capacity_check_interval must be in [0, 3600] s"), std::string::npos) << msg;
+    pp.remove("capacity_check_interval");
+    pp.add("capacity_check_interval", 3600.5);
+    msg = erf_gtest::abort_message([&] { Conductors::create(0); });
+    EXPECT_NE(msg.find("conductors.capacity_check_interval must be in [0, 3600] s"), std::string::npos) << msg;
+    // nothing to check
+    pp.remove("capacity_check_interval");
+    pp.add("capacity_check_interval", 0.1);
+    auto c = Conductors::create(0);
+    msg = erf_gtest::abort_message([&] { c->set_ground(nullptr, m.geom); });
+    EXPECT_NE(msg.find("conductors.capacity_check_interval needs a capacity to check"), std::string::npos) << msg;
+    // more checks in a step than the limit
+    amrex::ParmParse("conductors.Tcr2").add("rated_breaking_strength", 1.0e6);
+    pp.remove("capacity_check_interval");
+    pp.add("capacity_check_interval", 1.0e-7);
+    auto d = Conductors::create(0);
+    d->set_ground(nullptr, m.geom);
+    msg = erf_gtest::abort_message([&] { d->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom); });
+    EXPECT_NE(msg.find("asks for more than 100000 capacity checks in a step"), std::string::npos) << msg;
+    // 0, the default: one check per step, as without the input
+    pp.remove("capacity_check_interval");
+    pp.add("capacity_check_interval", 0.0);
+    auto z = Conductors::create(0);
+    z->set_ground(nullptr, m.geom);
+    z->advance(0, 0.0, 0.25, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+    EXPECT_EQ(z->capacities().component(0).peak_time, 0.25);
+    pp.remove("capacity_check_interval");
+    clear_capacities("Tcr2");
+}
+
+TEST(Conductors, CapacityChecksStartAtTheirStartTime)
+{
+    const std::string dir = scratch("check_start");
+    set_break(dir, "Tcs");
+    amrex::ParmParse("conductors.Tcs").add("rated_breaking_strength", 5000.0);
+    amrex::ParmParse pp("conductors");
+    pp.add("capacity_check_start", 0.6);
+    Mesh m(false);
+    const double dt = 0.25;
+    {
+        auto c = Conductors::create(0);
+        c->set_ground(nullptr, m.geom);
+        // the strength is below the tension from the first step on, but the checks stamped 0.25 and 0.5 s are not made
+        for (int s = 0; s < 2; ++s) {
+            c->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+            EXPECT_FALSE(c->capacities().component(0).seen) << "nothing recorded at " << dt * (s + 1) << " s";
+            EXPECT_TRUE(c->breaks().empty());
+            EXPECT_TRUE(data_rows(dir + "/failures.dat").empty());
+        }
+        c->advance(0, dt * 2, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+        const auto& comp = c->capacities().component(0);
+        ASSERT_TRUE(comp.exceeded);
+        EXPECT_EQ(comp.first_time, 0.75) << "the first check at or after 0.6 s";
+        EXPECT_EQ(comp.peak_time, 0.75);
+        ASSERT_EQ(c->breaks().size(), 1u);
+        EXPECT_EQ(c->breaks().record(0).time, 0.75);
+    }
+    // with checks inside the step: pieces of 0.25 / 3 s end at 0.5833 and 0.6667 s in the third step
+    pp.add("capacity_check_interval", 0.1);
+    {
+        auto c = Conductors::create(0);
+        c->set_ground(nullptr, m.geom);
+        for (int s = 0; s < 3; ++s) { c->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+        EXPECT_NEAR(c->capacities().component(0).first_time, 0.5 + 2.0 * dt / 3.0, 1.0e-12);
+    }
+    pp.remove("capacity_check_interval");
+    // a check stamped exactly at the start time is made
+    pp.remove("capacity_check_start");
+    pp.add("capacity_check_start", 0.5);
+    {
+        auto c = Conductors::create(0);
+        c->set_ground(nullptr, m.geom);
+        for (int s = 0; s < 2; ++s) { c->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom); }
+        EXPECT_EQ(c->capacities().component(0).first_time, 0.5);
+    }
+    // towers are not checked before the start time either: footings over their capacity from the first step fail
+    // their towers at 0.75 s, the first check at or after 0.6 s
+    pp.remove("capacity_check_start");
+    clear_break("Tcs");
+    const std::string dirt = scratch("check_start_towers");
+    set_towered_section(dirt, "Tcst");
+    set_tower_failure();
+    amrex::ParmParse("conductors.lat").add("allowable_compression", 2.3e4);
+    pp.add("capacity_check_start", 0.6);
+    {
+        auto c = Conductors::create(0);
+        c->set_ground(nullptr, m.geom);
+        for (int s = 0; s < 2; ++s) {
+            c->advance(0, dt * s, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+            EXPECT_TRUE(c->tower_failures().empty()) << "no tower checked at " << dt * (s + 1) << " s";
+            for (const auto& k : c->capacities().components()) { EXPECT_FALSE(k.seen) << k.name; }
+        }
+        c->advance(0, dt * 2, dt, m.u, m.v, m.w, nullptr, nullptr, m.geom);
+        ASSERT_EQ(c->tower_failures().size(), 2u);
+        EXPECT_EQ(c->tower_failures().record(0).time, 0.75);
+    }
+    amrex::ParmParse("conductors.lat").remove("allowable_compression");
+    clear_tower_failure("Tcst");
+    set_break(dir, "Tcs");
+    amrex::ParmParse("conductors.Tcs").add("rated_breaking_strength", 5000.0);
+    // refused: a negative start, and a start with nothing to check
+    pp.remove("capacity_check_start");
+    pp.add("capacity_check_start", -1.0);
+    std::string msg = erf_gtest::abort_message([&] { Conductors::create(0); });
+    EXPECT_NE(msg.find("conductors.capacity_check_start must be finite and >= 0 (s), got -1"), std::string::npos) << msg;
+    pp.remove("capacity_check_start");
+    pp.add("capacity_check_start", 0.6);
+    amrex::ParmParse("conductors.Tcs").remove("rated_breaking_strength");
+    pp.remove("failure_break");
+    auto n = Conductors::create(0);
+    msg = erf_gtest::abort_message([&] { n->set_ground(nullptr, m.geom); });
+    EXPECT_NE(msg.find("conductors.capacity_check_start needs a capacity to check"), std::string::npos) << msg;
+    pp.remove("capacity_check_start");
+    clear_break("Tcs");
 }

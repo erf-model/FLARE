@@ -921,7 +921,9 @@ Conductors::step_moving_group (const std::vector<std::size_t>& lines, double tim
     // enough coupling steps for the fastest tower to take coupling_steps_per_period over its period
     double fmax = 0.0;
     for (const std::size_t t : towers) { fmax = std::max(fmax, static_cast<double>(m_models[t]->frequency())); }
-    const int n = std::max(m_in.substeps, static_cast<int>(std::ceil(dt * fmax * coupling_steps_per_period - 1.0e-9)));
+    // (and no coupling step, after each of which the capacities are checked, longer than capacity_check_interval)
+    const int n = std::max({m_in.substeps, static_cast<int>(std::ceil(dt * fmax * coupling_steps_per_period - 1.0e-9)),
+                            m_cap.empty() ? 1 : capacity_check_pieces(dt)});
     const double h = dt / n;
     // the interface: every line's pull on every attachment of the group's towers, in one vector
     std::vector<std::size_t> first(towers.size() + 1, 0);
@@ -1296,6 +1298,16 @@ Conductors::build_capacities ()
             }
         }
     }
+    if (m_in.capacity_check_start > Real(0.0) && m_cap.empty()) {
+        Abort("conductors.capacity_check_start needs a capacity to check: a line's rated_breaking_strength, "
+              "insulator_rated_load or hardware_rated_load, a tower type's allowable_uplift or allowable_compression, "
+              "or a frame tower's member design data");
+    }
+    if (m_in.capacity_check_interval > Real(0.0) && m_cap.empty()) {
+        Abort("conductors.capacity_check_interval needs a capacity to check: a line's rated_breaking_strength, "
+              "insulator_rated_load or hardware_rated_load, a tower type's allowable_uplift or allowable_compression, "
+              "or a frame tower's member design data");
+    }
     if (m_in.failure_stop && m_cap.empty()) {
         Abort("conductors.failure_stop = true needs a capacity to check: a line's rated_breaking_strength, "
               "insulator_rated_load or hardware_rated_load, a tower type's allowable_uplift or allowable_compression, "
@@ -1309,15 +1321,29 @@ Conductors::build_capacities ()
             };
             any = has(m_cap_span[i]) || has(m_cap_string[i]) || has(m_cap_hardware[i]);
         }
-        if (!any) {
+        bool tower_any = false;
+        for (std::size_t t = 0; t < m_towers.size() && !tower_any; ++t) {
+            tower_any = m_cap_footing[t][0] != no_component || m_cap_footing[t][1] != no_component || !m_cap_member[t].empty();
+        }
+        if (m_in.tower_release_on() && !tower_any) {
+            Abort("conductors.tower_failure = release needs a tower's capacity to check: a tower type's allowable_uplift or "
+                  "allowable_compression, or a frame tower's member design data");
+        }
+        if (!any && !(m_in.tower_release_on() && tower_any)) {
             Abort("conductors.failure_break = true needs a line's capacity to check: a line's rated_breaking_strength, "
-                  "insulator_rated_load or hardware_rated_load (a tower's footings and members release nothing)");
+                  "insulator_rated_load or hardware_rated_load (a tower's footings and members release nothing without "
+                  "conductors.tower_failure = release)");
         }
     }
     if (!m_cap.empty()) {
         Print() << "conductors: " << m_cap.size() << " component(s) checked against their capacities after every coupling step"
                 << (m_in.failure_stop ? "; the first exceedance stops the run" : "")
                 << (m_in.failure_break ? "; a line's component over its capacity lets go of the line (breaks.dat)" : "")
+                << (m_in.tower_release_on() ? "; a tower over a footing's or member's capacity lets go of its lines (tower_failures.dat)" : "")
+                << (m_in.capacity_check_start > Real(0.0) ? "; checked from t = " +
+                        std::to_string(static_cast<double>(m_in.capacity_check_start)) + " s" : std::string())
+                << (m_in.capacity_check_interval > Real(0.0) ? "; checked inside each step, at most " +
+                        std::to_string(static_cast<double>(m_in.capacity_check_interval)) + " s apart" : std::string())
                 << " (" << m_in.diagnostics_dir << "/capacities.csv, failures.dat)\n";
     }
 }
@@ -1381,6 +1407,7 @@ Conductors::build_intensity ()
     const bool with_k = m_keqn && !m_in.has_prescribed_velocity;
     const std::string err = m_im.configure(static_cast<double>(m_in.intensity_height),
                                            static_cast<double>(m_in.intensity_averaging_time), with_k);
+    m_im.set_maximum_start(static_cast<double>(m_in.capacity_check_start));
     if (!err.empty()) { Abort(err); }
     for (const auto& p : m_im_place) {
         m_im.add_point(p.name, static_cast<double>(p.pos[0]), static_cast<double>(p.pos[1]), static_cast<double>(p.pos[2]));
@@ -1472,7 +1499,8 @@ Conductors::write_intensity () const
 void
 Conductors::check_line_capacities (std::size_t i, double t, std::vector<std::size_t>& fresh)
 {
-    if (m_cap.empty()) { return; }
+    // (nothing is checked before capacity_check_start: no record, no exceedance, no release)
+    if (m_cap.empty() || t < static_cast<double>(m_in.capacity_check_start)) { return; }
     const LineInputs& s = m_placed[i];
     const ConductorLine& c = *m_lines[i];
     auto record = [&] (std::size_t id, double demand, double capacity) {
@@ -1501,7 +1529,7 @@ Conductors::check_line_capacities (std::size_t i, double t, std::vector<std::siz
 void
 Conductors::check_tower_capacities (std::size_t tw, double t, std::vector<std::size_t>& fresh)
 {
-    if (m_cap.empty()) { return; }
+    if (m_cap.empty() || t < static_cast<double>(m_in.capacity_check_start)) { return; }
     auto record = [&] (std::size_t id, double demand, double capacity) {
         if (id != no_component) { record_capacity(id, demand, capacity, t, fresh); }
     };
@@ -1590,12 +1618,30 @@ Conductors::report_failures (const std::vector<std::size_t>& fresh)
     }
 }
 
+int
+Conductors::capacity_check_pieces (double dt) const
+{
+    const double tau = static_cast<double>(m_in.capacity_check_interval);
+    if (!(tau > 0.0)) { return 1; }
+    // (the slack is a few of Real's roundings of the interval: 0.01 read into a float is a little below 0.01, and a
+    // step of 0.25 s is 25 pieces of it, not 26)
+    const double n = std::ceil(dt / tau * (1.0 - 4.0 * static_cast<double>(std::numeric_limits<Real>::epsilon())));
+    if (!(n <= static_cast<double>(ConductorInputs_t::max_capacity_checks))) {
+        std::ostringstream msg;
+        msg << std::setprecision(10) << "conductors.capacity_check_interval = " << tau << " s asks for more than "
+            << ConductorInputs_t::max_capacity_checks << " capacity checks in a step of " << dt << " s of the lines' level: raise it";
+        Abort(msg.str());
+    }
+    return std::max(1, static_cast<int>(n));
+}
+
 void
 Conductors::apply_breaks (const std::vector<std::size_t>& fresh, double t)
 {
     if (!m_in.failure_break || fresh.empty()) { return; }
     std::vector<std::pair<std::size_t,int>> spans_now;   // the (line, span) released in this call
     const std::size_t before = m_breaks.size();
+    const std::size_t towers_before = m_tower_failures.size();
     for (const std::size_t id : fresh) {
         // the line and the place on it the component is; a tower's footing or member is on no line
         std::size_t line = m_lines.size();
@@ -1606,7 +1652,53 @@ Conductors::apply_breaks (const std::vector<std::size_t>& fresh, double t)
                 if (it != ids->end()) { line = i; index = static_cast<int>(it - ids->begin()); break; }
             }
         }
-        if (line == m_lines.size()) { continue; }
+        if (line == m_lines.size()) {
+            // a footing or a member: with tower_failure = release its tower fails, once, and lets go of every line on it
+            if (!m_in.tower_release_on()) { continue; }
+            std::size_t tw = m_towers.size();
+            for (std::size_t k = 0; k < m_towers.size() && tw == m_towers.size(); ++k) {
+                if (m_cap_footing[k][0] == id || m_cap_footing[k][1] == id ||
+                    std::find(m_cap_member[k].begin(), m_cap_member[k].end(), id) != m_cap_member[k].end()) { tw = k; }
+            }
+            if (tw == m_towers.size() || m_tower_failures.failed(m_towers[tw].name())) { continue; }
+            const auto& comp = m_cap.component(id);
+            int made = 0;
+            for (const auto& [li, j] : m_tower_lines[tw]) {
+                ConductorLine& c = *m_lines[li];
+                erf_conductors::TowerAttachment a;
+                a.strings = c.num_insulators() > 0;
+                a.num_spans = c.num_spans();
+                a.tower = j;
+                if (a.strings) {
+                    a.string_attached = c.string_attached(j);
+                } else {
+                    a.before_attached = c.span_end_attached(j, 1);
+                    a.after_attached = c.span_end_attached(j + 1, 0);
+                }
+                // the tensions where the line lets go, read before any of its releases is made
+                const std::vector<erf_conductors::LineRelease> rel = erf_conductors::tower_releases(a);
+                std::vector<double> tension;
+                for (const erf_conductors::LineRelease& r : rel) {
+                    tension.push_back(r.kind == erf_conductors::LineRelease::Kind::SpanEnd
+                                          ? static_cast<double>(r.end == 0 ? c.tension_a(r.index) : c.tension_b(r.index))
+                                          : static_cast<double>(c.insulator_tension(r.index)));
+                }
+                for (std::size_t q = 0; q < rel.size(); ++q) {
+                    const erf_conductors::LineRelease& r = rel[q];
+                    if (r.kind == erf_conductors::LineRelease::Kind::SpanEnd) {
+                        // a span the tower lets go of is not released again in this step by its own conductor or hardware
+                        spans_now.push_back(std::pair<std::size_t,int>{li, r.index});
+                        c.release_span_end(r.index, r.end);
+                    } else {
+                        c.release_string(r.index);
+                    }
+                    m_breaks.add(erf_conductors::BreakRecord{t, c.name(), r, comp.name, tension[q]});
+                    ++made;
+                }
+            }
+            m_tower_failures.add(erf_conductors::TowerFailure{t, m_towers[tw].name(), comp.name, made});
+            continue;
+        }
         ConductorLine& c = *m_lines[line];
         erf_conductors::LineEnds e;
         e.strings = c.num_insulators() > 0;
@@ -1645,11 +1737,31 @@ Conductors::apply_breaks (const std::vector<std::size_t>& fresh, double t)
             const std::string key = b.line + " " + b.release.name() + ";";
             for (const char ch : key) { hash = (hash ^ static_cast<unsigned char>(ch)) * 1099511628211ULL; }
         }
+        for (std::size_t i = towers_before; i < m_tower_failures.size(); ++i) {
+            const std::string key = "tower " + m_tower_failures.record(i).tower + ";";
+            for (const char ch : key) { hash = (hash ^ static_cast<unsigned char>(ch)) * 1099511628211ULL; }
+        }
+        mine[0] += static_cast<Long>(m_tower_failures.size() - towers_before);
         mine[1] = static_cast<Long>(hash & 0x7fffffffffffffffULL);
         std::array<Long,2> theirs = mine;
         ParallelDescriptor::Bcast(theirs.data(), 2, ParallelDescriptor::IOProcessorNumber());
         if (theirs != mine) {
             Abort("conductors.failure_break: the ranks disagree on the releases made at this step (their copies of the lines differ)");
+        }
+    }
+    if (m_tower_failures.size() > towers_before) {
+        if (ParallelDescriptor::IOProcessor()) {
+            std::ofstream out;
+            if (erf_actuator::open_log(out, m_in.diagnostics_dir + "/tower_failures.dat", false)) {
+                out << erf_conductors::TowerFailureLog::log_header() << "\n";
+            }
+            for (std::size_t i = towers_before; i < m_tower_failures.size(); ++i) { out << m_tower_failures.log_row(i) << "\n"; }
+            if (!out) { Abort("cannot write '" + m_in.diagnostics_dir + "/tower_failures.dat'"); }
+        }
+        for (std::size_t i = towers_before; i < m_tower_failures.size(); ++i) {
+            const auto& f = m_tower_failures.record(i);
+            Print() << "conductors: TOWER FAILED at t = " << std::setprecision(10) << f.time << " s: " << f.tower << " (" << f.component
+                    << " over its capacity) lets go of its lines, " << f.releases << " release(s)\n";
         }
     }
     if (m_breaks.size() == before) { return; }
@@ -1883,6 +1995,7 @@ Conductors::log_files () const
     f.push_back(m_in.diagnostics_dir + "/coupling.dat");
     f.push_back(m_in.diagnostics_dir + "/failures.dat");
     f.push_back(m_in.diagnostics_dir + "/breaks.dat");
+    f.push_back(m_in.diagnostics_dir + "/tower_failures.dat");
     if (m_thermal) { f.push_back(m_thermal->log_file()); }
     if (m_tower_thermal) { for (const std::string& t : m_tower_thermal->log_files()) { f.push_back(t); } }
     return f;
@@ -2050,6 +2163,25 @@ Conductors::restore (const std::string& dir)
                     << (m_in.failure_break ? "" : " (conductors.failure_break is false in this run: no further ones)") << "\n";
         }
     }
+    // the towers that failed before the checkpoint: they do not fail again (their lines' releases are in the log above)
+    m_tower_failures = erf_conductors::TowerFailureLog();
+    if (erf_actuator::file_exists_everywhere(dir + "/tower_failures")) {
+        Vector<char> tchars;
+        ParallelDescriptor::ReadAndBcastFile(dir + "/tower_failures", tchars);
+        const std::string err = m_tower_failures.restore(std::string(tchars.dataPtr()));
+        if (!err.empty()) { Abort("the conductor checkpoint '" + dir + "/tower_failures': " + err); }
+        for (std::size_t f = 0; f < m_tower_failures.size(); ++f) {
+            const std::string& n = m_tower_failures.record(f).tower;
+            if (std::none_of(m_towers.begin(), m_towers.end(), [&n] (const erf_towers::Tower& tw) { return tw.name() == n; })) {
+                Abort("the conductor checkpoint '" + dir + "/tower_failures' holds the failure of tower " + n +
+                      ", which this run does not have; the lines and their towers must match the run being restarted");
+            }
+        }
+        if (!m_tower_failures.empty()) {
+            Print() << "conductors: the checkpoint holds " << m_tower_failures.size() << " failed tower(s)"
+                    << (m_in.tower_release_on() ? "" : " (conductors.tower_failure is none in this run: no further ones)") << "\n";
+        }
+    }
     if (saved.size() != m_placed.size()) {
         Abort("the conductor checkpoint '" + dir + "' holds " + std::to_string(saved.size()) + " line(s) but conductors.lines lists " +
               std::to_string(m_placed.size()) + "; the conductors block must match the run being restarted");
@@ -2198,6 +2330,20 @@ Conductors::restore (const std::string& dir)
                             << "acts at a first exceedance only, so it releases nothing in this run\n";
                 }
             }
+            // likewise a tower's footing or member over its capacity before the checkpoint does not fail its tower in this
+            // run; another of the tower's components still does at its own first exceedance
+            for (std::size_t tw = 0; m_in.tower_release_on() && tw < m_towers.size(); ++tw) {
+                if (m_tower_failures.failed(m_towers[tw].name())) { continue; }
+                std::vector<std::size_t> ids{m_cap_footing[tw][0], m_cap_footing[tw][1]};
+                ids.insert(ids.end(), m_cap_member[tw].begin(), m_cap_member[tw].end());
+                for (const std::size_t id : ids) {
+                    if (id == no_component || !m_cap.component(id).exceeded) { continue; }
+                    const auto& comp = m_cap.component(id);
+                    Print() << "conductors: " << erf_conductors::kind_name(comp.kind) << " " << comp.name << " first exceeded its capacity at t = "
+                            << comp.first_time << " s, before the checkpoint, without failing tower " << m_towers[tw].name()
+                            << ": conductors.tower_failure acts at a first exceedance only, so this component does not fail it in this run\n";
+                }
+            }
         }
     }
     // the intensity beside the peaks: the averaging window, the run's maxima and the winds kept at the peaks and
@@ -2336,6 +2482,12 @@ Conductors::write_checkpoint (const std::string& chkdir) const
             if (!cp) { Abort("cannot write the conductor checkpoint '" + dir + "/capacities'"); }
             // the table as checkpointed, so that a run ending here, off the diagnostics cadence, has its last peaks
             m_cap.write_table(m_in.diagnostics_dir + "/capacities.csv");
+        }
+        if (m_in.tower_release_on() || !m_tower_failures.empty()) {
+            std::ofstream tf(dir + "/tower_failures", std::ios::trunc);
+            tf << m_tower_failures.state();
+            tf.close();
+            if (!tf) { Abort("cannot write the conductor checkpoint '" + dir + "/tower_failures'"); }
         }
         if (m_in.failure_break || !m_breaks.empty()) {
             // the releases, in order: a restart makes them again before it loads the lines' MoorDyn states
@@ -2562,6 +2714,15 @@ Conductors::advance (int lev, double time, double dt,
                 std::filesystem::remove(m_in.diagnostics_dir + "/failures.dat", ec);
                 std::filesystem::remove(m_in.diagnostics_dir + "/capacities.csv", ec);
             }
+            if (m_in.tower_release_on()) {
+                std::ofstream out;
+                if (erf_actuator::open_log(out, m_in.diagnostics_dir + "/tower_failures.dat", true)) {
+                    out << erf_conductors::TowerFailureLog::log_header() << "\n";
+                }
+            } else {
+                std::error_code ec;
+                std::filesystem::remove(m_in.diagnostics_dir + "/tower_failures.dat", ec);
+            }
             if (m_in.failure_break) {
                 // a fresh run's release log: the header only, until a line lets go
                 std::ofstream out;
@@ -2700,11 +2861,34 @@ Conductors::advance (int lev, double time, double dt,
     m_coupling_iterations = 0;
     m_coupling_unconverged = 0;
     m_step_fresh.clear();
-    for (const auto& g : m_groups) {
-        if (m_lines[g.front()]->towers_move()) {
-            step_moving_group(g, time, dt);
-        } else {
-            for (const std::size_t line : g) { m_lines[line]->step(time, dt); }
+    const int pieces = m_cap.empty() ? 1 : capacity_check_pieces(dt);
+    if (pieces == 1) {
+        for (const auto& g : m_groups) {
+            if (m_lines[g.front()]->towers_move()) {
+                step_moving_group(g, time, dt);
+            } else {
+                for (const std::size_t line : g) { m_lines[line]->step(time, dt); }
+            }
+        }
+    } else {
+        // capacity_check_interval: the lines on fixed supports advance together in equal pieces of the step, the wind
+        // held, and they and the towers that stand still are checked after each piece (the last one below, with the
+        // step's end); the groups on towers that bend take at least as many coupling steps, each of which they check
+        for (const auto& g : m_groups) { if (m_lines[g.front()]->towers_move()) { step_moving_group(g, time, dt); } }
+        const double h = dt / pieces;
+        for (int k = 0; k < pieces; ++k) {
+            const double t0 = time + k * h;
+            const double t1 = (k == pieces - 1) ? time + dt : time + (k + 1) * h;
+            for (const auto& g : m_groups) {
+                if (m_lines[g.front()]->towers_move()) { continue; }
+                for (const std::size_t line : g) { m_lines[line]->step(t0, t1 - t0); }
+            }
+            if (k == pieces - 1) { break; }
+            for (const auto& g : m_groups) {
+                if (m_lines[g.front()]->towers_move()) { continue; }
+                for (const std::size_t line : g) { check_line_capacities(line, t1, m_step_fresh); }
+            }
+            for (std::size_t tw = 0; tw < m_towers.size(); ++tw) { if (!m_models[tw]) { check_tower_capacities(tw, t1, m_step_fresh); } }
         }
     }
     {

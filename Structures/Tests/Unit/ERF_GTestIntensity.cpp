@@ -141,6 +141,16 @@ TEST(Intensity, TheMaximumWaitsForAFullWindow)
     }
     EXPECT_DOUBLE_EQ(r.point(0).max.speed, 8.0);
     EXPECT_DOUBLE_EQ(r.point(0).max.time, 3.0);
+    // with a start time of 5 s the averages stamped 3 and 4 s (8 and 3) are not compared: the largest is 5 at 6 s
+    // (4 at 5 s, then 5), though the window was full from 3 s on
+    IntensityRecorder w = one_point(3.0);
+    w.set_maximum_start(5.0);
+    for (int n = 0; n < 6; ++n) {
+        w.sample({wind(s[n])}, 1.0, 1.0 * (n + 1));
+        EXPECT_EQ(w.point(0).max.set, n >= 4) << "after " << n + 1 << " s";
+    }
+    EXPECT_DOUBLE_EQ(w.point(0).max.speed, 5.0);
+    EXPECT_DOUBLE_EQ(w.point(0).max.time, 6.0);
     // ten steps of 0.3 s sum to just under 3 s in floating point: the window counts as full at the tenth
     IntensityRecorder q = one_point(3.0);
     for (int n = 1; n <= 10; ++n) {

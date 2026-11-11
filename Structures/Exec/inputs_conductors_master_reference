@@ -110,8 +110,20 @@ conductors.failure_stop      = false       # true or false. Stop the run (an abo
                                                 #   span at its end with the higher tension, an insulator string at its
                                                 #   cross-arm, the hardware at a dead end or a tower (breaks.dat). true
                                                 #   needs ground_contact = true and a line's rated_breaking_strength,
-                                                #   insulator_rated_load or hardware_rated_load; not with failure_stop.
+                                                #   insulator_rated_load or hardware_rated_load (or, with tower_failure =
+                                                #   release, a tower's capacity); not with failure_stop.
                                                 #   Default: false
+#conductors.capacity_check_start = 0.0     # >= 0 s. The time from which the demands are checked against the capacities:
+                                                #   nothing is recorded, exceeded, released or failed before it. Needs a
+                                                #   capacity to check. Default: 0.0
+#conductors.capacity_check_interval = 0.0  # [0, 3600] s. The longest time between two checks of the demands against
+                                                #   the capacities. 0: once per step of the lines' level. Above 0 the lines
+                                                #   advance in pieces no longer than this within the step and are checked
+                                                #   after each. Needs a capacity to check. Default: 0.0
+#conductors.tower_failure    = none        # none or release. release: a tower whose footing or member exceeds its
+                                                #   capacity lets go of every line on it at the end of that step; the tower
+                                                #   stays and carries no line (tower_failures.dat, breaks.dat). Needs
+                                                #   failure_break = true and a tower's capacity. Default: none
 conductors.thermal_model     = ieee738     # none or ieee738. The conductors' temperature: each span node follows
                                                 #   the IEEE 738-2023 heat balance with the fire's radiation and the air
                                                 #   around it, and each span lengthens with its mean temperature

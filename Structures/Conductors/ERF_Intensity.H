@@ -75,6 +75,12 @@ public:
     static std::string check (double height, double averaging_time);
 
     double height () const { return m_height; }
+    /**
+     * The time (s) from which a point's largest value in the run is looked for: an average stamped earlier is not
+     * compared (conductors.capacity_check_start, so that a run's start-up is in neither the peaks nor the maxima).
+     * The averaging window is filled from the first sample whatever this is. Default 0.
+     */
+    void set_maximum_start (double t) { m_max_start = t; }
     double averaging_time () const { return m_T; }
     bool with_k () const { return m_with_k; }
 
@@ -142,6 +148,7 @@ private:
     double m_height{10.0};
     double m_T{3.0};
     bool m_with_k{false};
+    double m_max_start{0.0};   //!< no run maximum from an average stamped before this (s)
     std::size_t m_nsamples{0};
     double m_time{0.0};                               //!< the end of the last sampled step (s)
     bool m_has_time{false};
