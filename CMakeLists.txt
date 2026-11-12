@@ -204,8 +204,15 @@ option(ERF_MOORDYN_USE_STUB "Build FLARE's structures against the bundled MoorDy
 if(ERF_MOORDYN_USE_STUB AND NOT ERF_ENABLE_STRUCTURES)
   message(FATAL_ERROR "ERF_MOORDYN_USE_STUB needs ERF_ENABLE_STRUCTURES=ON: the stub stands in for MoorDyn-C in FLARE's structures")
 endif()
+option(ERF_ENABLE_DUST "Enable the dust coupling (the atmosphere side; dust models plug into it)" OFF)
+set(ERF_NUM_DUST_SCALARS "1" CACHE STRING "Number of passive scalars the dust coupling adds to the state; needs ERF_ENABLE_DUST")
+set(ERF_DUST_MODEL_DIRS "" CACHE STRING "Dust model directories (each with ERFDustModel.cmake) to compile in; needs ERF_ENABLE_DUST")
+# FLARE's dust layer (Dust/) is compiled in with the dust coupling, before any
+# further dust model directory, as FireEngine/ is with the fire coupling
+if(ERF_ENABLE_DUST)
+  list(PREPEND ERF_DUST_MODEL_DIRS "${PROJECT_SOURCE_DIR}/Dust")
+endif()
 option(ERF_ENABLE_WSM6_FORT "Enable WSM6 Fortran bridge calls" OFF)
-option(ERF_ENABLE_DUST "Enable the ERF-Dust 2D surface emission module" OFF)
 option(ERF_ENABLE_WDM6_FORT "Enable WDM6 Fortran bridge calls" OFF)
 
 if(ERF_ENABLE_WSM6_FORT AND NOT ERF_PRECISION STREQUAL "DOUBLE")

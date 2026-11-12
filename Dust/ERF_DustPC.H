@@ -15,7 +15,7 @@
  * References:
  *   AMReX particles: https://amrex-codes.github.io/amrex/docs_html/Particles.html
  *   ERFPCEvolve.cpp: Source/Particles/ERFPCEvolve.cpp
- *   ERF_DustSettling.H: Source/Dust/ERF_DustSettling.H
+ *   ERF_DustSettling.H: Dust/ERF_DustSettling.H
  *   Shao (2008). Physics and Modelling of Wind Erosion. Springer.
  *   Seinfeld & Pandis (2006), Ch. 9.
  *     https://doi.org/10.1002/9781118227572

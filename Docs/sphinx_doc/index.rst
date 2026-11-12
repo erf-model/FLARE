@@ -84,6 +84,7 @@ In addition to this documentation, there is API documentation for ERF generated 
    theory/TowerFrame.rst
    theory/Conductors.rst
    theory/StructureCoupling.rst
+   theory/DustCoupling.rst
    theory/Radiation.rst
    Particles.rst
    SuperDroplets.rst

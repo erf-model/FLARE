@@ -38,12 +38,6 @@
 #include "ERF_FireEngineRegistry.H"
 #include <sstream>
 #endif
-#ifdef ERF_USE_DUST
-#include "ERF_DustAtmCoupling.H"
-#if defined(ERF_USE_FIRE)
-#include "ERF_DustFireLofting.H"
-#endif
-#endif
 
 using namespace amrex;
 
@@ -221,108 +215,8 @@ ERF::Evolve ()
         timeStep(0, cur_time, iteration);
 
 #ifdef ERF_USE_DUST
-        if (m_DustLayer) {
-#ifdef ERF_USE_FIRE
-            if (m_fire_dust_coupling.enabled && m_fire_coupler) {
-                const FireEngine& fire_engine = m_fire_coupler->engine();
-                // Every fire field the dust step reads is copied onto the dust
-                // BoxArray by index overlap, with the DUST periodicity: the dust
-                // domain is the atmosphere's refined by the grid ratio, and with the
-                // atmosphere's periodicity the copy treated dust cells one atmosphere
-                // domain apart as periodic images and landed the fire wind and heat
-                // in the wrong place on more than one rank. The grid ratios are
-                // asserted equal at start-up, so the kernels read cell for cell.
-                const amrex::Periodicity& per = m_DustLayer->get_dust_geom().periodicity();
-                const amrex::BoxArray&            dust_ba = m_DustLayer->get_dust_ba();
-                const amrex::DistributionMapping& dust_dm = m_DustLayer->get_dust_dm();
-
-                // Burned area for the crust reduction (applied inside DustLayer::advance
-                // from the crust baseline). The level set used to be gathered into a
-                // fire-domain-sized host vector and all-reduced every step.
-                // the three dust-grid scratch fields are defined once (the dust
-                // BoxArray never changes) and refilled every step
-                if (fire_engine.level_set() != nullptr) {
-                    if (!m_fire_phi_scratch_for_crust.ok())
-                        m_fire_phi_scratch_for_crust.define(dust_ba, dust_dm, 1, 0);
-                    m_fire_phi_scratch_for_crust.setVal(1.0_rt);   // unburned where no fire cell lands
-                    m_fire_phi_scratch_for_crust.ParallelCopy(
-                        *fire_engine.level_set(), 0, 0, 1, 0, 0, per);
-                    m_fire_dust_coupling.fire_phi_scratch = &m_fire_phi_scratch_for_crust;
-                } else {
-                    m_fire_dust_coupling.fire_phi_scratch = nullptr;
-                }
-
-                // Phase 2: fire wind raises dust u*. The wind at FireParams::sampled_wind_ht()
-                // (fire_wind_ref), the datum erf.fire_dust_wind_zref names; the
-                // WAF-reduced midflame wind (fire_wind_eff) used to be handed over as
-                // if it were the 6.1 m wind, 0.36x for grass, so the fire path never
-                // exceeded the surface layer's u*.
-                if (m_fire_dust_coupling.fire_wind_to_dust &&
-                    fire_engine.reference_wind() != nullptr &&
-                    fire_engine.level_set() != nullptr) {
-                    amrex::MultiFab& fire_wind_scratch = m_fire_wind_scratch_for_ustar;   // (u, v), 1 ghost cell
-                    if (!fire_wind_scratch.ok()) fire_wind_scratch.define(dust_ba, dust_dm, 2, 1);
-                    fire_wind_scratch.setVal(0.0_rt);
-                    fire_wind_scratch.ParallelCopy(
-                        *fire_engine.reference_wind(), 0, 0, 2, 0, 1, per);
-                    fire_wind_scratch.FillBoundary(per);
-
-                    const int C = amrex::max(
-                        m_fire_coupler->fire_grid().C / m_DustLayer->get_grid_ratio(), 1);
-
-                    // Into the fire-u* field, which advance() maxes into u* after it
-                    // has filled u* from the surface layer. Applied to dust_ustar_in
-                    // here it was overwritten before it was used.
-                    amrex::MultiFab* ustar_in = m_DustLayer->get_ustar_fire_mut();
-                    if (ustar_in) {
-                        ustar_in->setVal(0.0_rt);
-                        m_fire_dust_coupling.apply_fire_wind_to_dust_ustar(
-                            *ustar_in,
-                            fire_wind_scratch,
-                            m_fire_phi_scratch_for_crust,   // inside the fire perimeter only
-                            m_DustLayer->get_dust_geom(),
-                            m_fire_dust_coupling.fire_wind_z0,
-                            m_fire_dust_coupling.fire_wind_zref,
-                            C);
-                        ustar_in->FillBoundary(per);
-                    }
-                }
-
-                // Phase 3: fire heat flux for the convective lofting, applied inside
-                // DustLayer::advance before the budget and the particles read the flux
-                if (m_fire_dust_coupling.fire_lofting_enabled &&
-                    fire_engine.heat_release()) {
-                    if (!m_fire_heat_scratch_for_lofting.ok())
-                        m_fire_heat_scratch_for_lofting.define(dust_ba, dust_dm, 1, 1);
-                    m_fire_heat_scratch_for_lofting.setVal(0.0_rt);
-                    m_fire_heat_scratch_for_lofting.ParallelCopy(
-                        *fire_engine.heat_release(), 0, 0, 1, 0, 1, per);
-                    m_fire_heat_scratch_for_lofting.FillBoundary(per);
-                    m_DustLayer->set_fire_lofting(&m_fire_heat_scratch_for_lofting,
-                                                  m_fire_dust_coupling.lofting_k_loft,
-                                                  m_fire_dust_coupling.lofting_Q_threshold,
-                                                  m_fire_dust_coupling.lofting_Q_ref);
-                }
-            }
-#endif
-            const amrex::MultiFab* xvel_ptr  = &vars_new[0][Vars::xvel];
-            const amrex::MultiFab* yvel_ptr  = &vars_new[0][Vars::yvel];
-            const amrex::MultiFab* zvel_ptr  = &vars_new[0][Vars::zvel];  // Phase 19
-            const amrex::MultiFab* zphys_ptr =
-                (z_phys_cc.size() > 0) ? z_phys_cc[0].get() : nullptr;
-            const amrex::Geometry* geom_atm = &geom[0];  // Phase 19
-            int nz = geom[0].Domain().length(2);
-            // the return fields of the step just taken (the surface dust density,
-            // the surface latent flux), once; the slow-RHS hook extracted them at
-            // every RK stage and only the last survived
-            m_DustLayer->extract_atm_return_fields(vars_new[0][Vars::cons],
-                                                   SFS_q1fx3_lev[0].get(), geom[0]);
-            m_DustLayer->advance(dt[0], m_DustLayer->get_params(),
-                                 m_SurfaceLayer[Orientation::zlo()].get(),
-                                 xvel_ptr, yvel_ptr, zvel_ptr, zphys_ptr, geom_atm, nz,
-                                 &vars_new[0][Vars::cons]);
-
-        }
+        // The dust model's own state, over the level-0 step just taken
+        advance_dust_model(step, cur_time);
 #endif
 
         cur_time += static_cast<double>(dt[0]);
@@ -427,11 +321,10 @@ ERF::WriteAtIntermediateTime (int step, double cur_time)
         }
     }
 
+#ifdef ERF_USE_DUST
     // Dust output before the checkpoint, so a checkpoint of this step records
     // the step's dust output as written and a restart from it does not repeat it
-#ifdef ERF_USE_DUST
-    if (m_DustLayer)
-        m_DustLayer->write_output(step+1, cur_time, /*is_final=*/false);
+    if (m_dust_model) { m_dust_model->write_output(step+1, cur_time, false); }
 #endif
 
     if (writeNow(cur_time, step+1, m_check_int, m_check_per, dt[0], last_check_file_time)) {
@@ -483,10 +376,9 @@ ERF::WriteAtFinalTime ()
         }
     }
 
-    // Dust output before the checkpoint, as in WriteAtIntermediateTime
 #ifdef ERF_USE_DUST
-    if (m_DustLayer)
-        m_DustLayer->write_output(istep[0], t_new[0], /*is_final=*/true);
+    // Dust output before the checkpoint, as in WriteAtIntermediateTime
+    if (m_dust_model) { m_dust_model->write_output(istep[0], t_new[0], true); }
 #endif
 
     if ( (m_check_int > 0 || m_check_per > zero) && istep[0] > last_check_file_step) {
@@ -2280,145 +2172,16 @@ ERF::InitData_post ()
     }
 #endif
 #ifdef ERF_USE_DUST
-    {
-        DustParams dust_params;  // reads all erf.dust.* from ParmParse
-        if (dust_params.enable) {
-            m_DustLayer = std::make_unique<DustLayer>();
-            m_DustLayer->initialize(*this, m_SurfaceLayer[Orientation::zlo()].get(), *z_phys_nd[0], dust_params);
-            if (restart_chkfile.empty()) {
-                m_DustLayer->remove_outputs_for_fresh_start();   // stale CSVs of an earlier run are not continued
-                m_DustLayer->write_diag_header();
-            }
-#ifdef ERF_USE_FIRE
-            if (m_fire_coupler && m_DustLayer) {
-                amrex::ParmParse pp("erf");
-                pp.query("fire_dust_coupling",        m_fire_dust_coupling.enabled);
-                pp.query("fire_dust_crust_reduction", m_fire_dust_coupling.post_fire_crust_reduction);
-                pp.query("fire_dust_wind_to_dust",   m_fire_dust_coupling.fire_wind_to_dust);
-                pp.query("fire_dust_wind_z0",        m_fire_dust_coupling.fire_wind_z0);
-                // the datum of the wind handed over is the height the fire samples
-                // it at (erf.fire.wind_ref_ht, or 6.096 m with
-                // erf.fire.use_per_fuel_wind_ht): the dust-side height follows
-                // it, and a different value aborts
-                {
-                    amrex::Real wind_ref_ht = m_fire_coupler->engine().reference_wind_height();
-                    m_fire_dust_coupling.fire_wind_zref = wind_ref_ht;
-                    // an engine that hands over no reference wind cannot feed the dust u*
-                    if (m_fire_dust_coupling.enabled && m_fire_dust_coupling.fire_wind_to_dust &&
-                        m_fire_coupler->engine().reference_wind() == nullptr) {
-                        amrex::Print() << "[FIRE-DUST] WARNING: the fire engine (" << m_fire_coupler->engine().name()
-                                       << ") hands over no reference wind; erf.fire_dust_wind_to_dust is switched off\n";
-                        m_fire_dust_coupling.fire_wind_to_dust = false;
-                    }
-                    if (m_fire_dust_coupling.enabled && m_fire_dust_coupling.fire_wind_to_dust) {
-                    amrex::Real zref_given = wind_ref_ht;
-                    if (pp.query("fire_dust_wind_zref", zref_given) &&
-                        std::abs(zref_given - wind_ref_ht) > 1.0e-6 * wind_ref_ht) {
-                        amrex::Abort("[FIRE-DUST] erf.fire_dust_wind_zref = " + std::to_string(zref_given)
-                                     + " m must match " + std::to_string(wind_ref_ht)
-                                     + " m, the height of the wind the fire hands over (fire_wind_ref: erf.fire.wind_ref_ht,"
-                                     " or 6.096 m with erf.fire.use_per_fuel_wind_ht); leave it unset to follow it");
-                    }
-                    amrex::ParmParse pp_most("erf.most");
-                    amrex::Real most_z0 = -1.0;
-                    if (pp_most.query("z0", most_z0) && most_z0 > 0.0 &&
-                        std::abs(most_z0 - m_fire_dust_coupling.fire_wind_z0) > 1.0e-6 * most_z0) {
-                        amrex::Print() << "[FIRE-DUST] WARNING: erf.fire_dust_wind_z0 = " << m_fire_dust_coupling.fire_wind_z0
-                                       << " m differs from erf.most.z0 = " << most_z0
-                                       << " m; inside the fire perimeter the fire wind u* (a neutral log law on"
-                                          " fire_dust_wind_z0) is compared with the surface layer's u*\n";
-                    }
-                    } else {   // the keys are read only when the fire wind feeds the dust
-                        for (const char* k : {"fire_dust_wind_zref", "fire_dust_wind_z0"})
-                            if (pp.contains(k))
-                                amrex::Print() << "[FIRE-DUST] WARNING: erf." << k
-                                               << " is read only with erf.fire_dust_coupling = true and"
-                                                  " erf.fire_dust_wind_to_dust = true\n";
-                    }
-                }
-                pp.query("fire_dust_lofting_enabled",     m_fire_dust_coupling.fire_lofting_enabled);
-                pp.query("fire_dust_lofting_k_loft",      m_fire_dust_coupling.lofting_k_loft);
-                pp.query("fire_dust_lofting_Q_threshold", m_fire_dust_coupling.lofting_Q_threshold);
-                pp.query("fire_dust_lofting_Q_ref",       m_fire_dust_coupling.lofting_Q_ref);
-                // Ranges the coupling kernels divide by or take as fractions;
-                // the keys are read only with erf.fire_dust_coupling = true.
-                {
-                    auto& c = m_fire_dust_coupling;
-                    auto fail = [](const std::string& m) { amrex::Abort("[FIRE-DUST] " + m); };
-                    if (!(c.post_fire_crust_reduction >= 0.0 && c.post_fire_crust_reduction <= 1.0)) {
-                        fail("erf.fire_dust_crust_reduction must be in [0, 1], got " + std::to_string(c.post_fire_crust_reduction));
-                    }
-                    if (!(c.fire_wind_z0 > 0.0)) {
-                        fail("erf.fire_dust_wind_z0 must be > 0 m, got " + std::to_string(c.fire_wind_z0));
-                    }
-                    if (!(c.fire_wind_zref > c.fire_wind_z0)) {
-                        fail("erf.fire_dust_wind_zref (" + std::to_string(c.fire_wind_zref) + " m) must exceed"
-                             " erf.fire_dust_wind_z0 (" + std::to_string(c.fire_wind_z0) + " m); the fire wind u* is"
-                             " kappa |U| / ln(zref/z0)");
-                    }
-                    if (!(c.lofting_k_loft >= 0.0)) {
-                        fail("erf.fire_dust_lofting_k_loft must be >= 0, got " + std::to_string(c.lofting_k_loft));
-                    }
-                    if (!(c.lofting_Q_threshold >= 0.0)) {
-                        fail("erf.fire_dust_lofting_Q_threshold must be >= 0 W/m2, got " + std::to_string(c.lofting_Q_threshold));
-                    }
-                    // (erf.fire_dust_lofting_Q_ref <= 0 is the documented off switch:
-                    // apply_fire_lofting_to_emission returns before any division)
-                    if (!c.enabled) {
-                        for (const char* k : {"fire_dust_crust_reduction", "fire_dust_wind_to_dust", "fire_dust_wind_z0",
-                                              "fire_dust_wind_zref", "fire_dust_lofting_enabled", "fire_dust_lofting_k_loft",
-                                              "fire_dust_lofting_Q_threshold", "fire_dust_lofting_Q_ref"}) {
-                            if (pp.contains(k)) {
-                                fail(std::string("erf.") + k + " needs erf.fire_dust_coupling = true");
-                            }
-                        }
-                    }
-                }
-                m_fire_dust_coupling.debug       = dust_params.dust_debug;
-                // DustLayer::advance applies the burned-area crust reduction from its
-                // baseline each step; without this registration the reduction was
-                // applied here every step on top of the previous one.
-                m_DustLayer->set_fire_dust_coupling(&m_fire_dust_coupling);
-
-                // Validate grid_ratio matching for fire-dust coupling
-                if (m_fire_dust_coupling.enabled) {
-                    int fire_gr = m_fire_coupler->params().grid_ratio;
-                    int dust_gr = dust_params.grid_ratio;
-                    std::string msg = "[FIRE-DUST] fire_dust_coupling=true requires "
-                        "dust.grid_ratio == fire.grid_ratio for proper sub-grid mapping. "
-                        "Set erf.dust.grid_ratio = " + std::to_string(fire_gr) +
-                        " (currently " + std::to_string(dust_gr) + ").";
-                    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(fire_gr == dust_gr, msg.c_str());
-                }
-            }
-#endif
-
-            // On a restart the fields initialize() just built from the inputs are
-            // replaced by the checkpointed ones, and the layer's counters resume.
-            if (!restart_chkfile.empty()) {
-                ReadCheckpointFileDust();
-            }
-        }
+    // The dust model starts after the fire, which it may read; on a restart it
+    // restores its own state, and on a fresh start the dust scalars start at zero
+    initialize_dust_model();
+#else
+    {   // a dust deck on a build without the coupling would run as plain ERF, silently
+        amrex::ParmParse pp("erf.dust"); bool want = false; pp.query("enable", want);
+        if (want) { amrex::Abort("erf.dust.enable = true but this executable was built without the dust coupling"
+                                 "; rebuild with it (CMake ERF_ENABLE_DUST=ON, GNU make USE_DUST=TRUE)"
+                                 " and a dust model directory (CMake ERF_DUST_MODEL_DIRS, GNU make DUST_HOME)"); }
     }
-#endif
-
-// ************************************************************************************
-// Zero the dust scalar component BEFORE the first plotfile write and before
-// sum_integrated_quantities. The sounding init fills all conserved components
-// including dust_scalar_comp with rho_air. Dust starts at zero physically.
-// ************************************************************************************
-#ifdef ERF_USE_DUST
-if (m_DustLayer && restart_chkfile.empty()) {
-    int dust_comp = m_DustLayer->get_dust_scalar_comp();
-    for (int lev = 0; lev <= finest_level; ++lev) {
-        vars_new[lev][Vars::cons].setVal(0.0, dust_comp, 1,
-            vars_new[lev][Vars::cons].nGrowVect());
-        vars_old[lev][Vars::cons].setVal(0.0, dust_comp, 1,
-            vars_old[lev][Vars::cons].nGrowVect());
-    }
-    amrex::Print() << "[DUST] Zeroed dust_scalar_comp=" << dust_comp
-                   << " in vars_new/old after all initialization.\n";
-}
 #endif
 
     // Update micro vars and finish moisture model initializations before first plot file
@@ -2564,15 +2327,10 @@ if (m_DustLayer && restart_chkfile.empty()) {
     if (m_structure_model) { initialize_structure_model(); }
 #endif
 
-    // Dust output before the initial checkpoint (written below, after the
-    // plotfiles), as in WriteAtIntermediateTime, so that chk00000 records step 0
-    // as written
 #ifdef ERF_USE_DUST
-    // the step-0 CSV row and (when the interval asks for it) plotfile: used to be
-    // skipped entirely with dust_plot_int <= 0, so dust_diag.dat started at step 0
-    // or 1 depending on the plot interval
-    if (m_DustLayer)
-        m_DustLayer->write_output(istep[0], t_new[0], /*is_final=*/false);
+    // Dust output of step 0 before the plotfiles and the initial checkpoint
+    // (written below), as in WriteAtIntermediateTime
+    if (m_dust_model) { m_dust_model->write_output(istep[0], t_new[0], false); }
 #endif
 
     if ( (restart_chkfile.empty()) ||
@@ -3549,12 +3307,6 @@ ERF::initializeMicrophysics (const int& a_nlevsmax /*!< number of AMR levels */)
 void
 ERF::initializeFire (const int& /*a_nlevsmax*/ /*!< number of AMR levels */)
 {
-#ifndef ERF_USE_DUST
-    {
-        amrex::ParmParse pp("erf.dust"); bool want = false; pp.query("enable", want);
-        if (want) { amrex::Abort("erf.dust.enable = true but this executable was built with ERF_ENABLE_DUST=OFF"); }
-    }
-#endif
 #ifndef ERF_USE_FIRE
     {   // a fire deck on a build without the module would run as plain ERF, silently
         amrex::ParmParse pp("erf.fire"); bool want = false; pp.query("enable", want);
@@ -3757,17 +3509,6 @@ ERF::init_only (int lev, double elapsed_time)
         // Now init the base state and the data itself
         init_from_input_sounding(lev);
 
-        // Zero the dust scalar slot — init_from_input_sounding fills ALL
-        // conserved components with rho_air, but dust starts at zero.
-        #ifdef ERF_USE_DUST
-        {
-            int dc = RhoScalar_comp + 1;  // dust slot = NSCALARS-1 offset from RhoScalar
-            lev_new[Vars::cons].setVal(0.0, dc, 1, lev_new[Vars::cons].nGrowVect());
-            lev_old[Vars::cons].setVal(0.0, dc, 1, lev_old[Vars::cons].nGrowVect());
-        }
-        #endif
-
-
         // The base state has been initialized by integrating vertically
         // through the sounding for ideal (like WRF) or isentropic approaches
         if (solverChoice.sounding_type == SoundingType::Ideal ||
@@ -3863,13 +3604,6 @@ ERF::init_only (int lev, double elapsed_time)
 
         // Copy rho and rhotheta from rho_hse and p_hse
         init_from_hse(lev);
-        #ifdef ERF_USE_DUST
-        {
-            int dc = RhoScalar_comp + 1;
-            lev_new[Vars::cons].setVal(0.0, dc, 1, lev_new[Vars::cons].nGrowVect());
-            lev_old[Vars::cons].setVal(0.0, dc, 1, lev_old[Vars::cons].nGrowVect());
-        }
-        #endif
 
         if (lev == 0 && cloud_chamber_config.active &&
             cloud_chamber_config.physical_initialization) {

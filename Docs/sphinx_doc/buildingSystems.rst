@@ -203,6 +203,18 @@ Set build variables in the ``GNUmakefile``:
         - Structure model directories to compile in, space separated, each with a ``Make.package`` (needs ``USE_MOVING_BODIES=TRUE``; see :ref:`sec:StructureCoupling`)
         - (none)
         - paths
+      * - ``USE_DUST``
+        - Enables the dust coupling (atmosphere side; dust models plug into it, see :ref:`sec:DustCoupling`); adds the dust scalars to the state
+        - FALSE
+        - TRUE/FALSE
+      * - ``NUM_DUST_SCALARS``
+        - Number of dust scalars in the state (needs ``USE_DUST=TRUE``)
+        - 1
+        - positive integer
+      * - ``DUST_HOME``
+        - Dust model directories to compile in, space separated, each with a ``Make.package`` (needs ``USE_DUST=TRUE``; see :ref:`sec:DustCoupling`)
+        - (none)
+        - paths
       * - ``USE_NOAHMP``
         - Enables Noah-MP land surface model (requires ``USE_NETCDF=TRUE``)
         - FALSE
@@ -604,6 +616,18 @@ CMake can also generate makefiles for the Ninja build system for faster compilat
      - MoorDyn-C install prefix (``lib/cmake/moordyn``, ``include/moordyn``), as ``Structures/setup_moordyn.sh`` installs it; read with ``ERF_ENABLE_STRUCTURES=ON`` and ``ERF_MOORDYN_USE_STUB=OFF``
      - (none)
      - path
+   * - ``ERF_ENABLE_DUST``
+     - Enables the dust coupling (atmosphere side; dust models plug into it, see :ref:`sec:DustCoupling`); adds the dust scalars to the state
+     - OFF
+     - ON/OFF
+   * - ``ERF_NUM_DUST_SCALARS``
+     - Number of dust scalars in the state (needs ``ERF_ENABLE_DUST=ON``)
+     - 1
+     - positive integer
+   * - ``ERF_DUST_MODEL_DIRS``
+     - Dust model directories to compile in, a CMake list, each with an ``ERFDustModel.cmake`` (needs ``ERF_ENABLE_DUST=ON``; see :ref:`sec:DustCoupling`)
+     - (none)
+     - paths
    * - ``ERF_PRECISION``
      - Floating-point precision for mesh data
      - DOUBLE

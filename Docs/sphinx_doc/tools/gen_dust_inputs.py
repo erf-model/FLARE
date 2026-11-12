@@ -8,8 +8,8 @@ cannot drift apart. Run from the repository root after changing a dust input:
 
     python3 Docs/sphinx_doc/tools/gen_dust_inputs.py
 
-Defaults and descriptions follow Source/Dust/ERF_DustParams.H,
-Source/FireDust/ERF_FireDustCoupling.H (read in Source/ERF.cpp) and
+Defaults and descriptions follow Dust/ERF_DustParams.H,
+Dust/ERF_FireDustCoupling.H (read in Dust/ERF_FlareDustModel.cpp) and
 Source/DataStructs/ERF_TurbStruct.H; edit the list below when those change.
 """
 import os, sys, textwrap
@@ -178,7 +178,7 @@ p("erf.dust_mrf_Sc_t", "Turbulent Schmidt number of the dust scalar in the "
   "number so dust diffuses like heat", "Real", "0 (Pr_t)")
 
 grp("Fire coupling (FLARE)",
-    "Read from the ``erf`` prefix in ``Source/ERF.cpp`` when both the fire "
+    "Read from the ``erf`` prefix in ``Dust/ERF_FlareDustModel.cpp`` when both the fire "
     "and dust models are enabled; see :ref:`sec:DustFire`.")
 p("erf.fire_dust_coupling", "Enable the fire-dust coupling; requires "
   "erf.dust.grid_ratio = erf.fire.grid_ratio", "Boolean", "false")
@@ -294,7 +294,7 @@ rst.append(textwrap.fill(
     "Every key is read once at startup from the ``erf.dust`` prefix, except "
     "the fire-coupling keys and the MRF Schmidt number, which sit directly "
     "under ``erf``. Defaults are those of the parameter struct in "
-    "``Source/Dust/ERF_DustParams.H``; the reference deck "
+    "``Dust/ERF_DustParams.H``; the reference deck "
     "``Exec/CanonicalTests/Dust/inputs_dust_master_reference`` lists every "
     "key at its default with a comment; both come from "
     "``Docs/sphinx_doc/tools/gen_dust_inputs.py``, so edit that list and rerun "

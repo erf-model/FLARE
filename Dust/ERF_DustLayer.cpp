@@ -204,7 +204,7 @@ DustLayer::initialize(
     dust_flux_atm->setVal(0.0);
   }
 
-  m_dust_scalar_comp = RhoScalar_comp + 1;
+  m_dust_scalar_comp = RhoDust_comp;
 
   if (dust_params.dust_debug) {
     amrex::Print()

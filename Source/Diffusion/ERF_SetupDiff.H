@@ -34,7 +34,7 @@
     //   alpha_eff in ERF_SetupVertDiff.H; see the notes there.  The two
     //   horizontal directions use the same components.
     // Indexed by primitive component, so the tables must cover every scalar slot
-    //   (base, dust and smoke) as well as the moist quantities that follow them.
+    //   (base and smoke) as well as the moist quantities that follow them.
     Vector<int> eddy_diff_idx(NPRIMVAR_max, EddyDiff::Q_h);
     eddy_diff_idx[PrimTheta_comp] = EddyDiff::Theta_h;
     eddy_diff_idx[PrimKE_comp]    = EddyDiff::KE_h;

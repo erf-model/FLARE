@@ -104,8 +104,8 @@ One dust step
 
 The dust layer advances once per atmosphere step from ``ERF::Evolve`` with
 the atmosphere's :math:`\Delta t`, in this order (``DustLayer::advance`` in
-``Source/Dust/ERF_DustLayer.cpp``, with the fire calls around it in
-``Source/ERF.cpp``):
+``Dust/ERF_DustLayer.cpp``, with the fire calls around it in
+``Dust/ERF_FlareDustModel.cpp``):
 
 1. **Fire pre-step** (FLARE, when :cpp:`erf.fire_dust_coupling` is on):
    the burned area of the fire level set reduces the crust index and, if
@@ -235,7 +235,7 @@ component unless noted.
 Source layout
 -------------
 
-- ``Source/Dust/ERF_DustParams.H`` reads every ``erf.dust`` key.
+- ``Dust/ERF_DustParams.H`` reads every ``erf.dust`` key.
 - ``ERF_DustGrid``, ``ERF_DustPrerequisites`` build the grid and check the
   requirements above.
 - ``ERF_DustLayer`` owns the fields and the per-step sequence;
@@ -252,9 +252,9 @@ Source layout
   ``ERF_DustMSHAOutput.H``, ``ERF_DustVisibility.H``, ``ERF_DustSilica.H``,
   ``ERF_DustSTEL.H``, ``ERF_DustCriticalMaterials.H``,
   ``ERF_DustPHREEQCWriter.H`` are the outputs.
-- ``Source/FireDust/ERF_FireDustCoupling`` and
-  ``Source/Dust/ERF_DustFireLofting`` are the fire coupling, and
-  ``Source/Particles/ERF_DustPC`` the super-particles.
+- ``Dust/ERF_FireDustCoupling`` and
+  ``Dust/ERF_DustFireLofting`` are the fire coupling, and
+  ``Dust/ERF_DustPC`` the super-particles.
 
 Tests
 -----

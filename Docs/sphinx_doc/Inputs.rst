@@ -7331,7 +7331,7 @@ Dust Model
 These inputs configure the dust model described in :ref:`sec:Dust`. Every key
 is read once at startup from the ``erf.dust`` prefix, except the fire-coupling
 keys and the MRF Schmidt number, which sit directly under ``erf``. Defaults
-are those of the parameter struct in ``Source/Dust/ERF_DustParams.H``; the
+are those of the parameter struct in ``Dust/ERF_DustParams.H``; the
 reference deck ``Exec/CanonicalTests/Dust/inputs_dust_master_reference`` lists
 every key at its default with a comment; both come from
 ``Docs/sphinx_doc/tools/gen_dust_inputs.py``, so edit that list and rerun it
@@ -7588,7 +7588,7 @@ on the same scalar.
 Fire coupling (FLARE)
 ---------------------
 
-Read from the ``erf`` prefix in ``Source/ERF.cpp`` when both the fire and dust
+Read from the ``erf`` prefix in ``Dust/ERF_FlareDustModel.cpp`` when both the fire and dust
 models are enabled; see :ref:`sec:DustFire`.
 
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+

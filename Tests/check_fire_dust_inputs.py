@@ -122,12 +122,14 @@ def code_keys():
     if "firebreak." in s:   # built at run time from "firebreak." + n + "." + name
         for name in ("type", "x_lo", "y_lo", "x_hi", "y_hi", "cx", "cy", "radius"):
             keys.add("erf.fire.firebreak.N." + name)
-    s = read(os.path.join(ROOT, "Source/Dust/ERF_DustParams.H"))
+    s = read(os.path.join(ROOT, "Dust/ERF_DustParams.H"))
     for m in re.finditer(r'\bpp\.(?:query|queryarr)\s*\(\s*"([^"]+)"', s):
         keys.add("erf.dust." + m.group(1))
-    s = read(os.path.join(ROOT, "Source/ERF.cpp"))
-    for m in re.finditer(r'\bpp\.query\s*\(\s*"(fire_[A-Za-z0-9_]+)"', s):
+    # the fire-dust coupling keys, read by FLARE's dust model (Dust/ERF_FlareDustModel.cpp)
+    s_d = read(os.path.join(ROOT, "Dust/ERF_FlareDustModel.cpp"))
+    for m in re.finditer(r'\bpp\.query\s*\(\s*"(fire_[A-Za-z0-9_]+)"', s_d):
         keys.add("erf." + m.group(1))
+    s = read(os.path.join(ROOT, "Source/ERF.cpp"))
     # the coupling keys ERF reads itself (Source/FireCoupling, erf-model/ERF#4798)
     s_c = read(os.path.join(ROOT, "Source/FireCoupling/ERF_FireCouplingParams.cpp"))
     for m in re.finditer(r'\bpp\.(?:query|queryarr)\s*\(\s*"([^"]+)"', s_c):

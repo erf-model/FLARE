@@ -78,6 +78,9 @@
 #ifdef ERF_USE_FIRE
 #include "ERF_FireCoupler.H"
 #endif
+#ifdef ERF_USE_DUST
+#include "ERF_DustModel.H"
+#endif
 #include "ERF_Urban.H"
 #include "ERF_TwoStreamRadiation.H"
 #include "ERF_Plotfile2DCloudOptics.H"
@@ -115,14 +118,6 @@ using amrex::MPI_Comm;
 class MultiBlockContainer;
 #endif
 
-// Near the top with other includes:
-#ifdef ERF_USE_DUST
-#include <ERF_DustLayer.H>
-#include <ERF_DustParams.H>
-#endif
-#if defined(ERF_USE_FIRE) && defined(ERF_USE_DUST)
-#include <ERF_FireDustCoupling.H>
-#endif
 
 // Describes one component of a 2D plotfile; defined in
 // IO/ERF_Plotfile2DSampledLevel.H, which ERF.H does not need to include.
@@ -2398,17 +2393,6 @@ private:
     std::unique_ptr<ReadBndryPlanes>  m_r2d  = nullptr;
     amrex::Vector<std::unique_ptr<SurfaceLayer>>     m_SurfaceLayer;
 
-    #ifdef ERF_USE_DUST
-    std::unique_ptr<DustLayer>    m_DustLayer;
-    /// Restore the dust layer's fields and counters from the checkpoint
-    void ReadCheckpointFileDust ();
-#if defined(ERF_USE_FIRE) && defined(ERF_USE_DUST)
-    FireDustCoupling m_fire_dust_coupling;
-    amrex::MultiFab m_fire_heat_scratch_for_lofting;   ///< fire heat flux on the dust grid, for the lofting inside DustLayer::advance
-    amrex::MultiFab m_fire_phi_scratch_for_crust;      ///< fire level set on the dust grid, for the burned-area crust reduction and the fire-wind mask
-    amrex::MultiFab m_fire_wind_scratch_for_ustar;     ///< fire reference wind (u, v) on the dust grid, for the fire-wind u*
-#endif
-    #endif
     amrex::Vector<std::unique_ptr<ForestDrag>> m_forest_drag;
 
 #ifdef ERF_USE_FIRE
@@ -2418,6 +2402,17 @@ private:
     std::string m_fire_plot_file {"plt_fire_"};
     int         m_fire_plot_int  = -1;
     amrex::Real m_fire_plot_per  = -1.0;
+#endif
+
+#ifdef ERF_USE_DUST
+    /// The dust model erf.dust.model selects (ERF_DustModel.H); nullptr unless erf.dust.enable = true
+    std::unique_ptr<DustModel> m_dust_model = nullptr;
+
+    /// Make and set up the dust model, once, in InitData_post; zero the dust scalars on a fresh start
+    void initialize_dust_model ();
+
+    /// Advance the dust model over the step of level 0 just taken (from step, at time, by dt[0])
+    void advance_dust_model (int step, double time);
 #endif
 
 #ifdef ERF_USE_MOVING_BODIES

@@ -108,9 +108,6 @@
                           ib_wall_face33[level].get(), ib_wall_ktarget[level].get(), ib_wall_qfx[level].get(),
                           sbm_parent_stage_ptr);
 
-        // (the dust return fields are extracted once per step in ERF::Evolve,
-        // before DustLayer::advance; until October 2026 they were extracted
-        // here at every RK stage and only the last stage's survived)
         // One component list for the solve, stage ghosts and implicit reflux.
         Vector<int> implicit_post_comps;
         if (solverChoice.vert_implicit_fac[level][nrk] > zero) {

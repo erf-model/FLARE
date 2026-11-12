@@ -136,20 +136,14 @@
                      r_avg_to_pass, t_avg_to_pass,
                      forest_drag, &S_old[IntVars::cons],
                      true, ib_wall_hfx[level].get(), ib_wall_ktarget[level].get(), ib_wall_qfx[level].get());
-        // ******************************************************************************
-        // Phase 10/11/12: Add dust emission flux, settling tendency, and deposition to cc_src
-        // This must happen AFTER make_sources so it is not overwritten.
-        // ******************************************************************************
+
 #ifdef ERF_USE_DUST
-        if (m_DustLayer && level == 0) {
-            // the cell thickness is detJ dz (detJ_cc is 1 on a flat grid and is
-            // always allocated); the centre-to-centre spacing of z_phys_cc that
-            // the kernels used until October 2026 created mass on stretched grids
-            m_DustLayer->apply_to_cc_source(cc_src, *dJ_to_use, fine_geom);
-            m_DustLayer->apply_settling_to_cc_source(
-                cc_src, S_data[IntVars::cons], *dJ_to_use, fine_geom, slow_dt);
-            m_DustLayer->apply_deposition_bc(cc_src, S_data[IntVars::cons],
-                                              *dJ_to_use, fine_geom, slow_dt);
+        // *****************************************************************************
+        // The dust model's emission, settling and deposition, added AFTER
+        // make_sources, which resets cc_src at every RK stage
+        // *****************************************************************************
+        if (m_dust_model) {
+            m_dust_model->add_sources(level, cc_src, S_data[IntVars::cons], *dJ_to_use, fine_geom, slow_dt);
         }
 #endif
 
