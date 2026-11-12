@@ -55,6 +55,10 @@ amr.v = 0
 # Enable the dust model [Boolean]
 erf.dust.enable = false
 
+# The dust model, by the name it registers with ERF's dust coupling; FLARE's
+# is flare, the default when it is the one dust model compiled in [String]
+erf.dust.model = flare
+
 # Print per-step dust diagnostics to stdout [Boolean]
 erf.dust.dust_debug = false
 
@@ -284,11 +288,6 @@ erf.dust.lumped_settling = mean
 # Shao (2001) loading feedback on the threshold [m³/kg]; 0 disables [Real >=
 # 0]
 erf.dust.loading_feedback_coeff = 0.0
-
-# Turbulent Schmidt number of the dust scalar in the MRF scheme, read from
-# the erf prefix; 0 or negative uses the Prandtl number so dust diffuses
-# like heat [Real]
-erf.dust_mrf_Sc_t = 0.0
 
 # ---------------------------------------------------------------------------
 # Fire coupling (FLARE)

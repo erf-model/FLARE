@@ -32,6 +32,8 @@ grp("Master control",
     "are checked once at startup and abort with a message naming the input "
     "to fix.")
 p("enable", "Enable the dust model", "Boolean", "false")
+p("model", "The dust model, by the name it registers with ERF's dust coupling; "
+  "FLARE's is flare, the default when it is the one dust model compiled in", "String", "flare")
 p("dust_debug", "Print per-step dust diagnostics to stdout", "Boolean", "false")
 p("grid_ratio", "Dust grid refinement factor in x and y; every atmosphere box "
   "length must divide by it, and it must equal erf.fire.grid_ratio when the "
@@ -173,9 +175,6 @@ p("lumped_settling", "Settling and deposition velocity of the single transported
   "mean or bin0", "mean")
 p("loading_feedback_coeff", "Shao (2001) loading feedback on the threshold "
   "[m³/kg]; 0 disables", "Real >= 0", "0.0")
-p("erf.dust_mrf_Sc_t", "Turbulent Schmidt number of the dust scalar in the "
-  "MRF scheme, read from the erf prefix; 0 or negative uses the Prandtl "
-  "number so dust diffuses like heat", "Real", "0 (Pr_t)")
 
 grp("Fire coupling (FLARE)",
     "Read from the ``erf`` prefix in ``Dust/ERF_FlareDustModel.cpp`` when both the fire "

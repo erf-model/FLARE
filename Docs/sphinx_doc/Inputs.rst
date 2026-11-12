@@ -40,7 +40,7 @@ Governing Equations
 |                                 | and never substeps acoustically. The stored              |                    |                  |
 |                                 | ``buoyancy_type=3`` does not select the buoyancy         |                    |                  |
 |                                 | kernel. PseudoIncompressible evolves the density,        |                    |                  |
-|                                 | enforces div(rho_0 theta_0 u) = 0 with a                 |                    |                  |
+|                                 | enforces div(rho_0 theta_0 u) = S with a                 |                    |                  |
 |                                 | variable-coefficient projection, and sets                |                    |                  |
 |                                 | ``project_initial_velocity=1``, ``fixed_density=0``      |                    |                  |
 |                                 | and ``buoyancy_type=1``; see                             |                    |                  |
@@ -1063,6 +1063,13 @@ List of Parameters
 +--------------------------------------+----------------------------------------------------------+--------------------+-------------------+
 | **erf.poisson_reltol**               | relative tolerance for the Poisson solve; raised to      | Real > 0           | 1.e-8             |
 |                                      | 1.e-6 in single precision builds                         |                    |                   |
++--------------------------------------+----------------------------------------------------------+--------------------+-------------------+
+| **erf.pi_drift_factor**              | drift correction c of a PseudoIncompressible level:      | Real >= 0          | 0.5               |
+|                                      | the constraint is div(rho_0 theta_0 u) = Q + c (rho      |                    |                   |
+|                                      | theta - rho_0 theta_0) / dt, with Q the non-advective    |                    |                   |
+|                                      | tendency of rho theta; 0 turns the correction off,       |                    |                   |
+|                                      | and values above about 1 can be unstable; see            |                    |                   |
+|                                      | :ref:`PseudoIncompressibleEquations`                     |                    |                   |
 +--------------------------------------+----------------------------------------------------------+--------------------+-------------------+
 | **erf.terrain_poisson_solver**       | solver for the projection on a terrain-fitted mesh       | "gmres_fft",       | "gmres_fft"       |
 |                                      | (anelastic, and the initial projection). ``gmres_fft``:  | "mlmg",            |                   |
@@ -2800,6 +2807,12 @@ List of Parameters
 +------------------------------------------+----------------------------------------------------------+--------------------+------------------+
 | **erf.pbl_mrf_highres_bounds**           | Enable alternative high-resolution grid-dependent        | Boolean            | false            |
 |                                          | diffusivity bounds                                       |                    |                  |
++------------------------------------------+----------------------------------------------------------+--------------------+------------------+
+| **erf.pbl_mrf_Sc_t**                     | MRF only: turbulent Schmidt number of the passive        | Real >= 0          | 0                |
+|                                          | scalars. Their vertical diffusivity is the heat one      |                    |                  |
+|                                          | times erf.Pr_t / Sc_t; 0 leaves it equal to the heat     |                    |                  |
+|                                          | one. The same for every passive scalar (base, dust,      |                    |                  |
+|                                          | smoke); see erf-model/ERF#5080                           |                    |                  |
 +------------------------------------------+----------------------------------------------------------+--------------------+------------------+
 | **erf.enable_mrf_unbounded_vpert**       | Enable physically superior unbounded VPERT in MRF PBL    | Boolean            | false            |
 |                                          | scheme                                                   |                    |                  |
@@ -7331,9 +7344,9 @@ Dust Model
 These inputs configure the dust model described in :ref:`sec:Dust`. Every key
 is read once at startup from the ``erf.dust`` prefix, except the fire-coupling
 keys and the MRF Schmidt number, which sit directly under ``erf``. Defaults
-are those of the parameter struct in ``Dust/ERF_DustParams.H``; the
-reference deck ``Exec/CanonicalTests/Dust/inputs_dust_master_reference`` lists
-every key at its default with a comment; both come from
+are those of the parameter struct in ``Dust/ERF_DustParams.H``; the reference
+deck ``Exec/CanonicalTests/Dust/inputs_dust_master_reference`` lists every key
+at its default with a comment; both come from
 ``Docs/sphinx_doc/tools/gen_dust_inputs.py``, so edit that list and rerun it
 when a key changes. Keys marked "read but not consumed" are accepted and have
 no effect at present.
@@ -7351,6 +7364,10 @@ checked once at startup and abort with a message naming the input to fix.
 +==============================================+============================================================+==========================+====================================+
 | **erf.dust.enable**                          | Enable the dust model                                      | Boolean                  | false                              |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
+| **erf.dust.model**                           | The dust model, by the name it registers with ERF's dust   | String                   | flare                              |
+|                                              | coupling; FLARE's is flare, the default when it is the one |                          |                                    |
+|                                              | dust model compiled in                                     |                          |                                    |
++----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 | **erf.dust.dust_debug**                      | Print per-step dust diagnostics to stdout                  | Boolean                  | false                              |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 | **erf.dust.grid_ratio**                      | Dust grid refinement factor in x and y; every atmosphere   | Integer > 0              | 1                                  |
@@ -7366,10 +7383,8 @@ checked once at startup and abort with a message naming the input to fix.
 |                                              | classes and the AP-42 PM-10 road bin, not the threshold    |                          |                                    |
 |                                              | (see saltation_diameter)                                   |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
-| **erf.dust.particle_density**                | Particle density of the saltating grains [kg/m³], read     | Real > 0                 | 2650.0                             |
-|                                              | only by the threshold formula (not with ustar_t_base >=    |                          |                                    |
-|                                              | 0); the bins settle by their aerodynamic diameter as unit- |                          |                                    |
-|                                              | density spheres                                            |                          |                                    |
+| **erf.dust.particle_density**                | Particle density of the saltating grains [kg/m³] (the      | Real > 0                 | 2650.0                             |
+|                                              | threshold); the bins settle by their aerodynamic diameter  |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 | **erf.dust.rho_air**                         | Air density used in the threshold and saltation flux       | Real > 0                 | 1.225                              |
 |                                              | [kg/m³]                                                    |                          |                                    |
@@ -7579,17 +7594,13 @@ on the same scalar.
 | **erf.dust.loading_feedback_coeff**          | Shao (2001) loading feedback on the threshold [m³/kg]; 0   | Real >= 0                | 0.0                                |
 |                                              | disables                                                   |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
-| **erf.dust_mrf_Sc_t**                        | Turbulent Schmidt number of the dust scalar in the MRF     | Real                     | 0 (Pr_t)                           |
-|                                              | scheme, read from the erf prefix; 0 or negative uses the   |                          |                                    |
-|                                              | Prandtl number so dust diffuses like heat                  |                          |                                    |
-+----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 
 
 Fire coupling (FLARE)
 ---------------------
 
-Read from the ``erf`` prefix in ``Dust/ERF_FlareDustModel.cpp`` when both the fire and dust
-models are enabled; see :ref:`sec:DustFire`.
+Read from the ``erf`` prefix in ``Dust/ERF_FlareDustModel.cpp`` when both the
+fire and dust models are enabled; see :ref:`sec:DustFire`.
 
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 | Parameter                                    | Definition                                                 | Acceptable Values        | Default                            |
