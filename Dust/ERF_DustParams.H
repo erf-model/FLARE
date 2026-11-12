@@ -38,7 +38,7 @@ struct DustParams {
     bool        enable              = false;    ///< Enable dust module
     bool        dust_debug          = false;    ///< Print per-step dust diagnostics (stdout, IO rank)
     int         n_size_bins         = 3;        ///< Number of particle size bins. The state carries ONE
-                                                 ///<   dust scalar (RhoAdv_comp): the bins' fluxes are
+                                                 ///<   dust scalar (RhoDust_comp): the bins' fluxes are
                                                  ///<   summed into it (transport_bins_separately needs
                                                  ///<   n_size_bins = 1). The default diameters are
                                                  ///<   bin_diameters = {7, 2.5, 50} um: bin 0 PM10-class,
@@ -347,6 +347,13 @@ struct DustParams {
             amrex::Abort("[DUST] erf.dust.phreeqc_metal_var was removed in October 2026: the column was copied into the"
                          " emission flux and overwritten before it was read; use erf.dust.cm_fractions for the"
                          " critical-material fractions");
+        {
+            amrex::ParmParse pp_erf("erf");
+            if (pp_erf.contains("dust_mrf_Sc_t"))
+                amrex::Abort("[DUST] erf.dust_mrf_Sc_t was removed in November 2026: use erf.pbl_mrf_Sc_t, which sets"
+                             " the MRF turbulent Schmidt number of every passive scalar (0, the default, mixes them"
+                             " as heat)");
+        }
         pp.query("phreeqc_output_file", phreeqc_output_file);
         pp.query("soil_type_file",     soil_type_file);
         pp.query("silt_fraction_file", silt_fraction_file);
@@ -515,7 +522,7 @@ struct DustParams {
         if (static_cast<int>(bin_diameters.size()) != n_size_bins)
             fail("erf.dust.bin_diameters lists " + std::to_string(bin_diameters.size()) + " diameters but erf.dust.n_size_bins = "
                  + std::to_string(n_size_bins) + "; give one diameter per bin");
-        // The state carries ONE dust scalar (RhoAdv_comp, ERF_IndexDefines.H); a
+        // The state carries ONE dust scalar (RhoDust_comp, ERF_IndexDefines.H); a
         // second transported bin would be written into the smoke or vapour slot.
         if (transport_bins_separately && n_size_bins > 1)
             fail("erf.dust.transport_bins_separately = true needs one state scalar per bin, and the state"

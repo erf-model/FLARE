@@ -33,7 +33,8 @@ grp("Master control",
     "to fix.")
 p("enable", "Enable the dust model", "Boolean", "false")
 p("model", "The dust model, by the name it registers with ERF's dust coupling; "
-  "FLARE's is flare, the default when it is the one dust model compiled in", "String", "flare")
+  "FLARE's is flare, the default even when further models are compiled in "
+  "(ERF_DUST_MODEL_DIRS)", "String", "flare")
 p("dust_debug", "Print per-step dust diagnostics to stdout", "Boolean", "false")
 p("grid_ratio", "Dust grid refinement factor in x and y; every atmosphere box "
   "length must divide by it, and it must equal erf.fire.grid_ratio when the "
@@ -45,8 +46,9 @@ p("bin_diameters", "Per-bin aerodynamic diameter of the emitted dust [m], one "
   "(as unit-density spheres), the PM classes and the AP-42 PM-10 road bin, not "
   "the threshold (see saltation_diameter)",
   "Reals", "7.0e-6 2.5e-6 50.0e-6")
-p("particle_density", "Particle density of the saltating grains [kg/m³] (the "
-  "threshold); the bins settle by their aerodynamic diameter", "Real > 0", "2650.0")
+p("particle_density", "Particle density of the saltating grains [kg/m³], read "
+  "only by the threshold formula (not with ustar_t_base >= 0); the bins settle by "
+  "their aerodynamic diameter as unit-density spheres", "Real > 0", "2650.0")
 p("rho_air", "Air density used in the threshold and saltation flux [kg/m³]",
   "Real > 0", "1.225")
 p("z0_dust", "Roughness length of the emitting surface [m]: the log-law "
@@ -291,8 +293,7 @@ rst.append("Dust Model\n==========\n")
 rst.append(textwrap.fill(
     "These inputs configure the dust model described in :ref:`sec:Dust`. "
     "Every key is read once at startup from the ``erf.dust`` prefix, except "
-    "the fire-coupling keys and the MRF Schmidt number, which sit directly "
-    "under ``erf``. Defaults are those of the parameter struct in "
+    "the fire-coupling keys, which sit directly under ``erf``. Defaults are those of the parameter struct in "
     "``Dust/ERF_DustParams.H``; the reference deck "
     "``Exec/CanonicalTests/Dust/inputs_dust_master_reference`` lists every "
     "key at its default with a comment; both come from "

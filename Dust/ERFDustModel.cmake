@@ -2,7 +2,7 @@
 # ERF_DUST_MODEL_DIRS (FLARE's CMakeLists.txt adds this one with ERF_ENABLE_DUST)
 # and calls erf_dust_model_add with ERF's OBJECT library; ERF_DUST_MODEL_DIR holds
 # this directory during the call. The layer registers on ERF's dust coupling as
-# erf.dust.model = flare (ERF_FlareDustModel.cpp), the one dust model compiled in.
+# erf.dust.model = flare (ERF_FlareDustModel.cpp), the default model.
 function(erf_dust_model_add target)
   if(NOT ERF_ENABLE_FIRE)
     # the dust layer applies the native fire engine's terrain wind corrections
@@ -29,6 +29,9 @@ function(erf_dust_model_add target)
       ${ERF_DUST_MODEL_DIR}/ERF_FireDustCoupling.cpp
     )
   endif()
+  # FLARE's dust layer is the model a deck gets when it names none, even when
+  # ERF_DUST_MODEL_DIRS compiles further models in (make_dust_model_from_inputs)
+  target_compile_definitions(${target} PUBLIC ERF_DUST_DEFAULT_MODEL="flare")
   # PUBLIC: the dust unit tests include the layer's headers
   target_include_directories(${target} PUBLIC $<BUILD_INTERFACE:${ERF_DUST_MODEL_DIR}>)
 endfunction()

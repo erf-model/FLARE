@@ -1,7 +1,7 @@
 .. role:: cpp(code)
    :language: c++
 
-.. _sec:DustCoupling:
+.. _sec:DustAtmCoupling:
 
 Dust-Atmosphere Coupling
 ========================

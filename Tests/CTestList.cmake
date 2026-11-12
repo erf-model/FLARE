@@ -4350,6 +4350,8 @@ add_test_fire_abort(DustStelAveraging_abort   FireRestart           inputs_dust_
     "erf.dust.stel_averaging_s must be > 0" "erf.dust.stel_averaging_s=0.0")
 add_test_fire_abort(DustMetalVarRemoved_abort FireRestart           inputs_dust_straight
     "erf.dust.phreeqc_metal_var was removed" "erf.dust.phreeqc_metal_var=metal_fraction")
+add_test_fire_abort(DustMrfScRemoved_abort FireRestart              inputs_dust_straight
+    "erf.dust_mrf_Sc_t was removed" "erf.dust_mrf_Sc_t=2.0")
 add_test_fire_abort(DustTerrainFileMissing_abort FireRestart        inputs_dust_straight
     "erf.dust.terrain_file cannot be opened" "erf.dust.terrain_file=missing_terrain.asc")
 add_test_fire_abort(DustRasterMissing_abort   FireRestart           inputs_dust_straight
@@ -6166,8 +6168,9 @@ if(ERF_ENABLE_STRUCTURES)
 endif()
 
 # The dust coupling (ERF_ENABLE_DUST, Source/DustCoupling): erf.dust.enable
-# needs a dust model compiled in (none is in this repository;
-# ERF_DUST_MODEL_DIRS adds them), and a build without the coupling refuses a
+# needs a dust model compiled in (FLARE always compiles its own, Dust/, so
+# Dust_Abort_NoModelBuiltIn is not registered here; ERF_DUST_MODEL_DIRS adds
+# further models), and a build without the coupling refuses a
 # dust deck instead of running it as plain ERF. The checks run at the end of
 # start-up, so any deck serves.
 if(ERF_ENABLE_MPI AND NOT WIN32)

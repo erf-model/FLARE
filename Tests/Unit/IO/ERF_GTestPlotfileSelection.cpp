@@ -363,8 +363,8 @@ TEST(Plotfile3DSelection, EveryConservedStateNameMapsToItsComponent)
     const auto dry    = make_capabilities(MoistureType::None);
     const auto moist  = make_capabilities(MoistureType::Kessler);
 
-#ifdef ERF_USE_DUST
-    EXPECT_EQ(erf_plotfile::plot3d_conserved_component_index("rhoadv_dust"), RhoAdv_comp);
+#if defined(ERF_USE_DUST) && (NSCALARS_DUST == 1)
+    EXPECT_EQ(erf_plotfile::plot3d_conserved_component_index("rhoadv_dust"), RhoDust_comp);
     EXPECT_TRUE(erf_plotfile::plot3d_fixed_variable_available("rhoadv_dust", dry));
     EXPECT_TRUE(erf_plotfile::plot3d_fixed_variable_available("rhoadv_dust", moist));
 #else

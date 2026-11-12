@@ -49,9 +49,10 @@ Inputs
      - false
    * - ``erf.dust.model``
      - The dust model, by the name it registers. It may be left out when one
-       model is compiled in. A name no compiled-in model has stops the run,
-       listing the names that are.
-     - the one model compiled in
+       model is compiled in, or when the build names a default
+       (``ERF_DUST_DEFAULT_MODEL``; FLARE sets it to ``flare``). A name no
+       compiled-in model has stops the run, listing the names that are.
+     - ``flare`` in FLARE; otherwise the one model compiled in
 
 Each model reads its own inputs.
 

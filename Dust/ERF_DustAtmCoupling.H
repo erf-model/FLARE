@@ -21,7 +21,7 @@
  * One-step explicit lag: flux from time n is injected at step n+1,
  * before advance_dycore(). Consistent with ERF_FireAtmCoupling.H.
  *
- * Scalar slot: RhoAdv_comp (first passive advected scalar). Phase 11
+ * Scalar slot: RhoDust_comp (first passive advected scalar). Phase 11
  * extends to n_size_bins slots when DustParams::transport_bins_separately
  * is true.
  *
@@ -45,7 +45,7 @@
 // All levels above k=0 receive zero tendency from this function.
 // Transport away from k=0 is handled by the dycore advection.
 //
-// Tendency: d(RhoAdv_comp)/dt|_{k=0} += F_dust / dz_k0
+// Tendency: d(RhoDust_comp)/dt|_{k=0} += F_dust / dz_k0
 //
 // Optional dust_debug prints diagnostics after the kernel:
 //   [DUST COUPLING] F_dust_max=... kg/m^2/s  RhoDust_tend_max=... kg/m^3/s

@@ -7343,10 +7343,10 @@ Dust Model
 
 These inputs configure the dust model described in :ref:`sec:Dust`. Every key
 is read once at startup from the ``erf.dust`` prefix, except the fire-coupling
-keys and the MRF Schmidt number, which sit directly under ``erf``. Defaults
-are those of the parameter struct in ``Dust/ERF_DustParams.H``; the reference
-deck ``Exec/CanonicalTests/Dust/inputs_dust_master_reference`` lists every key
-at its default with a comment; both come from
+keys, which sit directly under ``erf``. Defaults are those of the parameter
+struct in ``Dust/ERF_DustParams.H``; the reference deck
+``Exec/CanonicalTests/Dust/inputs_dust_master_reference`` lists every key at
+its default with a comment; both come from
 ``Docs/sphinx_doc/tools/gen_dust_inputs.py``, so edit that list and rerun it
 when a key changes. Keys marked "read but not consumed" are accepted and have
 no effect at present.
@@ -7365,8 +7365,8 @@ checked once at startup and abort with a message naming the input to fix.
 | **erf.dust.enable**                          | Enable the dust model                                      | Boolean                  | false                              |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 | **erf.dust.model**                           | The dust model, by the name it registers with ERF's dust   | String                   | flare                              |
-|                                              | coupling; FLARE's is flare, the default when it is the one |                          |                                    |
-|                                              | dust model compiled in                                     |                          |                                    |
+|                                              | coupling; FLARE's is flare, the default even when further  |                          |                                    |
+|                                              | models are compiled in (ERF_DUST_MODEL_DIRS)               |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 | **erf.dust.dust_debug**                      | Print per-step dust diagnostics to stdout                  | Boolean                  | false                              |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
@@ -7383,8 +7383,10 @@ checked once at startup and abort with a message naming the input to fix.
 |                                              | classes and the AP-42 PM-10 road bin, not the threshold    |                          |                                    |
 |                                              | (see saltation_diameter)                                   |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
-| **erf.dust.particle_density**                | Particle density of the saltating grains [kg/m³] (the      | Real > 0                 | 2650.0                             |
-|                                              | threshold); the bins settle by their aerodynamic diameter  |                          |                                    |
+| **erf.dust.particle_density**                | Particle density of the saltating grains [kg/m³], read     | Real > 0                 | 2650.0                             |
+|                                              | only by the threshold formula (not with ustar_t_base >=    |                          |                                    |
+|                                              | 0); the bins settle by their aerodynamic diameter as       |                          |                                    |
+|                                              | unit-density spheres                                       |                          |                                    |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 | **erf.dust.rho_air**                         | Air density used in the threshold and saltation flux       | Real > 0                 | 1.225                              |
 |                                              | [kg/m³]                                                    |                          |                                    |

@@ -119,7 +119,7 @@ the atmosphere's :math:`\Delta t`, in this order (``DustLayer::advance`` in
    :cpp:`erf.dust.use_terrain_wind` the wind gets the FARSITE terrain
    correction and :math:`u_*` is scaled by the same factor. Without a
    coupled atmosphere the ``test_*`` placeholders are used instead
-   (:ref:`sec:DustCoupling`).
+   (:ref:`sec:DustAtmCoupling`).
 3. **PHREEQC** tables are re-read when :cpp:`erf.dust.phreeqc_update_interval_s`
    has elapsed, updating crust, silt, efflorescence and suppression.
 4. **Suppression** coverage decays with the surface temperature and wind.

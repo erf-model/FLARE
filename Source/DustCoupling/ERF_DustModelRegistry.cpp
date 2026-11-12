@@ -67,14 +67,20 @@ make_dust_model_from_inputs ()
     pp.query("enable", enable);
     if (!enable) { return nullptr; }
 
+    // With a single model it is the default; with several the deck names one,
+    // unless the build named a default (ERF_DUST_DEFAULT_MODEL, a compile
+    // definition; FLARE sets it to its own dust layer, "flare")
     std::string name;
     if (!pp.query("model", name)) {
         const std::vector<std::string> names = dust_model_names();
-        if (names.size() != 1) {
+#ifdef ERF_DUST_DEFAULT_MODEL
+        for (const auto& n : names) { if (n == ERF_DUST_DEFAULT_MODEL) { name = n; } }
+#endif
+        if (name.empty() && names.size() != 1) {
             amrex::Abort("erf.dust.enable = true needs erf.dust.model to name one of the dust models compiled in ("
                          + known_dust_models() + ")");
         }
-        name = names.front();
+        if (name.empty()) { name = names.front(); }
     }
 
     std::unique_ptr<DustModel> model = make_dust_model(name);
