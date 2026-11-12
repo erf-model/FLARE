@@ -1,7 +1,7 @@
 .. role:: cpp(code)
    :language: c++
 
-.. _sec:DustCoupling:
+.. _sec:DustAtmCoupling:
 
 Dust-Atmosphere Coupling
 ========================
@@ -163,7 +163,7 @@ The MRF scheme sets the vertical scalar diffusivity equal to the heat
 diffusivity, so the dust is mixed through the boundary layer by the same
 :math:`K_h(z) = w_* \kappa h\, (z/h)(1 - z/h)^2` profile as heat, with no
 countergradient term because dust has no prescribed surface flux gradient.
-:cpp:`erf.dust_mrf_Sc_t` (note the ``erf`` prefix) scales it by
-:math:`Pr_t / Sc_t`; 0 or a negative value keeps the heat diffusivity.
+:cpp:`erf.pbl_mrf_Sc_t`, an ERF input that applies to every passive scalar,
+scales it by :math:`Pr_t / Sc_t`; 0 keeps the heat diffusivity.
 :cpp:`erf.transport_scalar` must be true for the scalar to be advected and
 diffused at all.

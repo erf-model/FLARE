@@ -27,6 +27,7 @@ using namespace amrex;
  * @param[in] level Current AMR level.
  * @param[in] bc_ptr Boundary condition records.
  * @param[in] z_phys_nd Nodal physical heights.
+ * @param[in] z_sfc_nd  Nodal heights of the bottom of the domain
  * @param[in] z_phys_cc Cell-centered physical heights.
  * @param[in] moisture_indices Indices for moisture variables.
  */
@@ -44,6 +45,7 @@ ComputeDiffusivityMRF (const MultiFab& xvel,
                        const BCRec* bc_ptr,
                        bool /*vert_only*/,
                        const std::unique_ptr<MultiFab>& z_phys_nd,
+                       const std::unique_ptr<MultiFab>& z_sfc_nd,
                        const std::unique_ptr<MultiFab>& z_phys_cc,
                        const MoistureComponentIndices& moisture_indices,
                        const MultiFab* terrain_blank,
@@ -278,6 +280,7 @@ if (ng_pblh > 1) {
     limit_by(SurfLayer->get_mac_avg(level, 4));
     limit_by(SurfLayer->get_lmask(level));
     limit_by((use_terrain_fitted_coords) ? z_phys_nd.get() : nullptr);
+    limit_by((use_terrain_fitted_coords) ? z_sfc_nd.get() : nullptr);
     if (ng_pblh > ng_avail) {
         amrex::Abort("erf.pblh_smoothing_passes = " + std::to_string(turbChoice.pblh_smoothing_passes)
                    + " needs " + std::to_string(ng_pblh) + " halo columns, but the fields the "
@@ -367,6 +370,8 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
         // Only retrieve z_phys_nd array if terrain-fitted coordinates are in use
         const Array4<Real const> z_nd_arr = use_terrain_fitted_coords ? z_phys_nd->array(mfi)
                                                                       : Array4<Real const>{};
+        const Array4<Real const> z_sfc_arr = use_terrain_fitted_coords ? z_sfc_nd->const_array(mfi)
+                                                                       : Array4<Real const>{};
         const PBLDerivativeDzInv_T pbl_derivative_dz_inv{z_phys_cc->const_array(mfi)};
 
         // Fire heat flux array and flags (FLARE)
@@ -467,7 +472,7 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
 
             {
                 zval = (use_terrain_fitted_coords)
-                     ? Compute_Zrel_AtCellCenter(i, j, kpbl, z_nd_arr)
+                     ? Compute_Zrel_AtCellCenter(i, j, kpbl, z_sfc_arr, z_nd_arr)
                      : ((kpbl + myhalf) * gdata.CellSize(2) - zib);
                 const Real theta_v     = GetThetav(i, j, kpbl, cell_data, moisture_indices);
                 const Real theta_v_klo = amrex::max(GetThetav(i, j, ksrf, cell_data, moisture_indices), Real(1.0));
@@ -493,7 +498,7 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
                 kpbl += 1;
 
                 zval = (use_terrain_fitted_coords)
-                     ? Compute_Zrel_AtCellCenter(i, j, kpbl, z_nd_arr)
+                     ? Compute_Zrel_AtCellCenter(i, j, kpbl, z_sfc_arr, z_nd_arr)
                      : ((kpbl + myhalf) * gdata.CellSize(2) - zib);
                 const Real theta_v     = GetThetav(i, j, kpbl, cell_data, moisture_indices);
                 const Real theta_v_klo = amrex::max(GetThetav(i, j, ksrf, cell_data, moisture_indices), Real(1.0));
@@ -511,10 +516,10 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
             }
 
             const Real pblh_emp = (use_terrain_fitted_coords)
-                                ? Compute_Zrel_AtCellCenter(i, j, ksrf, z_nd_arr)
+                                ? Compute_Zrel_AtCellCenter(i, j, ksrf, z_sfc_arr, z_nd_arr)
                                 : myhalf * gdata.CellSize(2);
             const Real z_max = (use_terrain_fitted_coords)
-                             ? Compute_Zrel_AtCellCenter(i, j, khi, z_nd_arr)
+                             ? Compute_Zrel_AtCellCenter(i, j, khi, z_sfc_arr, z_nd_arr)
                              : ((khi + myhalf) * gdata.CellSize(2) - zib);
             const Real pblh_max = Real(0.9) * z_max;
             const Real pblh_min = amrex::max(pblh_emp, Real(10.0));
@@ -695,7 +700,7 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
             Real zval, Rib;
             {
                 zval = (use_terrain_fitted_coords)
-                     ? Compute_Zrel_AtCellCenter(i, j, kpbl, z_nd_arr)
+                     ? Compute_Zrel_AtCellCenter(i, j, kpbl, z_sfc_arr, z_nd_arr)
                      : ((kpbl + myhalf) * gdata.CellSize(2) - zib);
                 const Real theta_v     = GetThetav(i, j, kpbl, cell_data, moisture_indices);
                 const Real theta_v_klo = amrex::max(GetThetav(i, j, ksrf, cell_data, moisture_indices), one_d);
@@ -718,7 +723,7 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
                 kpbl += 1;
 
                 zval = (use_terrain_fitted_coords)
-                     ? Compute_Zrel_AtCellCenter(i, j, kpbl, z_nd_arr)
+                     ? Compute_Zrel_AtCellCenter(i, j, kpbl, z_sfc_arr, z_nd_arr)
                      : ((kpbl + myhalf) * gdata.CellSize(2) - zib);
                 const Real theta_v     = GetThetav(i, j, kpbl, cell_data, moisture_indices);
                 const Real theta_v_klo = amrex::max(GetThetav(i, j, ksrf, cell_data, moisture_indices), one_d);
@@ -735,10 +740,10 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
             }
 
             const Real pblh_emp = (use_terrain_fitted_coords)
-                                ? Compute_Zrel_AtCellCenter(i, j, ksrf, z_nd_arr)
+                                ? Compute_Zrel_AtCellCenter(i, j, ksrf, z_sfc_arr, z_nd_arr)
                                 : myhalf * gdata.CellSize(2);
             const Real z_max = (use_terrain_fitted_coords)
-                             ? Compute_Zrel_AtCellCenter(i, j, khi, z_nd_arr)
+                             ? Compute_Zrel_AtCellCenter(i, j, khi, z_sfc_arr, z_nd_arr)
                              : ((khi + myhalf) * gdata.CellSize(2) - zib);
             const Real pblh_max = Real(0.9) * z_max;
             const Real pblh_min = amrex::max(pblh_emp, Real(10.0));
@@ -956,7 +961,7 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
             Real zval_zero, Rib_zero;
             {
                 zval_zero = (use_terrain_fitted_coords)
-                          ? Compute_Zrel_AtCellCenter(i, j, kpbl_zero, z_nd_arr)
+                          ? Compute_Zrel_AtCellCenter(i, j, kpbl_zero, z_sfc_arr, z_nd_arr)
                           : ((kpbl_zero + myhalf) * gdata.CellSize(2) - zib);
                 const Real theta_v     = GetThetav(i, j, kpbl_zero, cell_data, moisture_indices);
                 const Real theta_v_klo = amrex::max(GetThetav(i, j, ksrf, cell_data, moisture_indices), one_d);
@@ -975,7 +980,7 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
             while (!above_critical_zero && ((kpbl_zero + 1) <= khi)) {
                 kpbl_zero += 1;
                 zval_zero = (use_terrain_fitted_coords)
-                          ? Compute_Zrel_AtCellCenter(i, j, kpbl_zero, z_nd_arr)
+                          ? Compute_Zrel_AtCellCenter(i, j, kpbl_zero, z_sfc_arr, z_nd_arr)
                           : ((kpbl_zero + myhalf) * gdata.CellSize(2) - zib);
                 const Real theta_v     = GetThetav(i, j, kpbl_zero, cell_data, moisture_indices);
                 const Real theta_v_klo = amrex::max(GetThetav(i, j, ksrf, cell_data, moisture_indices), one_d);
@@ -1033,6 +1038,9 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
         const amrex::Real l_blend_length = turbChoice.pbl_blend_length;
         const amrex::Real l_blend_cs     = turbChoice.pbl_blend_cs;
         const amrex::Real l_blend_cmax   = turbChoice.pbl_blend_c_max;
+        // The scalars' Schmidt number relative to Pr_t (erf.pbl_mrf_Sc_t; 0: as heat)
+        const amrex::Real scalar_Sc_t = turbChoice.pbl_mrf_Sc_t;
+        const amrex::Real Pr_t_in     = turbChoice.Pr_t;
         //const bool        l_use_smag_ceil= turbChoice.pbl_blend_use_smag;
         // dx: use horizontal spacing at this level (assume dx = dy for regular grids).
         const amrex::Real l_dx = geom.CellSize(0);
@@ -1048,7 +1056,7 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
             }
 
             const Real zval = (use_terrain_fitted_coords)
-                            ? Compute_Zrel_AtCellCenter(i, j, k, z_nd_arr)
+                            ? Compute_Zrel_AtCellCenter(i, j, k, z_sfc_arr, z_nd_arr)
                             : ((k + myhalf) * gdata.CellSize(2) - zib);
             const Real rho = cell_data(i, j, k, Rho_comp);
             // Guard: skip lateral ghost cells that may have uninitialized density.
@@ -1153,7 +1161,7 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
                 // zl1 is zval evaluated at the column's first fluid cell, so zval - zl1
                 // is exactly zero there in both the terrain and the non-terrain path.
                 const Real zl1 = (use_terrain_fitted_coords)
-                               ? Compute_Zrel_AtCellCenter(i, j, ksrf, z_nd_arr)
+                               ? Compute_Zrel_AtCellCenter(i, j, ksrf, z_sfc_arr, z_nd_arr)
                                : ((ksrf + myhalf) * gdata.CellSize(2) - zib);
                 const Real pblh = pblh_corr_arr(i, j, 0);
                 // The Rib passes floor pblh at max(zl1, 10), so pblh - zl1 is exactly
@@ -1165,9 +1173,9 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
 
                 K_turb(i, j, k, EddyDiff::Mom_v)   = rho * wstar * KAPPA * zval * zfac * zfac;
                 K_turb(i, j, k, EddyDiff::Theta_v) = K_turb(i, j, k, EddyDiff::Mom_v) / Prt;
-                // Scalar diffusivity (dust when transport_scalar=true)
+                K_turb(i, j, k, EddyDiff::Q_v) = K_turb(i, j, k, EddyDiff::Theta_v);
+                // The passive scalars (rhoadv_0, dust, smoke) mix as heat does
                 K_turb(i, j, k, EddyDiff::Scalar_v) = K_turb(i, j, k, EddyDiff::Theta_v);
-                K_turb(i, j, k, EddyDiff::Q_v)      = K_turb(i, j, k, EddyDiff::Theta_v);
             } else if (k >= pbli_extent) {
                 // Free atmosphere above the PBL top.  This is the only branch left that
                 // reads resolved vertical gradients, but they are not evaluated anywhere
@@ -1220,8 +1228,8 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
 
                 K_turb(i, j, k, EddyDiff::Mom_v)   = rl2wsp * fm * Pr_mom;
                 K_turb(i, j, k, EddyDiff::Theta_v) = rl2wsp * ft;
+                K_turb(i, j, k, EddyDiff::Q_v)     = K_turb(i, j, k, EddyDiff::Theta_v);
                 K_turb(i, j, k, EddyDiff::Scalar_v) = K_turb(i, j, k, EddyDiff::Theta_v);
-                K_turb(i, j, k, EddyDiff::Q_v)      = K_turb(i, j, k, EddyDiff::Theta_v);
             }
 
             // Scale-aware blending for grey-zone resolution (Boutle et al. 2014).
@@ -1244,6 +1252,11 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
 
                 K_turb(i, j, k, EddyDiff::Q_v) = rho * pbl_kh_blend_and_cap(
                     K_turb(i, j, k, EddyDiff::Q_v) * rho_inv,
+                    l_dx, l_blend_length, l_blend_cs, l_blend_cmax,
+                    amrex::Real(-1.0), false);
+
+                K_turb(i, j, k, EddyDiff::Scalar_v) = rho * pbl_kh_blend_and_cap(
+                    K_turb(i, j, k, EddyDiff::Scalar_v) * rho_inv,
                     l_dx, l_blend_length, l_blend_cs, l_blend_cmax,
                     amrex::Real(-1.0), false);
             }
@@ -1272,14 +1285,11 @@ if (Q_fire_atm != nullptr && turbChoice.mrf_fire_thermal_excess) {
                 std::min(K_turb(i, j, k, EddyDiff::Q_v), rhoKmax), rhoKmin);
             K_turb(i, j, k, EddyDiff::Scalar_v) = std::max(
                 std::min(K_turb(i, j, k, EddyDiff::Scalar_v), rhoKmax), rhoKmin);
-            // Dust turbulent Schmidt number scaling (erf.dust_mrf_Sc_t); default Sc_t = Pr_t.
-#ifdef ERF_USE_DUST
-            if (turbChoice.dust_mrf_Sc_t > 0.0 &&
-                std::abs(turbChoice.dust_mrf_Sc_t - turbChoice.Pr_t) > 1.0e-6) {
-                Real scale = turbChoice.Pr_t / turbChoice.dust_mrf_Sc_t;
-                K_turb(i, j, k, EddyDiff::Scalar_v) *= scale;
+            // erf.pbl_mrf_Sc_t: the scalars' turbulent Schmidt number, relative to the
+            // Prandtl number erf.Pr_t; unset (0), they mix as heat does
+            if (scalar_Sc_t > Real(0)) {
+                K_turb(i, j, k, EddyDiff::Scalar_v) *= Pr_t_in / scalar_Sc_t;
             }
-#endif
             K_turb(i, j, k, EddyDiff::Turb_lengthscale) = pblh_corr_arr(i, j, 0) + zib;   // absolute height, as stored
 
             // IMPORTANT — units convention for HGAMT_v / HGAMQ_v:

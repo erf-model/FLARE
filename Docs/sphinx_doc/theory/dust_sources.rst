@@ -84,7 +84,7 @@ Shao (2001) loading feedback :math:`u_{*t} \to u_{*t}(1 + \alpha_L C_\mathrm{sfc
 with :math:`\alpha_L` = :cpp:`erf.dust.loading_feedback_coeff` and
 :math:`C_\mathrm{sfc}` the dust density of the lowest atmosphere cell; the
 surface latent flux returned from the atmosphere is an output only
-(:ref:`sec:DustCoupling`).
+(:ref:`sec:DustAtmCoupling`).
 
 Saltation and vertical flux
 ---------------------------
@@ -186,7 +186,7 @@ mass does not depend on it. The flux is the PM-10 factor and is added to bin 0
 of the covered cells, which must therefore be a PM-10 size (at most 10 µm;
 start-up aborts otherwise); the bins' shares of the mass emitted so far, road
 included, weight the PM classes and the mean settling velocity of the lumped
-scalar (:ref:`sec:DustCoupling`). Each active road appends a row with its
+scalar (:ref:`sec:DustAtmCoupling`). Each active road appends a row with its
 mass rate, per-cell flux and cell count to :cpp:`erf.dust.road_diag_file`.
 Wind, blast and road fluxes add in the same emission field.
 

@@ -190,8 +190,7 @@ function(build_erf_lib erf_lib_name)
                    ${SRC_DIR}/Particles/ERF_SuperDropletPCInitializations.cpp
                    ${SRC_DIR}/Particles/ERF_SuperDropletPCMassChange.cpp
                    ${SRC_DIR}/Particles/ERF_SuperDropletPCRecycle.cpp
-                   ${SRC_DIR}/Particles/ERF_SuperDropletPCUtils.cpp
-                   ${SRC_DIR}/Particles/ERF_DustPC.cpp)
+                   ${SRC_DIR}/Particles/ERF_SuperDropletPCUtils.cpp)
     target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/Particles>)
     target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_PARTICLES)
   endif()
@@ -231,66 +230,6 @@ function(build_erf_lib erf_lib_name)
                    ${SRC_DIR}/LandSurfaceModel/Noah-MP/ERF_NOAHMP_IO.cpp)
     target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_NOAHMP)
     target_link_libraries_system(${erf_lib_name} PUBLIC NoahMP::noahmp)
-  endif()
-
-  ########################## DUST ##################################
-  if(ERF_ENABLE_DUST)
-    target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_DUST)
-    if(NOT ERF_ENABLE_FIRE)
-      # the dust layer applies the native fire engine's terrain wind corrections
-      target_sources(${erf_lib_name} PRIVATE
-                     ${PROJECT_SOURCE_DIR}/FireEngine/ERF_FireWindAdjust.cpp)
-      target_include_directories(${erf_lib_name} PUBLIC
-                                 $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/FireEngine>)
-    endif()
-    target_sources(${erf_lib_name} PRIVATE
-                   ${SRC_DIR}/Dust/ERF_DustGrid.cpp
-                   ${SRC_DIR}/Dust/ERF_DustPrerequisites.cpp
-                   ${SRC_DIR}/Dust/ERF_DustLayer.cpp
-                   ${SRC_DIR}/Dust/ERF_DustTerrainSlope.cpp
-                   ${SRC_DIR}/Dust/ERF_DustSurfaceReader.cpp
-                   ${SRC_DIR}/Dust/ERF_PhreeqcReader.cpp
-                   ${SRC_DIR}/Dust/ERF_DustEmission.cpp
-                   ${SRC_DIR}/Dust/ERF_DustWindExtract.cpp
-                   ${SRC_DIR}/Dust/ERF_DustAtmCoupling.cpp
-                   ${SRC_DIR}/Dust/ERF_DustPlotfile.cpp
-                   ${SRC_DIR}/Dust/ERF_DustParams.H
-                   ${SRC_DIR}/Dust/ERF_DustGrid.H
-                   ${SRC_DIR}/Dust/ERF_DustPrerequisites.H
-                   ${SRC_DIR}/Dust/ERF_DustLayer.H
-                   ${SRC_DIR}/Dust/ERF_DustTerrainSlope.H
-                   ${SRC_DIR}/Dust/ERF_DustSurfaceReader.H
-                   ${SRC_DIR}/Dust/ERF_PhreeqcReader.H
-                   ${SRC_DIR}/Dust/ERF_DustThreshold.H
-                   ${SRC_DIR}/Dust/ERF_DustEmission.H
-                   ${SRC_DIR}/Dust/ERF_DustBlastSchedule.H
-                   ${SRC_DIR}/Dust/ERF_DustSuppression.H
-                   ${SRC_DIR}/Dust/ERF_DustWindExtract.H
-                   ${SRC_DIR}/Dust/ERF_DustAtmCoupling.H
-                   ${SRC_DIR}/Dust/ERF_DustSettling.H
-                   ${SRC_DIR}/Dust/ERF_DustDeposition.H
-                   ${SRC_DIR}/Dust/ERF_DustAtmReturn.H
-                   ${SRC_DIR}/Dust/ERF_DustPlotfile.H
-                   ${SRC_DIR}/Dust/ERF_DustPlotfileCatalog.H
-                   ${SRC_DIR}/Dust/ERF_DustStatsOutput.H
-                   ${SRC_DIR}/Dust/ERF_Dust.H
-    )
-    if(ERF_ENABLE_FIRE)
-        target_sources(${erf_lib_name} PRIVATE
-                       ${SRC_DIR}/Dust/ERF_DustFireLofting.cpp
-                       ${SRC_DIR}/Dust/ERF_DustFireLofting.H)
-    endif()
-    target_include_directories(${erf_lib_name} PUBLIC
-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/Dust>)
-    message(STATUS "ERF-Dust module enabled")
-  endif()
-
-  if(ERF_ENABLE_FIRE AND ERF_ENABLE_DUST)
-    target_sources(${erf_lib_name} PRIVATE
-                   ${SRC_DIR}/FireDust/ERF_FireDustCoupling.cpp
-                   ${SRC_DIR}/FireDust/ERF_FireDustCoupling.H)
-    target_include_directories(${erf_lib_name} PUBLIC
-                               $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/FireDust>)
   endif()
 
   ########################### GPU defs for KOKKOS #################################
@@ -467,16 +406,54 @@ function(build_erf_lib erf_lib_name)
         message(FATAL_ERROR "ERF_FIRE_ENGINE_DIRS: ${_fire_dir} has no ERFFireEngine.cmake")
       endif()
       set(ERF_FIRE_ENGINE_DIR "${_fire_dir}")
+      # CMake keeps a function once it is defined, so a file that does not define
+      # erf_fire_engine_add would call the one of the directory before it. This
+      # definition, replaced by the file's own, stops the configure instead.
+      function(erf_fire_engine_add target)
+        message(FATAL_ERROR "${ERF_FIRE_ENGINE_DIR}/ERFFireEngine.cmake does not define erf_fire_engine_add(target)")
+      endfunction()
       include("${_fire_dir}/ERFFireEngine.cmake")
-      if(NOT COMMAND erf_fire_engine_add)
-        message(FATAL_ERROR "${_fire_dir}/ERFFireEngine.cmake does not define erf_fire_engine_add(target)")
-      endif()
       erf_fire_engine_add(${erf_lib_name})
       message(STATUS "ERF fire engine directory: ${_fire_dir}")
     endforeach()
     unset(_fire_engine_dirs)
   elseif(ERF_FIRE_ENGINE_DIRS)
     message(FATAL_ERROR "ERF_FIRE_ENGINE_DIRS is set but ERF_ENABLE_FIRE is OFF")
+  endif()
+
+  if(ERF_ENABLE_DUST)
+    # The dust scalars sit in the conserved state after the base scalar
+    # (ERF_IndexDefines.H), so their number is fixed when ERF is compiled
+    if(NOT ERF_NUM_DUST_SCALARS MATCHES "^[1-9][0-9]*$")
+      message(FATAL_ERROR "ERF_NUM_DUST_SCALARS = '${ERF_NUM_DUST_SCALARS}' must be a positive integer")
+    endif()
+    target_compile_definitions(${erf_lib_name} PUBLIC ERF_USE_DUST ERF_NUM_DUST_SCALARS=${ERF_NUM_DUST_SCALARS})
+    target_sources(${erf_lib_name} PRIVATE
+      ${SRC_DIR}/DustCoupling/ERF_DustCoupling.cpp
+      ${SRC_DIR}/DustCoupling/ERF_DustModelRegistry.cpp
+    )
+    target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${SRC_DIR}/DustCoupling>)
+
+    # Dust models live outside ERF, each in a directory that provides
+    # ERFDustModel.cmake defining erf_dust_model_add(target), as fire engines
+    # do; ERF_DUST_MODEL_DIR holds the model's directory during the call.
+    foreach(_dust_dir IN LISTS ERF_DUST_MODEL_DIRS)
+      get_filename_component(_dust_dir "${_dust_dir}" ABSOLUTE)
+      if(NOT EXISTS "${_dust_dir}/ERFDustModel.cmake")
+        message(FATAL_ERROR "ERF_DUST_MODEL_DIRS: ${_dust_dir} has no ERFDustModel.cmake")
+      endif()
+      set(ERF_DUST_MODEL_DIR "${_dust_dir}")
+      # As for the fire engines above: this definition, replaced by the file's own, stops the
+      # configure when the file does not define erf_dust_model_add.
+      function(erf_dust_model_add target)
+        message(FATAL_ERROR "${ERF_DUST_MODEL_DIR}/ERFDustModel.cmake does not define erf_dust_model_add(target)")
+      endfunction()
+      include("${_dust_dir}/ERFDustModel.cmake")
+      erf_dust_model_add(${erf_lib_name})
+      message(STATUS "ERF dust model directory: ${_dust_dir}")
+    endforeach()
+  elseif(ERF_DUST_MODEL_DIRS)
+    message(FATAL_ERROR "ERF_DUST_MODEL_DIRS is set but ERF_ENABLE_DUST is OFF")
   endif()
 
   if(ERF_ENABLE_MOVING_BODIES)
@@ -502,10 +479,12 @@ function(build_erf_lib erf_lib_name)
         message(FATAL_ERROR "ERF_STRUCTURE_MODEL_DIRS: ${_structure_dir} has no ERFStructureModel.cmake")
       endif()
       set(ERF_STRUCTURE_MODEL_DIR "${_structure_dir}")
+      # As for the fire engines above: this definition, replaced by the file's own, stops the
+      # configure when the file does not define erf_structure_model_add.
+      function(erf_structure_model_add target)
+        message(FATAL_ERROR "${ERF_STRUCTURE_MODEL_DIR}/ERFStructureModel.cmake does not define erf_structure_model_add(target)")
+      endfunction()
       include("${_structure_dir}/ERFStructureModel.cmake")
-      if(NOT COMMAND erf_structure_model_add)
-        message(FATAL_ERROR "${_structure_dir}/ERFStructureModel.cmake does not define erf_structure_model_add(target)")
-      endif()
       erf_structure_model_add(${erf_lib_name})
       message(STATUS "ERF structure model directory: ${_structure_dir}")
     endforeach()
@@ -632,6 +611,8 @@ function(build_erf_lib erf_lib_name)
        ${SRC_DIR}/Diagnostics/ERF_SeaLevelPressure.cpp
        ${SRC_DIR}/IO/ERF_WriteSubvolume.cpp
        ${SRC_DIR}/IO/ERF_WriteJobInfo.cpp
+       ${SRC_DIR}/IO/ERF_BuildDescription.cpp
+       ${SRC_DIR}/IO/ERF_InputPreflight.cpp
        ${SRC_DIR}/IO/ERF_NoahMPGitHash.cpp
        ${SRC_DIR}/IO/ERF_ConsoleIO.cpp
        ${SRC_DIR}/IO/ERF_ReadFromERFBdy.cpp
@@ -677,6 +658,7 @@ function(build_erf_lib erf_lib_name)
        ${SRC_DIR}/AuxiliaryState/ERF_AuxiliaryMappedTransport.cpp
        ${SRC_DIR}/AuxiliaryState/ERF_AuxiliaryStage.cpp
        ${SRC_DIR}/AuxiliaryState/ERF_AuxiliaryInertTracer.cpp
+       ${SRC_DIR}/AuxiliaryState/ERF_AuxiliaryDiffusion.cpp
        ${SRC_DIR}/Microphysics/SBM/ERF_SpectralGrid.cpp
        ${SRC_DIR}/Microphysics/SBM/ERF_SBMLayout.cpp
        ${SRC_DIR}/Microphysics/SBM/ERF_SBMConstraintGroups.cpp
@@ -687,6 +669,10 @@ function(build_erf_lib erf_lib_name)
        ${SRC_DIR}/Microphysics/SBM/ERF_SBMRemapping.cpp
        ${SRC_DIR}/Microphysics/SBM/ERF_SBMTransport.cpp
        ${SRC_DIR}/Microphysics/SBM/ERF_SBMAMRTransfer.cpp
+       ${SRC_DIR}/Microphysics/SBM/ERF_SBMAMRFluxRegister.cpp
+       ${SRC_DIR}/Microphysics/SBM/ERF_SBMAMRCoupling.cpp
+       ${SRC_DIR}/Microphysics/SBM/ERF_SBMPhysicalBoundary.cpp
+       ${SRC_DIR}/Microphysics/SBM/ERF_SBMParticleMixing.cpp
        ${SRC_DIR}/Microphysics/SuperDropletsMoist/ERF_SuperDropletsMoistAdvance.cpp
        ${SRC_DIR}/Microphysics/SuperDropletsMoist/ERF_SuperDropletsMoistInit.cpp
        ${SRC_DIR}/Microphysics/SuperDropletsMoist/ERF_SuperDropletsMoistPhaseChange.cpp
@@ -736,6 +722,7 @@ function(build_erf_lib erf_lib_name)
        ${SRC_DIR}/TimeIntegration/ERF_SlowRhsPost.cpp
        ${SRC_DIR}/TimeIntegration/ERF_Substep_NS.cpp
        ${SRC_DIR}/TimeIntegration/ERF_CFFluxHistory.cpp
+       ${SRC_DIR}/TimeIntegration/ERF_MomentumReflux.cpp
        ${SRC_DIR}/TimeIntegration/ERF_Substep_T.cpp
        ${SRC_DIR}/TimeIntegration/ERF_Substep_MT.cpp
        ${SRC_DIR}/Utils/ERF_AverageDown.cpp
@@ -848,6 +835,7 @@ function(build_erf_lib erf_lib_name)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/IO>)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/LinearSolvers>)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/PBL>)
+  target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/Refinement>)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/Radiation/TwoStream>)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/SourceTerms>)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/ImmersedBoundarySEB>)
@@ -855,7 +843,6 @@ function(build_erf_lib erf_lib_name)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/TimeIntegration>)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/Utils>)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>)
-  target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}>)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/MaterialProperties>)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/Microphysics>)
   target_include_directories(${erf_lib_name} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Source/Microphysics/Null>)

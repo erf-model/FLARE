@@ -335,6 +335,10 @@ public:
           pp, "enable_mrf_cloud_adjustment", enable_mrf_cloud_adjustment, lev, max_level);
         query_one_or_per_level(
           pp, "pbl_mrf_highres_bounds", pbl_mrf_highres_bounds, lev, max_level);
+        query_one_or_per_level(pp, "pbl_mrf_Sc_t", pbl_mrf_Sc_t, lev, max_level);
+        if (pbl_mrf_Sc_t < amrex::Real(0)) {
+          amrex::Abort("erf.pbl_mrf_Sc_t must be >= 0 (0: the passive scalars mix as heat does)");
+        }
         query_one_or_per_level(
           pp, "enable_mrf_unbounded_vpert", enable_mrf_unbounded_vpert, lev, max_level);
         query_one_or_per_level(
@@ -345,14 +349,6 @@ public:
           pp, "mrf_fire_q_threshold", mrf_fire_q_threshold, lev, max_level);
         query_one_or_per_level(
           pp, "mrf_fire_t_excess_cap", mrf_fire_t_excess_cap, lev, max_level);
-#ifdef ERF_USE_DUST
-        query_one_or_per_level(
-          pp, "dust_mrf_Sc_t", dust_mrf_Sc_t, lev, max_level);
-        if (dust_mrf_Sc_t <= 0.0) {
-          // Zero or negative: use same diffusivity as heat (no Sc_t scaling).
-          dust_mrf_Sc_t = Pr_t; // default to Prandtl number
-        }
-#endif
         // QNSE stable stability functions (Sukoriansky et al. 2005)
         query_one_or_per_level(
           pp, "enable_qnse_stable_functions", enable_qnse_stable_functions, lev, max_level);
@@ -823,6 +819,8 @@ public:
                      << std::endl;
       amrex::Print() << "    pbl_mrf_highres_bounds     : " << pbl_mrf_highres_bounds
                      << std::endl;
+      amrex::Print() << "    pbl_mrf_Sc_t               : " << pbl_mrf_Sc_t
+                     << std::endl;
       amrex::Print() << "    enable_mrf_unbounded_vpert : " << enable_mrf_unbounded_vpert
                      << std::endl;
       amrex::Print() << "    pbl_mrf_use_zero_ri_extent : " << pbl_mrf_use_zero_ri_extent
@@ -833,10 +831,6 @@ public:
                      << std::endl;
       amrex::Print() << "    mrf_fire_t_excess_cap       : " << mrf_fire_t_excess_cap
                      << std::endl;
-#ifdef ERF_USE_DUST
-      amrex::Print() << "    dust_mrf_Sc_t              : " << dust_mrf_Sc_t
-                     << std::endl;
-#endif
       amrex::Print() << "    pbl_blend_length   : " << pbl_blend_length
                      << std::endl;
       amrex::Print() << "    pbl_blend_cs       : " << pbl_blend_cs
@@ -1116,19 +1110,13 @@ public:
   amrex::Real pbl_ib_z0    = amrex::Real(0.01);  // roughness [m] of the neutral log law at the top of an immersed column
   bool enable_mrf_cloud_adjustment = false; // if true, apply cloud-aware stability function adjustments in MRF scheme
   bool pbl_mrf_highres_bounds = false; // if true, apply high-resolution grid-dependent diffusivity bounds instead of global forecast bounds
+  amrex::Real pbl_mrf_Sc_t = amrex::Real(0); // MRF: the passive scalars' Schmidt number; Scalar_v = Theta_v * Pr_t / Sc_t, and 0 gives Scalar_v = Theta_v
   bool enable_mrf_unbounded_vpert = false; // if true, does not limit VPERT to GAMCRT
   bool pbl_mrf_use_zero_ri_extent = false; // if true, use Ri=0 (pbli_zero_arr) for K-profile extent; default false uses Ri=0.5 corrector (pbli_arr) for WRF compatibility
   bool mrf_fire_thermal_excess = false; ///< if true, add fire surface flux to MRF thermal excess
   amrex::Real mrf_fire_q_threshold = amrex::Real(50.0); ///< minimum fire heat flux [W/m2] to activate correction
   amrex::Real mrf_fire_t_excess_cap = amrex::Real(50.0); ///< maximum thermal excess [K] when fire is active
 
-#ifdef ERF_USE_DUST
-  // Turbulent Schmidt number for dust scalar in MRF PBL scheme (Phase 14).
-  // Controls EddyDiff::Scalar_v relative to EddyDiff::Theta_v.
-  // Sc_t = Pr_t (default) gives identical diffusivity to heat.
-  // Seinfeld & Pandis (2006), Ch. 16: https://doi.org/10.1002/9781118227572
-  amrex::Real dust_mrf_Sc_t = 0.0; // 0 = use same as Pr_t (default)
-#endif
   // QNSE (Quasi-Normal Scale Elimination) spectral stable stability functions
   // Sukoriansky, S., B. Galperin, and V. Perov, 2005: Application of a New Spectral
   // Theory of Stably Stratified Turbulence to the Atmospheric Boundary Layer over
@@ -1284,6 +1272,10 @@ public:
  * @brief Whether MRF cloud-aware stability adjustments are enabled.
  * @var TurbChoice::pbl_mrf_highres_bounds
  * @brief Whether MRF applies high-resolution grid-dependent diffusivity bounds.
+ * @var TurbChoice::pbl_mrf_Sc_t
+ * @brief MRF turbulent Schmidt number of the passive scalars (erf.pbl_mrf_Sc_t): their
+ *        vertical diffusivity is the heat one times erf.Pr_t / Sc_t; 0 (the default)
+ *        leaves it equal to the heat one.
  * @var TurbChoice::enable_mrf_unbounded_vpert
  * @brief Whether MRF leaves VPERT unlimited by GAMCRT.
  * @var TurbChoice::pbl_mrf_use_zero_ri_extent

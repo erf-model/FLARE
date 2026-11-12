@@ -60,9 +60,9 @@ erf.abl_geo_wind     = 15.0 0.0 0.0
 # Required for dust scalar to be advected and diffused (PR #145).
 erf.transport_scalar = true
 
-# dust_mrf_Sc_t = 0: use same diffusivity as heat (Sc_t = Pr_t).
+# pbl_mrf_Sc_t = 0: use same diffusivity as heat (Sc_t = Pr_t).
 # Set to 2.0 to halve Scalar_v relative to Theta_v.
-erf.dust_mrf_Sc_t = 0.0
+erf.pbl_mrf_Sc_t = 0.0
 erf.dust.cm_budget_file = "dust_cm_budget.csv"
 erf.dust.dust_diag_file = "dust_diag.dat"
 erf.dust.dust_naaqs_file = "dust_naaqs.csv"

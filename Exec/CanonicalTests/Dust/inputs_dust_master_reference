@@ -55,6 +55,11 @@ amr.v = 0
 # Enable the dust model [Boolean]
 erf.dust.enable = false
 
+# The dust model, by the name it registers with ERF's dust coupling; FLARE's
+# is flare, the default even when further models are compiled in
+# (ERF_DUST_MODEL_DIRS) [String]
+erf.dust.model = flare
+
 # Print per-step dust diagnostics to stdout [Boolean]
 erf.dust.dust_debug = false
 
@@ -73,8 +78,9 @@ erf.dust.n_size_bins = 3
 # the threshold (see saltation_diameter) [Reals]
 erf.dust.bin_diameters = 7.0e-6 2.5e-6 50.0e-6
 
-# Particle density of the saltating grains [kg/m³] (the threshold); the bins
-# settle by their aerodynamic diameter [Real > 0]
+# Particle density of the saltating grains [kg/m³], read only by the
+# threshold formula (not with ustar_t_base >= 0); the bins settle by their
+# aerodynamic diameter as unit-density spheres [Real > 0]
 erf.dust.particle_density = 2650.0
 
 # Air density used in the threshold and saltation flux [kg/m³] [Real > 0]
@@ -284,11 +290,6 @@ erf.dust.lumped_settling = mean
 # Shao (2001) loading feedback on the threshold [m³/kg]; 0 disables [Real >=
 # 0]
 erf.dust.loading_feedback_coeff = 0.0
-
-# Turbulent Schmidt number of the dust scalar in the MRF scheme, read from
-# the erf prefix; 0 or negative uses the Prandtl number so dust diffuses
-# like heat [Real]
-erf.dust_mrf_Sc_t = 0.0
 
 # ---------------------------------------------------------------------------
 # Fire coupling (FLARE)

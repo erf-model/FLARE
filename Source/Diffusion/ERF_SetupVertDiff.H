@@ -18,7 +18,7 @@
     //   component above the passive scalars takes the Q category, including the
     //   non-moist species a scheme may append; the table spans NPRIMVAR_max,
     //   which tracks NVAR_max, so it always covers the full primitive range the
-    //   callers can request.  Every scalar slot (base, dust and smoke) takes the
+    //   callers can request.  Every scalar slot (base and smoke) takes the
     //   Scalar category.
     Vector<int> eddy_diff_idz(NPRIMVAR_max, EddyDiff::Q_v);
     eddy_diff_idz[PrimTheta_comp] = EddyDiff::Theta_v;

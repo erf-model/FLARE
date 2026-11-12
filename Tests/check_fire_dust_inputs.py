@@ -58,7 +58,7 @@ def read(path):
         return f.read()
 
 FAMILIES = ("erf.fire.", "erf.dust.", "erf.fire_dust_", "erf.fire.plot_",
-            "erf.mrf_fire_", "erf.pbl_mrf_fire_", "erf.dust_mrf_Sc_t")
+            "erf.mrf_fire_", "erf.pbl_mrf_fire_")
 
 def in_family(k):
     return any(k.startswith(f) for f in FAMILIES)
@@ -122,12 +122,18 @@ def code_keys():
     if "firebreak." in s:   # built at run time from "firebreak." + n + "." + name
         for name in ("type", "x_lo", "y_lo", "x_hi", "y_hi", "cx", "cy", "radius"):
             keys.add("erf.fire.firebreak.N." + name)
-    s = read(os.path.join(ROOT, "Source/Dust/ERF_DustParams.H"))
+    s = read(os.path.join(ROOT, "Dust/ERF_DustParams.H"))
     for m in re.finditer(r'\bpp\.(?:query|queryarr)\s*\(\s*"([^"]+)"', s):
         keys.add("erf.dust." + m.group(1))
-    s = read(os.path.join(ROOT, "Source/ERF.cpp"))
-    for m in re.finditer(r'\bpp\.query\s*\(\s*"(fire_[A-Za-z0-9_]+)"', s):
+    # erf.dust.enable and erf.dust.model, read by ERF's dust coupling (Source/DustCoupling)
+    s_r = read(os.path.join(ROOT, "Source/DustCoupling/ERF_DustModelRegistry.cpp"))
+    for m in re.finditer(r'\bpp\.query\s*\(\s*"([^"]+)"', s_r):
+        keys.add("erf.dust." + m.group(1))
+    # the fire-dust coupling keys, read by FLARE's dust model (Dust/ERF_FlareDustModel.cpp)
+    s_d = read(os.path.join(ROOT, "Dust/ERF_FlareDustModel.cpp"))
+    for m in re.finditer(r'\bpp\.query\s*\(\s*"(fire_[A-Za-z0-9_]+)"', s_d):
         keys.add("erf." + m.group(1))
+    s = read(os.path.join(ROOT, "Source/ERF.cpp"))
     # the coupling keys ERF reads itself (Source/FireCoupling, erf-model/ERF#4798)
     s_c = read(os.path.join(ROOT, "Source/FireCoupling/ERF_FireCouplingParams.cpp"))
     for m in re.finditer(r'\bpp\.(?:query|queryarr)\s*\(\s*"([^"]+)"', s_c):
@@ -145,7 +151,7 @@ def code_keys():
 
 # ---------------------------------------------------------------- docs
 KEY_RE = re.compile(r"erf\.(?:fire|dust)[A-Za-z0-9_.]*|erf\.fire_(?:dust|plot)_[A-Za-z0-9_]*|"
-                    r"erf\.(?:pbl_)?mrf_fire_[A-Za-z0-9_]*|erf\.dust_mrf_Sc_t")
+                    r"erf\.(?:pbl_)?mrf_fire_[A-Za-z0-9_]*")
 
 def doc_keys():
     found = {}
@@ -241,7 +247,7 @@ def main():
     #    the fire master every key that is not dust-side (including the core keys the
     #    fire code reads, such as erf.buildings_file_name and erf.*mrf_fire_*), the
     #    dust master every dust-side key.
-    is_dust = lambda k: k.startswith("erf.dust.") or k == "erf.dust_mrf_Sc_t"
+    is_dust = lambda k: k.startswith("erf.dust.")
     master = os.path.join(ROOT, "Exec/CanonicalTests/Fire/inputs_fire_master_reference")
     listed = deck_keys(master, commented=True)
     for k in sorted(code):
@@ -255,7 +261,7 @@ def main():
 
     # 5. dust generator vs parser vs generated table
     gen = generator_keys()
-    dust_code = {k for k in code if k.startswith(("erf.dust.", "erf.fire_dust_")) or k == "erf.dust_mrf_Sc_t"}
+    dust_code = {k for k in code if k.startswith(("erf.dust.", "erf.fire_dust_"))}
     for k in sorted(gen - code):
         problems.append(f"gen_dust_inputs.py lists a key nothing reads: {k}")
     for k in sorted(dust_code - gen):

@@ -1,0 +1,37 @@
+# GNU make: the sources of FLARE's dust layer. Exec/Make.ERF includes this file
+# for each directory listed in DUST_HOME (with USE_DUST = TRUE), with
+# DUST_MODEL_DIR set to it and the directory already on VPATH and the include
+# path. The layer registers as erf.dust.model = flare (ERF_FlareDustModel.cpp).
+
+# FLARE's dust layer is the model a deck gets when it names none (see ERFDustModel.cmake)
+DEFINES += -DERF_DUST_DEFAULT_MODEL=\"flare\"
+
+CEXE_sources += ERF_FlareDustModel.cpp
+CEXE_sources += ERF_DustGrid.cpp
+CEXE_sources += ERF_DustPrerequisites.cpp
+CEXE_sources += ERF_DustLayer.cpp
+CEXE_sources += ERF_DustTerrainSlope.cpp
+CEXE_sources += ERF_DustSurfaceReader.cpp
+CEXE_sources += ERF_PhreeqcReader.cpp
+CEXE_sources += ERF_DustEmission.cpp
+CEXE_sources += ERF_DustWindExtract.cpp
+CEXE_sources += ERF_DustAtmCoupling.cpp
+CEXE_sources += ERF_DustPlotfile.cpp
+CEXE_sources += ERF_DustPC.cpp
+
+ifeq ($(USE_FIRE), TRUE)
+  CEXE_sources += ERF_DustFireLofting.cpp
+  CEXE_sources += ERF_FireDustCoupling.cpp
+else
+  # the dust layer applies the native fire engine's terrain wind corrections
+  FLARE_FIRE_ENGINE_DIR := $(abspath $(DUST_MODEL_DIR)/../FireEngine)
+  VPATH_LOCATIONS   += $(FLARE_FIRE_ENGINE_DIR)
+  INCLUDE_LOCATIONS += $(FLARE_FIRE_ENGINE_DIR)
+  CEXE_sources += ERF_FireWindAdjust.cpp
+endif
+
+CEXE_headers += ERF_Dust.H
+CEXE_headers += ERF_DustParams.H
+CEXE_headers += ERF_DustLayer.H
+CEXE_headers += ERF_FireDustCoupling.H
+CEXE_headers += ERF_DustPC.H

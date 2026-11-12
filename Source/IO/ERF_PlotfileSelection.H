@@ -116,16 +116,20 @@ plot3d_q_conserved_component_index (const int q)
  * @brief Names of the raw conserved-state variables, in component order.
  *
  * The optional scalars sit between rhoadv_0 and rhoQ1 exactly as in
- * ERF_IndexDefines.H: dust (RhoAdv_comp) under ERF_USE_DUST, then smoke
- * (RhoSmoke_comp) under ERF_USE_FIRE.  Every name here must map to a
- * component in plot3d_conserved_component_index, or it can never be plotted.
+ * ERF_IndexDefines.H: the dust scalars (RhoDust_comp, NSCALARS_DUST of them:
+ * rhoadv_dust, or rhoadv_dust_0, rhoadv_dust_1, ... when there are several),
+ * then smoke (RhoSmoke_comp, under ERF_USE_FIRE).  Every name here must map
+ * to a component in plot3d_conserved_component_index, or it can never be
+ * plotted.
  */
 inline amrex::Vector<std::string>
 plot3d_conserved_state_names ()
 {
     amrex::Vector<std::string> names = {"density", "rhotheta", "rhoKE", "rhoadv_0"};
-#ifdef ERF_USE_DUST
+#if (NSCALARS_DUST == 1)
     names.push_back("rhoadv_dust");
+#elif (NSCALARS_DUST > 1)
+    for (int n = 0; n < NSCALARS_DUST; ++n) { names.push_back("rhoadv_dust_" + std::to_string(n)); }
 #endif
 #ifdef ERF_USE_FIRE
     names.push_back("smoke");
@@ -142,7 +146,7 @@ plot3d_conserved_state_names ()
 /**
  * @brief Conserved-state component behind a raw state variable name
  *        ("density", "rhotheta", "smoke", "rhoQ3", ...), or -1 if the name is
- *        not one.  The optional scalars are written as stored, i.e. as
+ *        not one.  The dust and smoke scalars are written as stored, i.e. as
  *        mass concentrations (rho times the mixing ratio), like rhoadv_0.
  */
 inline int
@@ -152,8 +156,12 @@ plot3d_conserved_component_index (const std::string& name)
     if (name == "rhotheta") return RhoTheta_comp;
     if (name == "rhoKE")    return RhoKE_comp;
     if (name == "rhoadv_0") return RhoScalar_comp;
-#ifdef ERF_USE_DUST
-    if (name == "rhoadv_dust") return RhoAdv_comp;
+#if (NSCALARS_DUST == 1)
+    if (name == "rhoadv_dust") return RhoDust_comp;
+#elif (NSCALARS_DUST > 1)
+    for (int n = 0; n < NSCALARS_DUST; ++n) {
+        if (name == "rhoadv_dust_" + std::to_string(n)) return RhoDust_comp + n;
+    }
 #endif
 #ifdef ERF_USE_FIRE
     if (name == "smoke") return RhoSmoke_comp;

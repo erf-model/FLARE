@@ -14,6 +14,7 @@
 #include <ERF_PlaneAverage.H>
 #include <ERF_CanopyBiophysics.H>
 #include <ERF_SBMOwnership.H>
+#include "Microphysics/SBM/ERF_SBMTransport.H"
 
 using namespace amrex;
 
@@ -120,6 +121,14 @@ void ERF::advance_dycore (int level,
     MultiFab    S_prim  (ba  , dm, num_prim,          state_old[IntVars::cons].nGrowVect());
     MultiFab  pi_stage  (ba  , dm,        1,          1);
     MultiFab fast_coeffs(ba_z, dm,        6,          0);
+
+    // Pressure of the stage state, for the acoustic sub-steps on a moving mesh (filled in make_pi_stage)
+    const bool l_need_p_stage = (solverChoice.terrain_type == TerrainType::MovingFittedMesh &&
+                                 solverChoice.timestepping_type[level] == TimesteppingType::RK3_ImplicitSubstep);
+    MultiFab   p_stage;
+    if (l_need_p_stage) {
+        p_stage.define(ba, dm, 1, 1);
+    }
 
     MultiFab* eddyDiffs = eddyDiffs_lev[level].get();
     MultiFab* SmnSmn    = SmnSmn_lev[level].get();
@@ -660,7 +669,7 @@ void ERF::advance_dycore (int level,
                                   *walldist[level].get(),
                                   *eddyDiffs, *Hfx1, *Hfx2, *Hfx3, *Diss, // to be updated
                                   fine_geom, mapfac[level],
-                                  z_phys_nd[level], z_phys_cc[level], solverChoice,
+                                  z_phys_nd[level], z_sfc_nd[level], z_phys_cc[level], solverChoice,
                                   m_SurfaceLayer[Orientation(Direction::z, Orientation::low)], z_0, l_use_terrain_fitted_coords,
                                   l_use_moisture, level,
                                   bc_ptr_h,
@@ -673,18 +682,6 @@ void ERF::advance_dycore (int level,
                                   (solverChoice.do_forest_drag) ?
                                       m_forest_drag[level]->get_drag_field() : nullptr,
                                   Q_fire_for_pbl);
-        // Phase 14: Print debug info about dust scalar diffusivity
-#ifdef ERF_USE_DUST
-        // Check if dust layer is active and debug is enabled
-        if (m_DustLayer && level == 0 && m_DustLayer->get_params().dust_debug) {
-            Real Kh_scalar_max = eddyDiffs->max(EddyDiff::Scalar_v);
-            Real Kh_theta_max  = eddyDiffs->max(EddyDiff::Theta_v);
-            amrex::Print() << "[DUST DEBUG] Phase 14:"
-                           << " EddyDiff::Scalar_v_max=" << Kh_scalar_max
-                           << " m^2/s  EddyDiff::Theta_v_max=" << Kh_theta_max
-                           << " m^2/s\n";
-        }
-#endif
 
         // Zero turbulent mixing in fully immersed cells
         MultiFab* terrain_blank = (solverChoice.terrain_type == TerrainType::ImmersedForcing ||

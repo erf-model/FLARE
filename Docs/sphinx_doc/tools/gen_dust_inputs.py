@@ -8,8 +8,8 @@ cannot drift apart. Run from the repository root after changing a dust input:
 
     python3 Docs/sphinx_doc/tools/gen_dust_inputs.py
 
-Defaults and descriptions follow Source/Dust/ERF_DustParams.H,
-Source/FireDust/ERF_FireDustCoupling.H (read in Source/ERF.cpp) and
+Defaults and descriptions follow Dust/ERF_DustParams.H,
+Dust/ERF_FireDustCoupling.H (read in Dust/ERF_FlareDustModel.cpp) and
 Source/DataStructs/ERF_TurbStruct.H; edit the list below when those change.
 """
 import os, sys, textwrap
@@ -32,6 +32,9 @@ grp("Master control",
     "are checked once at startup and abort with a message naming the input "
     "to fix.")
 p("enable", "Enable the dust model", "Boolean", "false")
+p("model", "The dust model, by the name it registers with ERF's dust coupling; "
+  "FLARE's is flare, the default even when further models are compiled in "
+  "(ERF_DUST_MODEL_DIRS)", "String", "flare")
 p("dust_debug", "Print per-step dust diagnostics to stdout", "Boolean", "false")
 p("grid_ratio", "Dust grid refinement factor in x and y; every atmosphere box "
   "length must divide by it, and it must equal erf.fire.grid_ratio when the "
@@ -43,8 +46,9 @@ p("bin_diameters", "Per-bin aerodynamic diameter of the emitted dust [m], one "
   "(as unit-density spheres), the PM classes and the AP-42 PM-10 road bin, not "
   "the threshold (see saltation_diameter)",
   "Reals", "7.0e-6 2.5e-6 50.0e-6")
-p("particle_density", "Particle density of the saltating grains [kg/m³] (the "
-  "threshold); the bins settle by their aerodynamic diameter", "Real > 0", "2650.0")
+p("particle_density", "Particle density of the saltating grains [kg/m³], read "
+  "only by the threshold formula (not with ustar_t_base >= 0); the bins settle by "
+  "their aerodynamic diameter as unit-density spheres", "Real > 0", "2650.0")
 p("rho_air", "Air density used in the threshold and saltation flux [kg/m³]",
   "Real > 0", "1.225")
 p("z0_dust", "Roughness length of the emitting surface [m]: the log-law "
@@ -173,12 +177,9 @@ p("lumped_settling", "Settling and deposition velocity of the single transported
   "mean or bin0", "mean")
 p("loading_feedback_coeff", "Shao (2001) loading feedback on the threshold "
   "[m³/kg]; 0 disables", "Real >= 0", "0.0")
-p("erf.dust_mrf_Sc_t", "Turbulent Schmidt number of the dust scalar in the "
-  "MRF scheme, read from the erf prefix; 0 or negative uses the Prandtl "
-  "number so dust diffuses like heat", "Real", "0 (Pr_t)")
 
 grp("Fire coupling (FLARE)",
-    "Read from the ``erf`` prefix in ``Source/ERF.cpp`` when both the fire "
+    "Read from the ``erf`` prefix in ``Dust/ERF_FlareDustModel.cpp`` when both the fire "
     "and dust models are enabled; see :ref:`sec:DustFire`.")
 p("erf.fire_dust_coupling", "Enable the fire-dust coupling; requires "
   "erf.dust.grid_ratio = erf.fire.grid_ratio", "Boolean", "false")
@@ -292,9 +293,8 @@ rst.append("Dust Model\n==========\n")
 rst.append(textwrap.fill(
     "These inputs configure the dust model described in :ref:`sec:Dust`. "
     "Every key is read once at startup from the ``erf.dust`` prefix, except "
-    "the fire-coupling keys and the MRF Schmidt number, which sit directly "
-    "under ``erf``. Defaults are those of the parameter struct in "
-    "``Source/Dust/ERF_DustParams.H``; the reference deck "
+    "the fire-coupling keys, which sit directly under ``erf``. Defaults are those of the parameter struct in "
+    "``Dust/ERF_DustParams.H``; the reference deck "
     "``Exec/CanonicalTests/Dust/inputs_dust_master_reference`` lists every "
     "key at its default with a comment; both come from "
     "``Docs/sphinx_doc/tools/gen_dust_inputs.py``, so edit that list and rerun "

@@ -57,7 +57,7 @@ threshold (the thresholds are placeholders awaiting calibration). Once burning
 it is itself a heat, ember and radiation source for its neighbours, so
 house-to-house spread needs no rule of its own.
 
-**Dust** (``Source/Dust``, compiled in with ``ERF_ENABLE_DUST=ON``). Wind-blown
+**Dust** (``Dust/``, compiled in with ``ERF_ENABLE_DUST=ON`` as a model of ERF's dust coupling). Wind-blown
 and activity-driven particulate emission from bare mineral surfaces such as
 tailings impoundments, open pits, haul roads and evaporation ponds, with the
 surface state (silt, crust, salt crusts, moisture, suppression agents) read
@@ -67,7 +67,7 @@ reports the regulatory quantities built on it: PM2.5 and PM10 averages against
 the EPA air-quality standards (NAAQS), mine-safety (MSHA) worker exposure,
 visibility, respirable silica, short-term exposure limits and the emission
 budgets of critical minerals. The fire-dust coupling
-(``Source/FireDust``) feeds the fire's burned area, outflow wind and heat flux
+(``Dust/ERF_FireDustCoupling``) feeds the fire's burned area, outflow wind and heat flux
 into the dust emission.
 
 **Fire weather over real terrain.** A one-equation k RANS closure

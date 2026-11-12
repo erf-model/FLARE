@@ -15,6 +15,29 @@
 
 using namespace amrex;
 
+namespace {
+
+// Map a level's host integrator onto an auxiliary stage recipe; any anelastic
+// integrator without a recipe aborts instead of borrowing another one's.
+erf_auxiliary::HostIntegrator
+auxiliary_host_integrator (const SolverChoice& solverChoice, const int level)
+{
+    if (solverChoice.compressibility_type[level] == CompressibilityType::FullyCompressible) {
+        return erf_auxiliary::HostIntegrator::CompressibleRK3;
+    }
+    if (solverChoice.timestepping_type[level] == TimesteppingType::RK2) {
+        return erf_auxiliary::HostIntegrator::AnelasticHeun;
+    }
+    if (solverChoice.timestepping_type[level] == TimesteppingType::MidPoint) {
+        return erf_auxiliary::HostIntegrator::AnelasticMidPoint;
+    }
+    amrex::Abort("Auxiliary transport has no stage recipe for the anelastic integrator at level " +
+                 std::to_string(level));
+    return erf_auxiliary::HostIntegrator::AnelasticHeun;
+}
+
+} // namespace
+
 /**
  * Function for computing the slow RHS for the evolution equations for the scalars other than density or potential temperature
  *
@@ -30,6 +53,8 @@ using namespace amrex;
  * @param[in   ] avg_xmom
  * @param[in   ] avg_ymom
  * @param[in   ] avg_zmom
+ * @param[in   ] upw_dir upwind direction used by erf_slow_rhs_pre in this stage, on a
+ *                       pseudo-incompressible level (nullptr otherwise: the mass flux picks it)
  * @param[in   ] xvel x-component of velocity
  * @param[in   ] yvel y-component of velocity
  * @param[in   ] zvel z-component of velocity
@@ -71,6 +96,7 @@ void erf_slow_rhs_post (int level, int finest_level,
                               MultiFab& avg_xmom,
                               MultiFab& avg_ymom,
                               MultiFab& avg_zmom,
+                        const Array<const MultiFab*,AMREX_SPACEDIM>& upw_dir,
                         const MultiFab& xvel,
                         const MultiFab& yvel,
                         const MultiFab& zvel,
@@ -116,7 +142,8 @@ void erf_slow_rhs_post (int level, int finest_level,
                         erf_sbm::SBMTransport* sbm_transport,
                         const MultiFab* ib_wall_face33,
                         const MultiFab* ib_wall_ktarget,
-                        const MultiFab* ib_wall_qfx)
+                        const MultiFab* ib_wall_qfx,
+                        const erf_sbm::SBMAMRStageParent* sbm_parent_stage)
 {
     BL_PROFILE_REGION("erf_slow_rhs_post()");
 
@@ -250,10 +277,6 @@ void erf_slow_rhs_post (int level, int finest_level,
     Vector<int> is_valid_slow_var; is_valid_slow_var.resize(RhoQ1_comp+1,0);
     if (l_use_KE)    { is_valid_slow_var[    RhoKE_comp] = 1; }
     if (l_do_scalar) { is_valid_slow_var[RhoScalar_comp] = 1; }
-/*#ifdef ERF_USE_DUST
-    // Register dust scalar for advection (Phase 10/11: dust transport)
-    is_valid_slow_var[RhoAdv_comp] = 1;
-#endif*/
     if (solverChoice.moisture_type != MoistureType::None) {
          is_valid_slow_var[RhoQ1_comp] = 1;
     }
@@ -279,10 +302,7 @@ void erf_slow_rhs_post (int level, int finest_level,
     // M2 proof consumer: run after the stage carrier is final and before the
     // caller copies S_data over S_new, preserving the predictor density view.
     if (auxiliary_inert_tracer != nullptr) {
-        const auto method = !l_anelastic ? erf_auxiliary::HostIntegrator::CompressibleRK3 :
-            (solverChoice.timestepping_type[level] == TimesteppingType::RK2 ?
-                erf_auxiliary::HostIntegrator::AnelasticHeun :
-                erf_auxiliary::HostIntegrator::AnelasticMidPoint);
+        const auto method = auxiliary_host_integrator(solverChoice, level);
         auxiliary_inert_tracer->advance_stage(
             level, method, nrk, step_old_time, input_time, target_time, dt_d,
             S_old[IntVars::cons], S_new[IntVars::cons], S_data[IntVars::cons],
@@ -299,10 +319,7 @@ void erf_slow_rhs_post (int level, int finest_level,
             // Force an outgoing-demand violation at the production donor CFL gate.
             avg_xmom.setVal(Real(1.0e8));
         }
-        const auto method = !l_anelastic ? erf_auxiliary::HostIntegrator::CompressibleRK3 :
-            (solverChoice.timestepping_type[level] == TimesteppingType::RK2 ?
-                erf_auxiliary::HostIntegrator::AnelasticHeun :
-                erf_auxiliary::HostIntegrator::AnelasticMidPoint);
+        const auto method = auxiliary_host_integrator(solverChoice, level);
         const MultiFab& stage_cons_anchor = S_old[IntVars::cons];
         const MultiFab& stage_cons_input = S_new[IntVars::cons];
         MultiFab& stage_cons_target = S_data[IntVars::cons];
@@ -310,7 +327,8 @@ void erf_slow_rhs_post (int level, int finest_level,
             level, method, nrk, step_old_time, input_time, target_time, dt_d,
             *sbm_state_manager, stage_cons_anchor, stage_cons_input,
             stage_cons_target, avg_xmom, avg_ymom, avg_zmom, geom,
-            solverChoice.moisture_indices.qc, solverChoice.moisture_indices.qr);
+            solverChoice.moisture_indices.qc, solverChoice.moisture_indices.qr,
+            sbm_parent_stage);
     }
 
     // *************************************************************************
@@ -388,6 +406,10 @@ void erf_slow_rhs_post (int level, int finest_level,
         Array4<Real> avg_xmom_arr = avg_xmom.array(mfi);
         Array4<Real> avg_ymom_arr = avg_ymom.array(mfi);
         Array4<Real> avg_zmom_arr = avg_zmom.array(mfi);
+        // Pseudo-incompressible: the upwind side is the one the projection picked
+        const Array4<const Real> upw_x_arr = upw_dir[0] ? upw_dir[0]->const_array(mfi) : avg_xmom.const_array(mfi);
+        const Array4<const Real> upw_y_arr = upw_dir[1] ? upw_dir[1]->const_array(mfi) : avg_ymom.const_array(mfi);
+        const Array4<const Real> upw_z_arr = upw_dir[2] ? upw_dir[2]->const_array(mfi) : avg_zmom.const_array(mfi);
 
         const Array4<const Real> & u = xvel.array(mfi);
         const Array4<const Real> & v = yvel.array(mfi);
@@ -561,11 +583,6 @@ void erf_slow_rhs_post (int level, int finest_level,
 
                     if (ivar == RhoScalar_comp) {
                         num_comp = NSCALARS;
-#ifdef ERF_USE_DUST
-                    } else if (ivar == RhoAdv_comp) {
-                        // Dust scalar(s): transport_bins_separately controls how many slots
-                        num_comp = 1;  // Default: single slot for all bins
-#endif
                     }
                 }
 
@@ -597,6 +614,7 @@ void erf_slow_rhs_post (int level, int finest_level,
                             }
                             AdvectionSrcForScalars(tbx, start_comp, num_comp,
                                                    avg_xmom_arr, avg_ymom_arr, avg_zmom_arr,
+                                                   upw_x_arr, upw_y_arr, upw_z_arr,
                                                    cur_prim, cell_rhs,
                                                    detJ_arr, dxInv, mf_mx, mf_my,
                                                    horiz_adv_type, vert_adv_type,
@@ -786,10 +804,6 @@ void erf_slow_rhs_post (int level, int finest_level,
                     }
                 } else if (ivar == RhoScalar_comp) {
                     num_comp = NSCALARS;
-#ifdef ERF_USE_DUST
-                } else if (ivar == RhoAdv_comp) {
-                    num_comp = 1;  // Dust scalar
-#endif
                 }
 
                if (l_moving_terrain)
