@@ -25,7 +25,11 @@
 class CloudChamberBudget;
 
 namespace erf_auxiliary { class AuxiliaryInertTracer; }
-namespace erf_sbm { class SBMStateManager; class SBMTransport; }
+namespace erf_sbm {
+class SBMStateManager;
+class SBMTransport;
+struct SBMAMRStageParent;
+}
 
 /**
  * @brief Driver for the SHOC physics model.
@@ -128,6 +132,7 @@ void erf_slow_rhs_pre (int level, int finest_level, int nrk,
                             amrex::MultiFab& avg_xmom,
                             amrex::MultiFab& avg_ymom,
                             amrex::MultiFab& avg_zmom,
+                      const amrex::Array<const amrex::MultiFab*,AMREX_SPACEDIM>& upw_dir,
                       const amrex::MultiFab& xvel,
                       const amrex::MultiFab& yvel,
                       const amrex::MultiFab& zvel,
@@ -200,6 +205,7 @@ void erf_slow_rhs_post (int level, int finest_level, int nrk,
                              amrex::MultiFab& avg_xmom,
                              amrex::MultiFab& avg_ymom,
                              amrex::MultiFab& avg_zmom,
+                       const amrex::Array<const amrex::MultiFab*,AMREX_SPACEDIM>& upw_dir,
                        const amrex::MultiFab& xvel,
                        const amrex::MultiFab& yvel,
                        const amrex::MultiFab& zvel,
@@ -250,6 +256,7 @@ void erf_slow_rhs_post (int level, int finest_level, int nrk,
                        erf_sbm::SBMTransport* sbm_transport,
                        const amrex::MultiFab* ib_wall_face33 = nullptr,
                        const amrex::MultiFab* ib_wall_ktarget = nullptr,
-                       const amrex::MultiFab* ib_wall_qfx = nullptr);
+                       const amrex::MultiFab* ib_wall_qfx = nullptr,
+                       const erf_sbm::SBMAMRStageParent* sbm_parent_stage = nullptr);
 
 #endif

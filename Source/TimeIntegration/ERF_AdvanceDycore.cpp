@@ -14,6 +14,7 @@
 #include <ERF_PlaneAverage.H>
 #include <ERF_CanopyBiophysics.H>
 #include <ERF_SBMOwnership.H>
+#include "Microphysics/SBM/ERF_SBMTransport.H"
 
 using namespace amrex;
 
@@ -120,6 +121,14 @@ void ERF::advance_dycore (int level,
     MultiFab    S_prim  (ba  , dm, num_prim,          state_old[IntVars::cons].nGrowVect());
     MultiFab  pi_stage  (ba  , dm,        1,          1);
     MultiFab fast_coeffs(ba_z, dm,        6,          0);
+
+    // Pressure of the stage state, for the acoustic sub-steps on a moving mesh (filled in make_pi_stage)
+    const bool l_need_p_stage = (solverChoice.terrain_type == TerrainType::MovingFittedMesh &&
+                                 solverChoice.timestepping_type[level] == TimesteppingType::RK3_ImplicitSubstep);
+    MultiFab   p_stage;
+    if (l_need_p_stage) {
+        p_stage.define(ba, dm, 1, 1);
+    }
 
     MultiFab* eddyDiffs = eddyDiffs_lev[level].get();
     MultiFab* SmnSmn    = SmnSmn_lev[level].get();

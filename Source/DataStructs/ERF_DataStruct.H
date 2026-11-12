@@ -92,7 +92,9 @@ AMREX_ENUM(SubsteppingType,
  *
  * FullyCompressible solves the compressible equations with acoustic substepping.
  * Anelastic holds the density at its base-state value and projects the velocity.
- * PseudoIncompressible currently takes exactly the anelastic path.
+ * PseudoIncompressible evolves the density and (rho theta) as FullyCompressible does, with the
+ * buoyancy -(rho - rho0) g, and projects the velocity to satisfy div(rho0 theta0 u) = 0 with a
+ * variable-coefficient solve; like Anelastic it never substeps acoustically.
  */
 AMREX_ENUM(CompressibilityType,
     FullyCompressible, Anelastic, PseudoIncompressible
@@ -774,6 +776,41 @@ struct SolverChoice {
 
         pp.query_enum_case_insensitive("moisture_model",moisture_type);
 
+#ifdef ERF_SBM_AMR_QUALIFICATION
+        pp.queryAdd("sbm_amr_qualification_test", sbm_amr_qualification_test);
+        pp.queryAdd("sbm_amr_qualification_expect_zero_flow",
+                    sbm_amr_qualification_expect_zero_flow);
+        pp.queryAdd("sbm_amr_qualification_expect_split",
+                    sbm_amr_qualification_expect_split);
+        pp.queryAdd("sbm_amr_qualification_expect_empty_fine_rank",
+                    sbm_amr_qualification_expect_empty_fine_rank);
+        pp.queryAdd("sbm_amr_qualification_unique_profile",
+                    sbm_amr_qualification_unique_profile);
+        pp.queryAdd("sbm_amr_qualification_parent_store_fault",
+                    sbm_amr_qualification_parent_store_fault);
+        pp.queryAdd("sbm_amr_qualification_regrid",
+                    sbm_amr_qualification_regrid);
+        pp.queryAdd("sbm_amr_qualification_regrid_reject_fault",
+                    sbm_amr_qualification_regrid_reject_fault);
+        pp.queryAdd("sbm_amr_qualification_uniform_ratio",
+                    sbm_amr_qualification_uniform_ratio);
+#else
+        for (const char* name : {"sbm_amr_qualification_test",
+                                 "sbm_amr_qualification_expect_zero_flow",
+                                 "sbm_amr_qualification_expect_split",
+                                 "sbm_amr_qualification_expect_empty_fine_rank",
+                                 "sbm_amr_qualification_unique_profile",
+                                 "sbm_amr_qualification_parent_store_fault",
+                                 "sbm_amr_qualification_regrid",
+                                 "sbm_amr_qualification_regrid_reject_fault",
+                                 "sbm_amr_qualification_uniform_ratio"}) {
+            if (pp.contains(name)) {
+                amrex::Error(std::string("erf.") + name + " is available only in "
+                             "the isolated ERF_ENABLE_SBM_AMR_QUALIFICATION build");
+            }
+        }
+#endif
+
         // Test-only SBM failure injections. They remain disabled unless an
         // integration test explicitly enables the corresponding option.
         pp.queryAdd("sbm_test_native_qc_write_fault", sbm_test_native_qc_write_fault);
@@ -781,6 +818,10 @@ struct SolverChoice {
         if (moisture_type != MoistureType::SBM &&
             (sbm_test_native_qc_write_fault || sbm_test_donor_cfl_fault)) {
             amrex::Error("SBM test fault-injection options require moisture_model=SBM");
+        }
+        pp.queryAdd("sbm_budget_check", sbm_budget_check);
+        if (moisture_type != MoistureType::SBM && sbm_budget_check) {
+            amrex::Error("erf.sbm_budget_check requires erf.moisture_model = SBM");
         }
 
         // Register the moisture data this scheme carries: conserved-state
@@ -839,7 +880,12 @@ struct SolverChoice {
             if (sbm_cloud_rain_split <= 0 || sbm_cloud_rain_split >= sbm_nbins) {
                 amrex::Error("sbm_cloud_rain_split must be strictly inside the liquid bin range");
             }
-            const int expected_sbm_components = sbm_nbins * (sbm_moment_mode == 2 ? 2 : 1);
+            int expected_sbm_components = sbm_nbins * (sbm_moment_mode == 2 ? 2 : 1);
+#ifdef ERF_SBM_AMR_QUALIFICATION
+            if (sbm_amr_qualification_test && sbm_moment_mode == 2) {
+                expected_sbm_components += sbm_nbins;
+            }
+#endif
             if (!sbm_fixture_initial_state.empty() &&
                 sbm_fixture_initial_state.size() != static_cast<amrex::Long>(expected_sbm_components)) {
                 amrex::Error("sbm_fixture_initial_state must match the full runtime SBM component count");
@@ -1136,20 +1182,37 @@ struct SolverChoice {
         read_int_string(max_level, "project_initial_velocity", project_initial_velocity, 0);
 
         // The anelastic equations hold the density at its base-state value, so
-        // fixed_density is forced to 1 at every anelastic level; a user value of 0
-        // there is ignored, and we say so rather than drop it silently.
+        // fixed_density is forced to 1 at every anelastic level.  The pseudo-incompressible
+        // equations evolve the density (continuity equation) with the density-departure
+        // buoyancy -(rho - rho0) g, so fixed_density is forced to 0 and buoyancy_type to 1 there.
+        // A user value that disagrees is ignored, and we say so rather than drop it silently.
         bool any_anelastic = false;
         bool any_compress  = false;
         for (int i = 0; i <= max_level; ++i) {
-            if (compressibility_type[i] != CompressibilityType::FullyCompressible) {
+            if (compressibility_type[i] == CompressibilityType::Anelastic) {
                 if (fixed_density_given && fixed_density[i] == 0) {
                     amrex::Print() << "WARNING: erf.fixed_density = 0 is ignored at level " << i
-                                   << " because erf.compressibility_type is not FullyCompressible there; the anelastic"
-                                   << " and pseudo-incompressible equations always hold the density fixed in time." << std::endl;
+                                   << " because erf.compressibility_type is Anelastic there; the anelastic"
+                                   << " equations always hold the density fixed in time." << std::endl;
                 }
                 project_initial_velocity[i] = 1;
                 fixed_density[i]            = 1; // Always fixed when anelastic
                 buoyancy_type[i]            = 3; // (This isn't actually used when anelastic is set)
+                any_anelastic               = true;
+            } else if (compressibility_type[i] == CompressibilityType::PseudoIncompressible) {
+                if (fixed_density_given && fixed_density[i] == 1) {
+                    amrex::Print() << "WARNING: erf.fixed_density = 1 is ignored at level " << i
+                                   << " because erf.compressibility_type is PseudoIncompressible there; the"
+                                   << " pseudo-incompressible equations evolve the density." << std::endl;
+                }
+                if (buoyancy_type[i] != 1) {
+                    amrex::Print() << "WARNING: erf.buoyancy_type = " << buoyancy_type[i] << " is replaced by 1 at level "
+                                   << i << " because erf.compressibility_type is PseudoIncompressible there; the"
+                                   << " pseudo-incompressible buoyancy is -(rho - rho0) g." << std::endl;
+                }
+                project_initial_velocity[i] = 1;
+                fixed_density[i]            = 0; // The density evolves
+                buoyancy_type[i]            = 1; // -(rho - rho0) g
                 any_anelastic               = true;
             } else {
                 any_compress                = true;
@@ -1172,12 +1235,12 @@ struct SolverChoice {
         // *******************************************************************************
         // Read timestepping_type and allow for different values at each level.  The default
         // depends on the level's compressibility: RK3_ImplicitSubstep at a FullyCompressible
-        // level, RK2 otherwise.
+        // level, MidPoint otherwise.
         // *******************************************************************************
         timestepping_type.resize(max_level+1);
         for (int i = 0; i <= max_level; i++) {
             timestepping_type[i] = (compressibility_type[i] == CompressibilityType::FullyCompressible)
-                                 ? TimesteppingType::RK3_ImplicitSubstep : TimesteppingType::RK2;
+                                 ? TimesteppingType::RK3_ImplicitSubstep : TimesteppingType::MidPoint;
         }
 
         const bool substepping_type_given = pp.contains("substepping_type");
@@ -1215,7 +1278,7 @@ struct SolverChoice {
                                    << std::endl;
                 }
                 for (int i = 0; i <= max_level; i++) {
-                    AnelasticType anelastic_scheme = AnelasticType::RK2;
+                    AnelasticType anelastic_scheme = AnelasticType::MidPoint;
                     query_one_or_per_level_enum_case_insensitive(pp, "anelastic_type", anelastic_scheme, i, max_level);
                     if (compressibility_type[i] != CompressibilityType::FullyCompressible) {
                         timestepping_type[i] = (anelastic_scheme == AnelasticType::MidPoint)
@@ -1235,6 +1298,19 @@ struct SolverChoice {
                              (fc ? "RK3_ImplicitSubstep or RK3_NoSubstepping because the level is "
                                    "FullyCompressible"
                                  : "RK2 or MidPoint because the level is not FullyCompressible"));
+            }
+        }
+
+        // A moving mesh is advanced only by the RK3 integrators (erf_substep_MT with
+        // RK3_ImplicitSubstep, the update without substeps with RK3_NoSubstepping), which by the
+        // check above are those of a FullyCompressible level
+        if (terrain_type == TerrainType::MovingFittedMesh) {
+            for (int i = 0; i <= max_level; i++) {
+                if (compressibility_type[i] != CompressibilityType::FullyCompressible) {
+                    amrex::Abort("erf.terrain_type = MovingFittedMesh requires erf.timestepping_type = "
+                                 "RK3_ImplicitSubstep or RK3_NoSubstepping (a FullyCompressible level) "
+                                 "at level " + std::to_string(i));
+                }
             }
         }
 
@@ -2377,6 +2453,14 @@ struct SolverChoice {
                           " turbine disk from the x-axis. A turbine facing an oncoming flow in the x-direction"
                           " will have turb_disk_angle value of 90 deg.");
         }
+#ifdef ERF_USE_WINDFARM
+        // Without a location type no turbine table is read, and the model would run on empty tables
+        if (windfarm_type != WindFarmType::None && windfarm_loc_type == WindFarmLocType::None) {
+            amrex::Error(std::string("erf.windfarm_type = ") + amrex::getEnumNameString(windfarm_type)
+                         + " needs erf.windfarm_loc_type, either lat_lon or x_y, with the turbine locations"
+                         " in erf.windfarm_loc_table and their specifications in erf.windfarm_spec_table.");
+        }
+#endif
         if (windfarm_loc_type == WindFarmLocType::lat_lon and (windfarm_x_shift < zero or windfarm_y_shift < zero)) {
             amrex::Error("You are using windfarms with latitude-logitude option to position the turbines."
                          " For this you should provide the inputs erf.windfarm_x_shift and"
@@ -2531,7 +2615,9 @@ struct SolverChoice {
         for (int lev = 0; lev <= max_level; lev++) {
             amrex::Print() << "At level " << lev << " : " << std::endl;
             if (compressibility_type[lev] != CompressibilityType::FullyCompressible) {
-                amrex::Print() << "   anelastic with no substepping, using the "
+                amrex::Print() << ((compressibility_type[lev] == CompressibilityType::PseudoIncompressible)
+                                   ? "   pseudo-incompressible" : "   anelastic")
+                               << " with no substepping, using the "
                                << ((timestepping_type[lev] == TimesteppingType::MidPoint) ? "MidPoint" : "RK2")
                                << " integrator" << std::endl;
             } else {
@@ -3169,8 +3255,18 @@ struct SolverChoice {
     int sbm_nbins{4};
     int sbm_moment_mode{1};
     int sbm_cloud_rain_split{-1};
+    bool sbm_amr_qualification_test{false};
+    bool sbm_amr_qualification_expect_zero_flow{false};
+    bool sbm_amr_qualification_expect_split{false};
+    bool sbm_amr_qualification_expect_empty_fine_rank{false};
+    bool sbm_amr_qualification_unique_profile{false};
+    bool sbm_amr_qualification_parent_store_fault{false};
+    bool sbm_amr_qualification_regrid{false};
+    bool sbm_amr_qualification_regrid_reject_fault{false};
+    bool sbm_amr_qualification_uniform_ratio{false};
     bool sbm_test_native_qc_write_fault{false};
     bool sbm_test_donor_cfl_fault{false};
+    bool sbm_budget_check{false};
     amrex::Vector<amrex::Real> sbm_edges;
     amrex::Vector<amrex::Real> sbm_pivots;
     amrex::Vector<amrex::Real> sbm_fixture_initial_state;
@@ -3328,7 +3424,7 @@ struct SolverChoice {
  * @var SolverChoice::timestepping_type
  * @brief Per-level time integrator (RK3_ImplicitSubstep, RK3_NoSubstepping, RK2 or MidPoint).
  * @var SolverChoice::fixed_density
- * @brief Per-level flag selecting fixed-density treatment; always 1 at an anelastic level.
+ * @brief Per-level flag selecting fixed-density treatment; always 1 at an anelastic level and 0 at a pseudo-incompressible level.
  * @var SolverChoice::project_initial_velocity
  * @brief Per-level flag for projecting the initial velocity.
  * @var SolverChoice::buoyancy_type
