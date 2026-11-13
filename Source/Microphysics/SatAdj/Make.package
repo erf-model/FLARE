@@ -1,4 +1,0 @@
-CEXE_sources += ERF_InitSatAdj.cpp
-CEXE_sources += ERF_UpdateSatAdj.cpp
-CEXE_sources += ERF_SatAdj.cpp
-CEXE_headers += ERF_SatAdj.H

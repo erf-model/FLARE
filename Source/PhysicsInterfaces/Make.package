@@ -1,4 +1,0 @@
-ifeq ($(USE_KOKKOS), TRUE)
-    CEXE_headers += ERF_Kokkos.H
-    CEXE_headers += eamxx_config.h
-endif

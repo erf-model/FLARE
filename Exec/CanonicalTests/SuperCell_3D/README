@@ -1,6 +1,0 @@
-This problem setup is the evolution of a 3D supercell.
-
-The current inputs file, "inputs_supercell", uses the compressible formulation of the equations
-with the Kessler moisture model and molecular diffusion with no LES or PBL model.
-
-The initial state is defined using by imposing HSE with perturbations as defined by prob_type = SuperCell.
