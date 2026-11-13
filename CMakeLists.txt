@@ -63,6 +63,13 @@ endif()
 
 ############################ ERF #######################################
 
+# CUDA is enabled here as well as in ERF: enable_language in ERF's directory does not reach
+# this one, where flare and the unit-test executable are defined, and CMake then stops with
+# "No known features for CUDA compiler".
+if(ERF_ENABLE_CUDA)
+  enable_language(CUDA)
+endif()
+
 enable_testing()
 add_subdirectory(Submodules/ERF EXCLUDE_FROM_ALL)
 
