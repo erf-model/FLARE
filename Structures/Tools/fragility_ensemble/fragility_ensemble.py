@@ -62,6 +62,7 @@ SPINUP_DIR = "spinup"
 # the keys a spin-up leaves out: it runs the flow alone, so its checkpoint holds no conductor state and
 # every member's lines start afresh at the restart (a checkpoint with conductor state would hand every
 # member the spin-up's peaks, first exceedances and failure logs)
+SPINUP_CHECK_KEYS = ("erf.check_int", "erf.check_per", "amr.check_int", "amr.check_per")
 SPINUP_DROPPED = ("conductors.", "erf.structures.")
 # the failure logs a member may write (whitespace tables), with the header each must have
 FAILURE_LOGS = (("breaks", "breaks.dat", ("time", "line", "released", "component", "tension"), "breaks_all.csv"),
@@ -608,21 +609,44 @@ class Ensemble:
             if last <= n:
                 stop("spinup: max_step = %d must be below %s's max_step = %d (the member runs on from the spin-up's "
                      "checkpoint to its own max_step)" % (n, m["member"], last))
-            for key in ("erf.check_int", "erf.check_per"):
+            for key in SPINUP_CHECK_KEYS:
                 if key in changes:
                     stop("spinup: %s's inputs set %s; the driver sets the spin-up's checkpoint itself" % (m["member"], key))
+            stop_time, dt = changes.get("stop_time", deck.get("stop_time")), changes.get("erf.fixed_dt",
+                                                                                        deck.get("erf.fixed_dt"))
+            try:
+                stop_time, dt = float(stop_time), float(dt)
+            except (TypeError, ValueError):
+                stop_time = dt = None
+            if stop_time is not None and math.isfinite(stop_time) and math.isfinite(dt) and dt > 0.0 \
+                    and stop_time <= n * dt * (1.0 + 1e-9):
+                stop("spinup: %s's stop_time = %s s ends at or before the spin-up's end (max_step %d x erf.fixed_dt %s s "
+                     "= %s s): the spin-up would write no checkpoint at step %d, or the member would stop at once"
+                     % (m["member"], fmt(stop_time), n, fmt(dt), fmt(n * dt), n))
             changes.update(dropped)
-            changes.update({"max_step": str(n), "erf.check_int": str(n), "erf.check_per": None})
+            changes.update({"max_step": str(n), "erf.check_int": str(n), "erf.check_per": None,
+                            "amr.check_int": None, "amr.check_per": None})
             text = deck.text_with(changes)
             winds = {name: wind.text_with(*m["_wind"]) for name, wind in self.files.items()}
             key = digest(text + "".join(name + "\n" + winds[name] for name in sorted(winds)))
             if key not in groups:
                 check = (deck.tokens("erf.check_file") or ["chk"])[0]
                 check = tokens_of(changes["erf.check_file"])[0] if "erf.check_file" in changes else check
+                if os.path.isabs(check) or ".." in check.replace("\\", "/").split("/"):
+                    stop("spinup: erf.check_file = %s must lie inside the run directory, or the spin-ups would write "
+                         "their checkpoints to one place" % check)
+                digits = (tokens_of(changes["erf.file_name_digits"]) if "erf.file_name_digits" in changes
+                          else deck.tokens("erf.file_name_digits")) or ["5"]
+                try:
+                    digits = int(digits[0])
+                except ValueError:
+                    stop("spinup: erf.file_name_digits = %s is not an integer" % digits[0])
+                if not 1 <= digits <= 20:
+                    stop("spinup: erf.file_name_digits = %d must be in [1, 20]" % digits)
                 name = "u%0*d_s%s_d%s" % (max(3, len(str(len(self.members)))), len(order) + 1, name_tag(m["stripe"]),
                                           name_tag(m["nominal_direction"]))
                 groups[key] = {"spinup": name, "directory": SPINUP_DIR + "/" + name, "max_step": n,
-                               "checkpoint": "%s%05d" % (check, n), "members": [], "_text": text, "_winds": winds}
+                               "checkpoint": "%s%0*d" % (check, digits, n), "members": [], "_text": text, "_winds": winds}
                 order.append(key)
             g = groups[key]
             g["members"].append(m["member"])
@@ -1086,6 +1110,9 @@ def run_spinup(out, manifest, g, command, ranks, gate, log):
     d = os.path.join(out, g["directory"])
     if os.path.exists(os.path.join(d, STATUS)):
         os.remove(os.path.join(d, STATUS))
+    # an earlier attempt's checkpoint must not be taken for this run's
+    if os.path.isdir(os.path.join(d, g["checkpoint"])):
+        shutil.rmtree(os.path.join(d, g["checkpoint"]))
     code, wall = run_one(g["spinup"], d, manifest["deck"], command, gate,
                          "%s: spin-up started (%d steps of the flow alone, for %d member(s))"
                          % (g["spinup"], g["max_step"], len(g["members"])), log)
@@ -1185,7 +1212,9 @@ def read_log(path, header):
 
 def damage_row(header, body, logs):
     """The member's damage summary (DAMAGE_COLUMNS) from its demand table and failure logs."""
-    ratios = [float(r[header.index("peak_ratio")]) for r in body] if "peak_ratio" in header else []
+    # the model writes an empty ratio for a component it never recorded
+    ratios = [float(r[header.index("peak_ratio")]) for r in body
+              if r[header.index("peak_ratio")].strip()] if "peak_ratio" in header else []
     out = [fmt(max(ratios)) if ratios else "", str(sum(1 for x in ratios if x > 1.0)) if ratios else ""]
     for which, count in (("failures", lambda rows: str(len(rows))),
                          ("breaks", lambda rows: "%d %d" % (len(set(r[1] for r in rows)), len(rows))),

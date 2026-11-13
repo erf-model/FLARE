@@ -590,11 +590,33 @@ def read_damage_table(path):
     return out
 
 
+def match_members(damage, demand):
+    """Stop unless the damage table and the demand table come from the same members (stripe, direction, seed)."""
+    want = {}
+    for r in demand:
+        want.setdefault(r["member"], (r["stripe"], r["nominal_direction"], r["seed"]))
+    have = {r["member"]: (r["stripe"], r["nominal_direction"], r["seed"]) for r in damage}
+    # a member whose run recorded no peak ratio has no row in the fit's demand rows, and no max_peak_ratio here
+    extra = sorted(m for m in have if m not in want and
+                   next(r for r in damage if r["member"] == m)["max_peak_ratio"] is not None)
+    missing = sorted(m for m in want if m not in have)
+    for what, names in (("not in the damage table", missing), ("not in the demand table", extra)):
+        if names:
+            stop("damage_states: the two tables are from different members: %d member(s) of the other table are %s: "
+                 "%s%s" % (len(names), what, ", ".join(names[:5]), ", ..." if len(names) > 5 else ""))
+    differ = sorted(m for m in want if want[m] != have[m])
+    if differ:
+        stop("damage_states: member(s) %s%s differ between the two tables in stripe, nominal_direction or seed"
+             % (", ".join(differ[:5]), ", ..." if len(differ) > 5 else ""))
+
+
 def damage_curves(rows, plan, notes):
-    """One set of observations per damage state: a member is in the highest of the listed states it reaches,
-    and counts as exceeding every listed state up to that one. DS1 is a peak ratio above 1 (the rule of the
-    component curves without a capacity distribution), DS2 a line released (breaks.dat), DS3 a tower lost and
-    DS4 at least cascade_towers towers lost (tower_failures.dat). Every member must hold the log a listed
+    """One set of observations per listed damage state. DS1 is a peak ratio above 1 (the rule of the component
+    curves without a capacity distribution), DS2 a line released (breaks.dat), DS3 a tower lost and DS4 at least
+    cascade_towers towers lost (tower_failures.dat). The states are cumulative: a member's level is the highest
+    state it reaches among all four (a state whose log the run did not write is not reached; DS4 is counted only
+    with cascade_towers, and it implies DS3), and it exceeds every listed state up to its level, so a listed
+    state's outcomes do not depend on which other states are listed. Every member must hold the log a listed
     state is read from; the intensity is the member's stripe."""
     states, n = plan.damage["states"], plan.damage["cascade_towers"]
     for state in states:
@@ -605,24 +627,29 @@ def damage_curves(rows, plan, notes):
                 "breaks.dat" if log == "breaks_log" else "tower_failures.dat")
             stop("damage_states: %s needs every member's record, but %d member(s) have %s: %s%s"
                  % (state, len(lacking), why, ", ".join(lacking[:5]), ", ..." if len(lacking) > 5 else ""))
-    reached = {"DS1": lambda r: r["max_peak_ratio"] > 1.0, "DS2": lambda r: r["lines_released"] >= 1,
-               "DS3": lambda r: r["towers_lost"] >= 1, "DS4": lambda r: r["towers_lost"] >= n}
+    def reached(r):
+        # a missing record (no peak ratio, a log the run did not write) is a state not reached
+        return [r["max_peak_ratio"] is not None and r["max_peak_ratio"] > 1.0,
+                r["lines_released"] is not None and r["lines_released"] >= 1,
+                r["towers_lost"] is not None and r["towers_lost"] >= 1,
+                n is not None and r["towers_lost"] is not None and r["towers_lost"] >= n]
     by, odd = {}, []
     for r in rows:
-        flags = [reached[s](r) for s in states]
+        flags = reached(r)
         level = max([i + 1 for i, f in enumerate(flags) if f] or [0])
         if not all(flags[:level]):
             odd.append(r["member"])
         direction = r["nominal_direction"] if plan.by_direction else None
         by.setdefault(direction, []).append((r["member"], r["stripe"], level))
     if odd:
-        notes.append("NOTE %d member(s) reach a damage state without every lower one listed (%s%s); each counts in "
-                     "the highest it reaches and every one below" % (len(odd), ", ".join(odd[:5]),
-                                                                     ", ..." if len(odd) > 5 else ""))
+        notes.append("NOTE %d member(s) reach a damage state without every lower one (%s%s); each counts in the "
+                     "highest it reaches and every one below" % (len(odd), ", ".join(odd[:5]),
+                                                                ", ..." if len(odd) > 5 else ""))
     curves = []
     for direction, members in by.items():
-        for i, state in enumerate(states):
-            obs = [(m, x, x, 1.0 if level > i else 0.0) for m, x, level in members]
+        for state in states:
+            k = STATES.index(state) + 1
+            obs = [(m, x, x, 1.0 if level >= k else 0.0) for m, x, level in members]
             curves.append((state, "damage_state", direction, obs, []))
     return curves
 
@@ -641,7 +668,9 @@ def run(plan, log=print):
         for state in plan.damage["states"]:
             if state in names:
                 stop("damage_states: %s is also the name of a component or group" % state)
-        curves += damage_curves(read_damage_table(plan.path_of(plan.damage["table"])), plan, notes)
+        damage = read_damage_table(plan.path_of(plan.damage["table"]))
+        match_members(damage, rows)
+        curves += damage_curves(damage, plan, notes)
         if plan.capacity:
             notes.append("NOTE the damage states are the runs' own outcomes, at the nominal capacities; capacity "
                          "applies to the component and group curves only")

@@ -90,19 +90,26 @@ recorded) is left out and counted in a note; so is a member without the chosen w
 | `DS3` tower lost | a tower fails (`towers_lost` >= 1) | `tower_failures.dat` (`conductors.tower_failure = release`) |
 | `DS4` cascade | at least `cascade_towers` towers fail (`towers_lost` >= N) | `tower_failures.dat` |
 
-A member is in the highest listed state it reaches and counts as exceeding every listed state up
-to that one. A tower that fails releases its spans, so DS3 implies DS2 in the runs. A member that
-reaches a state without a lower one listed is named in a note and counted in every state up
-to its highest. Every member must hold the record a listed state needs; a member whose run did
+The states are cumulative: the curve of DS*k* is the probability of reaching level *k* or higher.
+A member's level is the highest of the four states it reaches, read from every record its run
+wrote (a log the run did not write is a state not reached; DS4 counts only with
+`cascade_towers`, and it implies DS3). It counts as exceeding every listed state up to its level,
+so a listed state's curve does not depend on which other states are listed. A tower that fails releases its spans, so DS3 implies DS2 in the runs. A member that
+reaches a state without a lower one is named in a note and counted in every state up to its
+highest. Every member must hold the record a listed state needs; a member whose run did
 not write the log stops the tool with the state, the log and the members named. The curves have
 the kind `damage_state`, are fitted against the member's nominal stripe whatever `intensity`
-is, and follow `by_direction`. A state's name may not be the name of a component or group.
+is, and follow `by_direction`. The damage table must hold the same members as the demand table,
+with the same stripe, direction and seed; a table from another ensemble stops the tool. With few
+members the higher states are often `separated` or `no_exceedance`. A state's name may not be the name of a component or group.
 
 DS4's N has no default. It is the user's choice: no source available to this tool gives a number
 of towers that defines a cascade, and the tool prints the N it used. The states are the runs' own
 outcomes at the capacities of the runs' decks, so `capacity` applies only to the component and
-group curves, and the tool says so. Each state is fitted on its own; the fitted curves are not
-forced to keep their order, and with few members two of them can cross.
+group curves, and the tool says so. Each state is fitted on its own and the curves are not
+forced to keep their order: two lognormal curves with different dispersions always cross at some
+wind, often outside the stripes, and inside the stripes' range they can cross when the members
+are few.
 
 ## How to run
 

@@ -523,10 +523,23 @@ class DamageStates(Case):
         released[7] = 1
         code, out, _ = self.call(self.damage_plan(damage=damage_text(released=released)))
         self.assertEqual(code, 0)
-        self.assertIn("NOTE 1 member(s) reach a damage state without every lower one listed (m008_s30_d0_seed4)", out)
+        self.assertIn("NOTE 1 member(s) reach a damage state without every lower one (m008_s30_d0_seed4)", out)
         points = self.table("fragility_points.csv")
         self.assertEqual([p["exceedances"] for p in points if p["curve"] == "DS1"], ["2", "4", "4"])
         self.assertEqual([p["exceedances"] for p in points if p["curve"] == "DS2"], ["0", "3", "4"])
+
+    def test_a_state_does_not_depend_on_the_other_states_listed(self):
+        # m008 (ratio 0.95, a line released) counts in DS1 whether or not DS2 is listed: the states are
+        # cumulative over all four, read from every log the runs wrote
+        released = list(RELEASED)
+        released[7] = 1
+        for states in (["DS1"], ["DS1", "DS3"], ["DS1", "DS2"]):
+            code, out, _ = self.call(self.damage_plan(damage=damage_text(released=released),
+                                                      damage_states={"table": "damage.csv", "states": states}))
+            self.assertEqual(code, 0, states)
+            self.assertIn("(m008_s30_d0_seed4)", out)
+            points = self.table("fragility_points.csv")
+            self.assertEqual([p["exceedances"] for p in points if p["curve"] == "DS1"], ["2", "4", "4"], states)
 
     def test_only_ds1_needs_no_failure_log(self):
         # a capacity distribution changes the component curves only: DS1 is the runs' own outcome
@@ -538,6 +551,23 @@ class DamageStates(Case):
                       "to the component and group curves only", out)
         self.assertEqual([p["exceedances"] for p in self.table("fragility_points.csv") if p["curve"] == "DS1"],
                          ["2", "3", "4"])
+
+    def test_tables_from_other_members_are_refused(self):
+        lines = damage_text().splitlines(True)
+        cases = (("1 member(s) of the other table are not in the damage table: m012_s40_d0_seed4",
+                  "".join(lines[:-1])),
+                 ("1 member(s) of the other table are not in the demand table: m099",
+                  "".join(lines) + lines[1].replace("m001_s20_d0_seed1", "m099")),
+                 ("member(s) m002_s20_d0_seed2 differ between the two tables in stripe, nominal_direction or seed",
+                  "".join(lines).replace("m002_s20_d0_seed2,20,0,2,", "m002_s20_d0_seed2,20,0,7,")),
+                 ("member(s) m005_s30_d0_seed1 differ between the two tables",
+                  "".join(lines).replace("m005_s30_d0_seed1,30,0,", "m005_s30_d0_seed1,35,0,")))
+        for expect, text in cases:
+            code, _, err = self.call(self.damage_plan(damage=text))
+            self.assertEqual(code, 2, expect)
+            self.assertIn("damage_states: " if "member(s) m0" in expect else "damage_states: the two tables are "
+                          "from different members: ", err)
+            self.assertIn(expect, err)
 
     def test_refused(self):
         def refuse(expect, damage=None, **keys):

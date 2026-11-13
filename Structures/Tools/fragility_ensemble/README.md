@@ -38,7 +38,7 @@ A JSON object. Paths are relative to the plan file.
 | `side_type` | the type of the base deck's side faces | `SlipWall`, `NoSlipWall` or `Symmetry`; not with `conductors.prescribed_velocity` | the type of a pair of lateral faces the member's wind blows along |
 | `inputs` | `{}` | deck keys with a number, `true`/`false`, a string (without `#` or `=`) or a list; not an input the members' wind is derived from (see below) | deck inputs set for every member (a capacity, `conductors.gust_type`, `conductors.intensity_averaging_time`) |
 | `support_files` | `[]` | files in the base deck's directory or below it, no repeats; must hold every file the deck names that stands beside it | files copied into every member's directory (a terrain file, a member design file) |
-| `spinup` | none (each member runs from the initial state) | `{"max_step": n}`, n an integer in [1, 100000000] below every member's `max_step`; not with `conductors.prescribed_velocity`; the members' inputs may not set `erf.check_int` or `erf.check_per` | the flow of each stripe and direction runs n steps once, without the structure model, and its members restart from that checkpoint with the lines (see below) |
+| `spinup` | none (each member runs from the initial state) | `{"max_step": n}`, n an integer in [1, 100000000] below every member's `max_step`; not with `conductors.prescribed_velocity`; the members' inputs may not set `erf.check_int`, `erf.check_per`, `amr.check_int` or `amr.check_per`; with `erf.fixed_dt` and `stop_time` given, `stop_time` > n x `erf.fixed_dt`; `erf.check_file` inside the run directory | the flow of each stripe and direction runs n steps once, without the structure model, and its members restart from that checkpoint with the lines (see below) |
 
 The plan gives at most 100 000 members. These inputs cannot be given in `inputs` or in a stripe's
 `inputs`: `conductors.intensity_measure`, `conductors.prescribed_velocity`,
@@ -76,14 +76,15 @@ one `key = value` per line; a `FILE` include is looked for beside the file that 
 
 ### Shared spin-up
 
-The seed sets only `conductors.gust_seed`, which the flow does not see. Members of one stripe and
-direction therefore share one flow. With `spinup`, the driver writes one spin-up run per distinct
+The seed sets only `conductors.gust_seed`, which the flow does not see before the lines are added.
+Members of one stripe and direction therefore share one flow up to the restart. With `spinup`, the driver writes one spin-up run per distinct
 flow under `spinup/<name>` (`u001_s10_d0`: the flow's number, stripe and direction). Its deck is
 the member's deck without any `conductors.` or `erf.structures.` input, with `max_step = n` and
-`erf.check_int = n`. Members are grouped by a SHA-256 of that deck and of their wind files, so a
+`erf.check_int = n`, and without `erf.check_per`, `amr.check_int` and `amr.check_per` (ERF reads
+the `amr.` keys after the `erf.` ones). Members are grouped by a SHA-256 of that deck and of their wind files, so a
 stripe's own `inputs` that change the flow give it its own spin-up. Each member's deck gets
 `amr.restart = ../../spinup/<name>/<check_file>NNNNN` (`erf.check_file`, default `chk`, and n
-written with five digits) and runs from step n to its own `max_step`.
+written with `erf.file_name_digits` digits, default 5) and runs from step n to its own `max_step`.
 
 The spin-up has no structure model because a restart keeps the conductor model's peak demands,
 first exceedances, intensity records and failure logs from the checkpoint. A checkpoint without
@@ -93,8 +94,9 @@ logs on the spun-up flow.
 `run` runs each spin-up once, before its members, and skips one whose status is `done` and whose
 checkpoint `Header` is there. A spin-up that ends with return code 0 but without the checkpoint
 (its `stop_time` ended it before step n) is marked failed. When a spin-up fails, its members are
-marked failed without a run, with the detail `not run: its spin-up spinup/<name> failed (return
-code c)`; giving `run` again tries the spin-up again. The manifest lists the spin-ups
+marked failed without a run, with the detail `not run: its spin-up spinup/<name> failed (...)`,
+where the brackets hold the return code or the missing-checkpoint message; giving `run` again
+removes the spin-up's old checkpoint and tries it again. The manifest lists the spin-ups
 (`spinups`) and each member's (`spinup`).
 
 ## How to run

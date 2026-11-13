@@ -847,6 +847,15 @@ class Spinup(Case):
                 self.assertEqual(read(os.path.join(d, "out", "spinup", g, name)),
                                  read(os.path.join(d, "out", m["directory"], name)))
 
+    def test_the_checkpoint_name_follows_check_file_and_file_name_digits(self):
+        d, plan = self.stage_spinup(inputs={"erf.check_file": "spin/chk", "erf.file_name_digits": 7,
+                                            "stop_time": 2.01})
+        code, out, err = call(["run", "--plan", plan, "--dry-run"])
+        self.assertEqual((code, err), (0, ""), out)
+        manifest = json.loads(read(os.path.join(d, "out", "manifest.json")))
+        self.assertEqual(manifest["spinups"][0]["checkpoint"], "spin/chk0000004")
+        self.assertEqual(manifest["members"][0]["inputs"]["amr.restart"], "../../spinup/u001_s10_d0/spin/chk0000004")
+
     def test_without_spinup_the_manifest_has_no_spin_ups(self):
         d = self.stage("base_inflow")
         self.assertEqual(call(["run", "--plan", os.path.join(d, "plan.json"), "--dry-run"])[0], 0)
@@ -872,6 +881,21 @@ class Spinup(Case):
         self.assertEqual(code, 2)
         self.assertIn("spinup: m001_s10_d0_seed3's inputs set erf.check_int; the driver sets the spin-up's checkpoint "
                       "itself", err)
+        for inputs, expect in (({"amr.check_int": 2}, "spinup: m001_s10_d0_seed3's inputs set amr.check_int"),
+                               ({"amr.check_per": 1.0}, "spinup: m001_s10_d0_seed3's inputs set amr.check_per"),
+                               ({"erf.check_file": "/scratch/chk"}, "spinup: erf.check_file = /scratch/chk must lie "
+                                                                    "inside the run directory"),
+                               ({"erf.check_file": "../chk"}, "spinup: erf.check_file = ../chk must lie inside"),
+                               ({"erf.file_name_digits": "x"}, "spinup: erf.file_name_digits = x is not an integer"),
+                               ({"erf.file_name_digits": 0}, "spinup: erf.file_name_digits = 0 must be in [1, 20]"),
+                               # 4 steps of 0.5 s end at 2 s
+                               ({"stop_time": 2.0}, "spinup: m001_s10_d0_seed3's stop_time = 2 s ends at or before the "
+                                                    "spin-up's end (max_step 4 x erf.fixed_dt 0.5 s = 2 s)")):
+            d = self.stage("base_inflow")
+            code, _, err = call(["run", "--plan", self.edit_plan(d, spinup={"max_step": 4}, inputs=inputs),
+                                 "--dry-run"])
+            self.assertEqual(code, 2, inputs)
+            self.assertIn(expect, err)
         d = self.stage("base_prescribed")
         code, _, err = call(["run", "--plan", self.edit_plan(d, spinup={"max_step": 4}), "--dry-run"])
         self.assertEqual(code, 2)
@@ -946,6 +970,14 @@ class Spinup(Case):
         self.assertIn("NOT COLLECTED m003_s20_d0_seed3: bad_breaks_log (conductors/breaks.dat: its header is not "
                       "'time line released component tension')", out)
 
+    def test_a_component_never_recorded_is_left_out_of_the_damage_summary(self):
+        # an empty peak ratio (a component the run never recorded) neither stops collect nor counts
+        header = ["kind", "component", "peak_ratio"]
+        body = [["conductor", "S1", "1.2"], ["hardware", "S1_end_a", ""], ["hardware", "S1_end_b", "0.7"]]
+        logs = {"failures": [], "breaks": None, "tower_failures": None}
+        self.assertEqual(fe.damage_row(header, body, logs), ["1.2", "1", "yes", "0", "no", "", "", "no", ""])
+        self.assertEqual(fe.damage_row(header, [["hardware", "S1_end_a", ""]], logs)[:2], ["", ""])
+
     def test_a_finished_spin_up_whose_checkpoint_is_gone_runs_again(self):
         d, argv = self.stage_run()
         open(os.path.join(d, "repaired"), "w").close()
@@ -965,6 +997,10 @@ class Spinup(Case):
         text = read(os.path.join(d, "fake_erf.py")).replace('chk = "chk%05d"', 'chk = "other%05d"')
         with open(os.path.join(d, "fake_erf.py"), "w") as f:
             f.write(text)
+        # an earlier attempt's checkpoint, left behind, must not be taken for this run's
+        self.assertEqual(call(argv[:3] + ["--dry-run"])[0], 0)
+        os.makedirs(os.path.join(d, "out", "spinup", "u001_s10_d0", "chk00004"))
+        open(os.path.join(d, "out", "spinup", "u001_s10_d0", "chk00004", "Header"), "w").close()
         code, out, _ = call(argv)
         self.assertEqual(code, 1)
         self.assertIn("u001_s10_d0: spin-up failed (return code 0)", out)

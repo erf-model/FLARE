@@ -1893,11 +1893,13 @@ driver is interrupted or receives SIGTERM it ends the run with it, and that
 member runs again next time.
 
 **Shared spin-up.** The seed sets only ``conductors.gust_seed``, which the
-flow does not see, so the members of one stripe and direction share one flow.
+flow does not see before the lines are added, so the members of one stripe
+and direction share one flow up to the restart.
 With the plan key ``spinup: {"max_step": n}`` the script writes one spin-up
 run per distinct flow under ``spinup/``: the member's deck without any
 ``conductors.`` or ``erf.structures.`` input, run for n steps with a
-checkpoint at step n. Members are grouped by a SHA-256 of that deck and of
+checkpoint at step n (``erf.check_int``; ``erf.check_per`` and the
+``amr.check_*`` keys, which ERF reads after the ``erf.`` ones, are removed). Members are grouped by a SHA-256 of that deck and of
 their wind files. Each member restarts from the checkpoint
 (``amr.restart``) with the structure model and runs to its own
 ``max_step``. The spin-up leaves the structure model out because a restart
@@ -1979,8 +1981,9 @@ without a demand table, a failed one, one not run and one with another
 header; ``FragilityEnsemble_Spinup`` compares the spin-up decks and the
 members' restart paths with values written by hand, requires each spin-up to
 run once, a failed or checkpoint-less one to hold back its members, a lost
-checkpoint to be run again, and the gathered failure logs and damage table
-to hold the stand-in's rows. No test runs ERF. The tool's README records two ensembles run by
+checkpoint to be run again, an earlier attempt's checkpoint not to be taken,
+the checkpoint name to follow ``erf.check_file`` and ``erf.file_name_digits``,
+and the gathered failure logs and damage table to hold the stand-in's rows. No test runs ERF. The tool's README records two ensembles run by
 hand: four members on ``Conductors_TwoLevel``, whose recorded wind equals the
 planned stripe within 0.01 % and the planned direction within 0.001°, and an
 oblique wind through two inflow faces on ``Conductors_RandomGusts``.
@@ -2182,10 +2185,15 @@ towers, member :math:`i` reaches
    \mathrm{DS3}: T_i \ge 1, \quad
    \mathrm{DS4}: T_i \ge N.
 
-**What the level is.** The member's level is the highest listed state it
-reaches, and its outcome is 1 for every listed state up to that level and 0
-above it. A member that reaches a state without a lower one listed is named
-in a note. A lost tower releases its spans, so DS3 implies DS2 in the runs.
+**What the level is.** The states are cumulative:
+:math:`P(\mathrm{DS}k \mid V)` is the probability of reaching level
+:math:`k` or higher, which nests the counts. The member's level is the
+highest of the four states it reaches, read from every record its run wrote
+(a log not written is a state not reached), and its outcome is 1 for every
+listed state up to that level and 0 above it, so a state's curve does not
+depend on which other states are listed. A member that reaches a state
+without a lower one is named in a note. The damage table must hold the same
+members, stripes, directions and seeds as the demand table. A lost tower releases its spans, so DS3 implies DS2 in the runs.
 The curves are fitted against the nominal stripe with the likelihood above.
 
 **Why N has no default.** :math:`N`, the number of lost towers that makes a
@@ -2228,8 +2236,10 @@ probability at that mean wind.
   assumption beyond the points in ``fragility_points.csv``.
 * No spread is given for curves fitted to probabilities. A spread from
   resampling the members would need its own source and is not in the tool.
-* Damage states are fitted one by one. Their curves are not forced to keep
-  their order and can cross when the members are few.
+* Damage states are fitted one by one and are not forced to keep their
+  order. Two lognormal curves with different :math:`\beta` always cross at
+  some wind, often outside the stripes; inside the stripes' range they can
+  cross when the members are few.
 
 **Tests.** ``FragilityFit_Published`` reproduces numbers printed in Baker
 (2015): with a true :math:`\theta = 1` and :math:`\beta = 0.4`, 40
@@ -2256,8 +2266,9 @@ the command (a separated conductor, a fitted hardware item, groups by Eq.
 the rows), ``FragilityFit_Refused`` gives every plan key a value out of
 range and the tool tables it cannot use, and ``FragilityFit_DamageStates``
 counts DS1 to DS4 by hand for twelve members, requires DS1 to equal the
-curve of the group of every component, moves the cascade threshold, and
-names a member that skips a state. The tool's README records the fit of
+curve of the group of every component, moves the cascade threshold, names a member that skips a state, requires a
+state's counts not to change with the other states listed, and refuses a
+damage table from other members. The tool's README records the fit of
 one ensemble that was run.
 
 **References.**
