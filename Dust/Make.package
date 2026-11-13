@@ -3,9 +3,6 @@
 # DUST_MODEL_DIR set to it and the directory already on VPATH and the include
 # path. The layer registers as erf.dust.model = flare (ERF_FlareDustModel.cpp).
 
-# FLARE's dust layer is the model a deck gets when it names none (see ERFDustModel.cmake)
-DEFINES += -DERF_DUST_DEFAULT_MODEL=\"flare\"
-
 CEXE_sources += ERF_FlareDustModel.cpp
 CEXE_sources += ERF_DustGrid.cpp
 CEXE_sources += ERF_DustPrerequisites.cpp

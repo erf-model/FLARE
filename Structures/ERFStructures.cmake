@@ -1,8 +1,8 @@
 # FLARE's structures (Structures/): the MoorDyn-C wrapper and the lattice tower models.
 # The top-level CMakeLists.txt includes this file when ERF_ENABLE_STRUCTURES is ON.
-# It turns on the actuator core and the structure coupling (ERF_ENABLE_MOVING_BODIES),
-# adds this directory to ERF_STRUCTURE_MODEL_DIRS, so ERF compiles the sources listed in
-# ERFStructureModel.cmake, and finds MoorDyn-C or builds the bundled stub.
+# It turns on the actuator core and the structure coupling (ERF_ENABLE_MOVING_BODIES)
+# before ERF is configured, and finds MoorDyn-C or builds the bundled stub. The sources
+# listed in ERFStructureModel.cmake are compiled into flare (flare_add_models).
 
 list(APPEND CMAKE_MESSAGE_CONTEXT "Structures")
 message(STATUS "Configuring FLARE structures (Structures/)")
@@ -14,17 +14,6 @@ if(NOT ERF_ENABLE_MOVING_BODIES)
   message(STATUS "ERF_ENABLE_STRUCTURES=ON turns ERF_ENABLE_MOVING_BODIES on for this configure")
 endif()
 set(ERF_ENABLE_MOVING_BODIES ON)
-# Structures/ is compiled in through this option only: a user entry in
-# ERF_STRUCTURE_MODEL_DIRS that resolves to it (relative path, trailing slash) is refused
-# rather than added twice
-foreach(_erf_dir IN LISTS ERF_STRUCTURE_MODEL_DIRS)
-  get_filename_component(_erf_dir_abs "${_erf_dir}" ABSOLUTE)
-  if(_erf_dir_abs STREQUAL "${PROJECT_SOURCE_DIR}/Structures")
-    message(FATAL_ERROR "ERF_STRUCTURE_MODEL_DIRS lists ${_erf_dir}, FLARE's Structures/ directory; "
-                        "ERF_ENABLE_STRUCTURES=ON compiles it in, so leave it out of ERF_STRUCTURE_MODEL_DIRS")
-  endif()
-endforeach()
-list(APPEND ERF_STRUCTURE_MODEL_DIRS "${PROJECT_SOURCE_DIR}/Structures")
 
 set(MOORDYN_DIR "" CACHE PATH "MoorDyn-C install prefix (Structures/setup_moordyn.sh); read unless ERF_MOORDYN_USE_STUB=ON")
 
@@ -37,15 +26,7 @@ if(ERF_MOORDYN_USE_STUB)
   target_include_directories(erf_moordyn_stub PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/Structures/MoorDyn/Stub>
     $<INSTALL_INTERFACE:include>)
-  # position independent, as erf_srclib links it PUBLIC and may itself be shared (BUILD_SHARED_LIBS)
-  set_target_properties(erf_moordyn_stub PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON
-                                                    POSITION_INDEPENDENT_CODE ON)
-  if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)   # installed with ERF, as CMakeLists.txt does
-    install(TARGETS erf_moordyn_stub EXPORT ERFTargets ARCHIVE DESTINATION lib)
-    # the installed ERF_MoorDynSystem.H includes <moordyn/MoorDyn2.h>: install the stub's copy with it
-    install(FILES ${PROJECT_SOURCE_DIR}/Structures/MoorDyn/Stub/moordyn/MoorDyn2.h
-            DESTINATION include/moordyn)
-  endif()
+  set_target_properties(erf_moordyn_stub PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
   set(ERF_MOORDYN_VERSION "stub")
 else()
   # MoorDyn-C installs lib/cmake/moordyn/MoorDynConfig.cmake (target MoorDyn::moordyn) and

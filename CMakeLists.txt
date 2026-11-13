@@ -1,867 +1,105 @@
 ############################ BASE ######################################
 
-cmake_minimum_required (VERSION 3.20 FATAL_ERROR)
+# FLARE uses ERF the way ERF uses AMReX: ERF (Submodules/ERF) is a library, ERF::erf, and
+# FLARE builds its own executable, flare, from its own sources -- the fire engine
+# (FireEngine/), the dust layer (Dust/), the structures (Structures/) and its problem file
+# (Exec/ERF_Prob.cpp) -- with ERF's main.cpp, compile flags and GPU settings
+# (erf_setup_executable). FLARE hands ERF none of its model-directory hooks
+# (ERF_FIRE_ENGINE_DIRS, ERF_DUST_MODEL_DIRS, ERF_STRUCTURE_MODEL_DIRS): its models register
+# themselves (ERF_REGISTER_FIRE_ENGINE, _DUST_MODEL, _STRUCTURE_MODEL) from files compiled
+# into flare.
+#
+#   git submodule update --init --recursive
+#   cmake -S . -B build -DERF_ENABLE_MPI=ON [-DERF_ENABLE_DUST=ON] [-DERF_ENABLE_STRUCTURES=ON]
+#   cmake --build build
+#
+# Every ERF option (ERF_ENABLE_MPI, ERF_ENABLE_CUDA, ERF_ENABLE_NETCDF, ...) is given on this
+# configure line as for ERF itself.
 
-# A parent project that adds ERF with add_subdirectory may set ERF options as normal
-# variables before the call. Under CMP0126 OLD, the first configure lets each
-# set(... CACHE ...) below remove that variable, so the option takes its default
-# until the next configure. NEW keeps the parent's value. This concerns the options set
-# with set(... CACHE ...), such as ERF_STRUCTURE_MODEL_DIRS; option() already keeps a
-# normal variable (CMP0077). CMake 3.20 has no CMP0126, and there a parent passes those
-# options as cache variables; the internal AMReX needs CMake 3.25 in any case.
-if(POLICY CMP0126)
-  cmake_policy(SET CMP0126 NEW)
+cmake_minimum_required(VERSION 3.25 FATAL_ERROR)
+project(FLARE CXX C)
+
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/Submodules/ERF/CMake/BuildERFExe.cmake")
+  message(FATAL_ERROR "Submodules/ERF is empty: run git submodule update --init --recursive")
 endif()
-
-# Set main ERF context
-list(APPEND CMAKE_MESSAGE_CONTEXT "ERF")
-
-# Include Cray compiler detection BEFORE project() to set compilers
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
-include(CrayCompilerDetection)
-
-if(ERF_ENABLE_MORR_FORT OR ERF_ENABLE_WSM6_FORT OR ERF_ENABLE_WDM6_FORT OR ERF_ENABLE_NOAHMP)
-  project(ERF CXX C Fortran)
-else()
-  project(ERF CXX C)
-endif()
-
-message(STATUS "Configuring ERF")
-message(VERBOSE "Source directory: ${PROJECT_SOURCE_DIR}")
-message(VERBOSE "Build directory: ${PROJECT_BINARY_DIR}")
-
-function(print_target_properties target_name)
-  if(NOT TARGET ${target_name})
-    message(STATUS "=== Target ${target_name} does not exist ===")
-    return()
-  endif()
-
-  message(STATUS "=== Target: ${target_name} ===")
-
-  # Define properties to check
-  set(prop_names
-    INTERFACE_INCLUDE_DIRECTORIES
-    INTERFACE_LINK_OPTIONS
-    INTERFACE_LINK_LIBRARIES
-  )
-
-  set(display_names
-    "Include Directories"
-    "Link Options"
-    "Link Libraries"
-  )
-
-  list(LENGTH prop_names num_props)
-  math(EXPR last_index "${num_props} - 1")
-
-  foreach(idx RANGE ${last_index})
-    list(GET prop_names ${idx} prop_name)
-    list(GET display_names ${idx} display_name)
-
-    get_target_property(values ${target_name} ${prop_name})
-    if(values)
-      message(VERBOSE "  ${display_name}:")
-      foreach(value IN LISTS values)
-        message(VERBOSE "    ${value}")
-      endforeach()
-    endif()
-  endforeach()
-
-  message(STATUS "")
-endfunction()
-
-# Find NVHPC package and create aliases if needed
-if(ERF_ENABLE_CUDA AND ERF_ENABLE_NVHPC)
-  list(APPEND CMAKE_MESSAGE_CONTEXT "NVHPC")
-  message(STATUS "Configuring NVHPC CUDA support")
-
-  find_package(NVHPC QUIET COMPONENTS MATH CUDA)
-
-  if(NOT NVHPC_FOUND)
-    message(STATUS "")
-    message(STATUS "====================================================================")
-    message(STATUS "NVHPC Detection Failed")
-    message(STATUS "====================================================================")
-    message(STATUS "")
-    message(STATUS "To resolve:")
-    message(STATUS "  Load NVHPC module or set NVHPC_ROOT")
-    message(STATUS "")
-    message(STATUS "  Example:")
-    message(STATUS "    module load nvhpc")
-    message(STATUS "    cmake -DNVHPC_ROOT=/path/to/nvhpc ..")
-    message(STATUS "")
-    message(STATUS "====================================================================")
-    message(STATUS "")
-    message(FATAL_ERROR "NVHPC required but not found")
-  endif()
-
-  message(STATUS "Found NVHPC")
-
-  function(create_cuda_alias nvhpc_target cuda_name)
-    if(TARGET NVHPC::${nvhpc_target} AND NOT TARGET CUDA::${cuda_name})
-      add_library(CUDA::${cuda_name} ALIAS NVHPC::${nvhpc_target})
-      message(STATUS "  Created alias: CUDA::${cuda_name} -> NVHPC::${nvhpc_target}")
-    elseif(NOT TARGET NVHPC::${nvhpc_target})
-      message(WARNING "  Cannot create alias CUDA::${cuda_name}: NVHPC::${nvhpc_target} not found")
-    endif()
-  endfunction()
-
-  create_cuda_alias(CUBLAS cublas)
-  create_cuda_alias(CUBLAS_STATIC cublas_static)
-  create_cuda_alias(CURAND curand)
-  create_cuda_alias(CURAND_STATIC curand_static)
-  create_cuda_alias(CUSPARSE cusparse)
-  create_cuda_alias(CUSPARSE_STATIC cusparse_static)
-
-  list(POP_BACK CMAKE_MESSAGE_CONTEXT)
-endif()
-
-list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/CMake")
-include(CMakePackageConfigHelpers)
-
-# Include Cray/Perlmutter auto-detection and fixes
-include(CrayDetection)
-include(UtilityTargets)
 
 ########################## OPTIONS #####################################
 
-message(VERBOSE "Configuring build options")
+# FLARE's defaults for ERF's options: the fire coupling is on, since FLARE is a fire model.
+# These are cache entries made before ERF's own option() calls, so a value on the configure
+# line still wins.
+option(ERF_ENABLE_FIRE "Enable the fire coupling and FLARE's fire engine (FireEngine/)" ON)
+option(ERF_ENABLE_DUST "Enable the dust coupling and FLARE's dust layer (Dust/)" OFF)
 
-#General options for all executables in the project
-set(ERF_DIM "3" CACHE STRING "Number of physical dimensions")
-option(ERF_ENABLE_DOCUMENTATION "Build documentation" OFF)
-option(ERF_ENABLE_ALL_WARNINGS "Enable all compiler warnings" OFF)
-option(ERF_ENABLE_TESTS "Enable regression and unit tests" OFF)
-option(ERF_ENABLE_REGRESSION_TESTS_ONLY "Enable only regression tests" OFF)
-option(ERF_ENABLE_SBM_AMR_QUALIFICATION
-  "Build an isolated internal executable for fixed two-level periodic SBM qualification" OFF)
-set(_erf_enable_unit_tests_default OFF)
-if(ERF_ENABLE_TESTS AND NOT ERF_ENABLE_REGRESSION_TESTS_ONLY)
-  set(_erf_enable_unit_tests_default ON)
-endif()
-option(ERF_ENABLE_UNIT_TESTS "Enable gtest-based unit tests" ${_erf_enable_unit_tests_default})
-if(ERF_ENABLE_REGRESSION_TESTS_ONLY)
-  set(ERF_ENABLE_UNIT_TESTS OFF CACHE BOOL "Enable gtest-based unit tests" FORCE)
-  set(ERF_ENABLE_UNIT_TESTS OFF)   # also over a normal variable a parent project set (CMP0126 NEW)
-endif()
-option(ERF_USE_INTERNAL_AMREX "Add AMReX as subproject" ON)
-option(ERF_ENABLE_NETCDF "Enable NetCDF IO" OFF)
-option(ERF_ENABLE_HDF5 "Enable HDF5 IO" ${ERF_ENABLE_NETCDF})
-option(ERF_ENABLE_PARTICLES "Enable Lagrangian particles" OFF)
-option(ERF_ENABLE_FCOMPARE "Enable building fcompare when not testing" OFF)
-option(ERF_EXCLUDE_PLOTFILE_TOOLS_FROM_ALL
-  "Skip bundled AMReX plotfile tools in the default build (compile-only CI)" OFF)
-set(ERF_PRECISION "DOUBLE" CACHE STRING "Floating point precision SINGLE or DOUBLE")
-set(ERF_PARTICLES_PRECISION "${ERF_PRECISION}" CACHE STRING "Particle floating point precision SINGLE or DOUBLE")
-
-option(ERF_ENABLE_RRTMGP "Enable RTE-RRTMGP Radiation" OFF)
-option(ERF_ENABLE_ML_UPHYS_DIAGNOSTICS "Enable ML UPHYS diagnostics in SDM" OFF)
-if(ERF_ENABLE_ML_UPHYS_DIAGNOSTICS AND NOT ERF_ENABLE_PARTICLES)
-  message(FATAL_ERROR "ERF_ENABLE_ML_UPHYS_DIAGNOSTICS requires particles be enabled")
-endif()
-option(ERF_ENABLE_EAMXX_SHOC "Build EAMxx SHOC parameterization" OFF)
-option(ERF_ENABLE_SHOC "Deprecated alias for ERF_ENABLE_EAMXX_SHOC" OFF)
-if(ERF_ENABLE_SHOC AND NOT ERF_ENABLE_EAMXX_SHOC)
-  message(WARNING "ERF_ENABLE_SHOC is deprecated; use ERF_ENABLE_EAMXX_SHOC=ON")
-  set(ERF_ENABLE_EAMXX_SHOC ON CACHE BOOL "Build EAMxx SHOC parameterization" FORCE)
-  set(ERF_ENABLE_EAMXX_SHOC ON)   # also over a normal variable a parent project set (CMP0126 NEW)
-endif()
-
-# The checked-in Source/PhysicsInterfaces/eamxx_config.h defines SCREAM_DOUBLE_PRECISION, so
-# scream::Real is double and the EAMxx ETI files we compile only instantiate the SHOC templates
-# for double.  ERF instantiates them with amrex::Real, so a SINGLE precision build would ask for
-# Functions<float,...> and fail to link.  Refuse the combination here rather than at link time.
-if(ERF_ENABLE_EAMXX_SHOC AND NOT ERF_PRECISION STREQUAL "DOUBLE")
-  message(FATAL_ERROR "ERF_ENABLE_EAMXX_SHOC requires ERF_PRECISION=DOUBLE because the vendored "
-                      "eamxx_config.h builds EAMxx in double precision")
-endif()
-
-#Options for performance
-option(ERF_ENABLE_MPI "Enable MPI" OFF)
-option(ERF_ENABLE_OPENMP "Enable OpenMP" OFF)
-option(ERF_ENABLE_CUDA "Enable CUDA" OFF)
-option(ERF_ENABLE_HIP  "Enable HIP" OFF)
-option(ERF_ENABLE_SYCL "Enable SYCL" OFF)
-option(ERF_ENABLE_NVHPC "Enable NVHPC" OFF)
-
-# ERF builds for at most one parallel backend at a time. Mirror the GNU Make
-# guard in Exec/Make.ERF and reject a multi-backend selection here rather than
-# configuring it.
-set(ERF_BACKENDS_ENABLED "")
-foreach(_erf_backend OPENMP CUDA HIP SYCL)
-  if (ERF_ENABLE_${_erf_backend})
-    list(APPEND ERF_BACKENDS_ENABLED "ERF_ENABLE_${_erf_backend}")
-  endif()
-endforeach()
-list(LENGTH ERF_BACKENDS_ENABLED _erf_num_backends)
-if (_erf_num_backends GREATER 1)
-  string(REPLACE ";" ", " _erf_backend_list "${ERF_BACKENDS_ENABLED}")
-  message(FATAL_ERROR
-    "At most one of ERF_ENABLE_OPENMP, ERF_ENABLE_CUDA, ERF_ENABLE_HIP, ERF_ENABLE_SYCL may be ON; got ${_erf_backend_list}")
-endif()
-unset(_erf_backend)
-unset(_erf_num_backends)
-unset(_erf_backend_list)
-
-#Options for NOAH-MP
-option(ERF_ENABLE_NOAHMP "Enable Noah-MP" OFF)
-
-#Other parameterizations
-option(ERF_ENABLE_WINDFARM "Enable wind farm parameterizations" OFF)
-option(ERF_ENABLE_FIRE "Enable the fire coupling (the atmosphere side) and FLARE, the fire engine in FireEngine/" ON)
-set(ERF_FIRE_ENGINE_DIRS "" CACHE STRING "Further fire engine directories (each with ERFFireEngine.cmake) to compile in; needs ERF_ENABLE_FIRE")
-option(ERF_ENABLE_MOVING_BODIES "Enable the actuator core and the structure coupling for bodies in the flow (Source/MovingBodies)" OFF)
-set(ERF_STRUCTURE_MODEL_DIRS "" CACHE STRING "Structure model directories (each with ERFStructureModel.cmake) to compile in; needs ERF_ENABLE_MOVING_BODIES")
+# FLARE's own options
 option(ERF_ENABLE_STRUCTURES "Build FLARE's structures in Structures/ (the MoorDyn-C wrapper, the tower models and the conductor model; implies ERF_ENABLE_MOVING_BODIES)" OFF)
 option(ERF_MOORDYN_USE_STUB "Build FLARE's structures against the bundled MoorDyn stub instead of MoorDyn-C (for testing where MoorDyn-C is not installed)" OFF)
 if(ERF_MOORDYN_USE_STUB AND NOT ERF_ENABLE_STRUCTURES)
   message(FATAL_ERROR "ERF_MOORDYN_USE_STUB needs ERF_ENABLE_STRUCTURES=ON: the stub stands in for MoorDyn-C in FLARE's structures")
 endif()
-option(ERF_ENABLE_DUST "Enable the dust coupling (the atmosphere side; dust models plug into it)" OFF)
-set(ERF_NUM_DUST_SCALARS "1" CACHE STRING "Number of passive scalars the dust coupling adds to the state; needs ERF_ENABLE_DUST")
-set(ERF_DUST_MODEL_DIRS "" CACHE STRING "Dust model directories (each with ERFDustModel.cmake) to compile in; needs ERF_ENABLE_DUST")
-# FLARE's dust layer (Dust/) is compiled in with the dust coupling, before any
-# further dust model directory, as FireEngine/ is with the fire coupling
-if(ERF_ENABLE_DUST)
-  list(PREPEND ERF_DUST_MODEL_DIRS "${PROJECT_SOURCE_DIR}/Dust")
-endif()
-option(ERF_ENABLE_WSM6_FORT "Enable WSM6 Fortran bridge calls" OFF)
-option(ERF_ENABLE_WDM6_FORT "Enable WDM6 Fortran bridge calls" OFF)
+option(FLARE_ENABLE_TESTS "Enable FLARE's regression tests (Tests/CTestList.cmake)" OFF)
+option(FLARE_ENABLE_UNIT_TESTS "Enable FLARE's GoogleTest unit tests (Tests/Unit)" ${FLARE_ENABLE_TESTS})
 
-if(ERF_ENABLE_WSM6_FORT AND NOT ERF_PRECISION STREQUAL "DOUBLE")
-  message(FATAL_ERROR "ERF_ENABLE_WSM6_FORT requires ERF_PRECISION=DOUBLE because the WSM6 Fortran bridge is double-precision only")
+# ERF's own tests stay in ERF: FLARE registers only its own
+set(ERF_ENABLE_TESTS OFF)
+set(ERF_ENABLE_UNIT_TESTS OFF)
+if(FLARE_ENABLE_TESTS)
+  set(ERF_ENABLE_FCOMPARE ON)   # amrex_fcompare and the other plotfile tools FLARE's tests use
 endif()
 
-if(ERF_ENABLE_WDM6_FORT AND NOT ERF_PRECISION STREQUAL "DOUBLE")
-  message(FATAL_ERROR "ERF_ENABLE_WDM6_FORT requires ERF_PRECISION=DOUBLE because the WDM6 Fortran bridge is double-precision only")
+if(ERF_ENABLE_FIRE)
+  # nvlink refused the fire kernels and the line and plane samplers with "uses too much data
+  # for compiler-generated constants" (October 2026). ERF's set_erf_compile_flags appends to
+  # this list, for ERF's library and for flare alike.
+  list(APPEND ERF_CUDA_FLAGS "--ptxas-options=--disable-optimizer-constants")
 endif()
 
-#Option to build tools
-option(ERF_ENABLE_TOOLS "Enable building of additional tools" OFF)
+########################## STRUCTURES ##################################
 
-#Options for C++
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-if(ERF_ENABLE_CUDA)
-  enable_language(CUDA)
-  if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS "11.0")
-    message(FATAL_ERROR "Your nvcc version is ${CMAKE_CUDA_COMPILER_VERSION} which is unsupported."
-      "Please use CUDA toolkit version 11.0 or newer.")
-  endif()
-endif()
-
-if(NOT ERF_DIM EQUAL 3)
-  message(FATAL_ERROR "ERF is only supported in 3D.")
-endif()
-
-# Configure measuring code coverage in tests
-option(CODECOVERAGE "Enable code coverage profiling" OFF)
-if(CODECOVERAGE)
-  message(VERBOSE "Enabling code coverage profiling")
-  # Only supports GNU
-  if(NOT CMAKE_CXX_COMPILER_ID MATCHES GNU)
-    message(WARNING "CODECOVERAGE is only support with GNU Compilers. The current C++ compiler is ${CMAKE_CXX_COMPILER_ID}")
-  endif()
-  if(NOT CMAKE_C_COMPILER_ID MATCHES GNU)
-    message(WARNING "CODECOVERAGE is only support with GNU Compilers. The current C compiler is ${CMAKE_C_COMPILER_ID}")
-  endif()
-
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
-endif()
-
-########################### AMReX #####################################
-
-list(APPEND CMAKE_MESSAGE_CONTEXT "AMReX")
-
-if (${ERF_USE_INTERNAL_AMREX})
-    message(STATUS "Using internal AMReX submodule")
-    set(AMREX_SUBMOD_LOCATION "${PROJECT_SOURCE_DIR}/Submodules/AMReX")
-    include(${PROJECT_SOURCE_DIR}/CMake/SetAmrexOptions.cmake)
-    list(APPEND CMAKE_MODULE_PATH "${AMREX_SUBMOD_LOCATION}/Tools/CMake")
-
-    add_subdirectory(${AMREX_SUBMOD_LOCATION})
-
-    # Compile-only CI does not run the regression tests that need these tools.
-    # Keep their targets available for explicit builds, including fcompare.
-    if(AMReX_PLOTFILE_TOOLS AND ERF_EXCLUDE_PLOTFILE_TOOLS_FROM_ALL)
-      set_property(DIRECTORY ${AMREX_SUBMOD_LOCATION}/Tools/Plotfile
-        PROPERTY EXCLUDE_FROM_ALL TRUE)
-    endif()
-
-    # Print AMReX properties
-    print_target_properties(amrex)
-
-    # Multi-config generators (Visual Studio) put binaries in a per-config subdirectory
-    # that is not known at configure time, so the path keeps a wildcard for the test
-    # launchers to expand. Single-config generators (Ninja on Windows, everything on
-    # Linux and macOS) have no subdirectory and get a plain path.
-    get_property(_erf_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
-    if(WIN32 AND _erf_multi_config)
-      set(FCOMPARE_EXE ${PROJECT_BINARY_DIR}/Submodules/AMReX/Tools/Plotfile/*/amrex_fcompare.exe
-        CACHE STRING "Path to fcompare executable for regression tests")
-      set(FEXTREMA_EXE ${PROJECT_BINARY_DIR}/Submodules/AMReX/Tools/Plotfile/*/amrex_fextrema.exe
-        CACHE STRING "Path to fextrema executable for regression tests")
-      set(FEXTRACT_EXE ${PROJECT_BINARY_DIR}/Submodules/AMReX/Tools/Plotfile/*/amrex_fextract.exe
-        CACHE STRING "Path to fextract executable for regression tests")
-    else()
-      set(FCOMPARE_EXE ${PROJECT_BINARY_DIR}/Submodules/AMReX/Tools/Plotfile/amrex_fcompare${CMAKE_EXECUTABLE_SUFFIX}
-        CACHE STRING "Path to fcompare executable for regression tests")
-      set(FEXTREMA_EXE ${PROJECT_BINARY_DIR}/Submodules/AMReX/Tools/Plotfile/amrex_fextrema${CMAKE_EXECUTABLE_SUFFIX}
-        CACHE STRING "Path to fextrema executable for regression tests")
-      set(FEXTRACT_EXE ${PROJECT_BINARY_DIR}/Submodules/AMReX/Tools/Plotfile/amrex_fextract${CMAKE_EXECUTABLE_SUFFIX}
-        CACHE STRING "Path to fextract executable for regression tests")
-    endif()
-    message(VERBOSE "fcompare executable: ${FCOMPARE_EXE}")
-    message(VERBOSE "fextrema executable: ${FEXTREMA_EXE}")
-    message(VERBOSE "fextract executable: ${FEXTRACT_EXE}")
-else()
-    message(STATUS "Using external AMReX")
-
-    if (TARGET AMReX::amrex OR TARGET amrex)
-      message(STATUS "Using AMReX target from parent project")
-      if (TARGET amrex AND NOT TARGET AMReX::amrex)
-        add_library(AMReX::amrex ALIAS amrex)
-      endif()
-      if (TARGET AMReX::amrex)
-        print_target_properties(AMReX::amrex)
-      else()
-        print_target_properties(amrex)
-      endif()
-    else()
-      set(CMAKE_PREFIX_PATH ${AMREX_DIR} ${CMAKE_PREFIX_PATH})
-      if(ERF_PRECISION STREQUAL "SINGLE")
-        set(_amrex_mesh_precision_component "SINGLE")
-      else()
-        set(_amrex_mesh_precision_component "DOUBLE")
-      endif()
-      if(ERF_PARTICLES_PRECISION STREQUAL "SINGLE")
-        set(_amrex_particle_precision_component "PSINGLE")
-      else()
-        set(_amrex_particle_precision_component "PDOUBLE")
-      endif()
-      list(APPEND AMREX_COMPONENTS
-        "3D" "PIC" "PARTICLES"
-        "${_amrex_particle_precision_component}"
-        "${_amrex_mesh_precision_component}"
-        "LSOLVERS")
-      if (ERF_ENABLE_MPI)
-        list(APPEND AMREX_COMPONENTS "MPI")
-      endif()
-      if (ERF_ENABLE_OPENMP)
-        list(APPEND AMREX_COMPONENTS "OMP")
-      endif()
-      if (ERF_ENABLE_CUDA)
-        list(APPEND AMREX_COMPONENTS "CUDA")
-      endif()
-      if (ERF_ENABLE_SYCL)
-        list(APPEND AMREX_COMPONENTS "SYCL")
-      endif()
-      if (ERF_ENABLE_ROCM)
-        list(APPEND AMREX_COMPONENTS "HIP")
-      endif()
-      if (ERF_ENABLE_HYPRE)
-        list(APPEND AMREX_COMPONENTS "HYPRE")
-      endif()
-      if (ERF_ENABLE_TINY_PROFILE)
-        list(APPEND AMREX_COMPONENTS "TINY_PROFILE")
-      endif()
-
-      separate_arguments(AMREX_COMPONENTS)
-      message(VERBOSE "Required AMReX components: ${AMREX_COMPONENTS}")
-
-      find_package(AMReX CONFIG QUIET COMPONENTS ${AMREX_COMPONENTS})
-
-      if(NOT AMReX_FOUND)
-        message(STATUS "")
-        message(STATUS "====================================================================")
-        message(STATUS "AMReX Detection Failed")
-        message(STATUS "====================================================================")
-        message(STATUS "")
-        message(STATUS "Required components: ${AMREX_COMPONENTS}")
-        message(STATUS "")
-        message(STATUS "To resolve:")
-        message(STATUS "")
-        message(STATUS "  Option 1: Use internal AMReX (recommended):")
-        message(STATUS "    cmake -DERF_USE_INTERNAL_AMREX=ON ..")
-        message(STATUS "")
-        message(STATUS "  Option 2: Build and install AMReX separately, then:")
-        message(STATUS "    cmake -DAMReX_DIR=/path/to/amrex/lib/cmake/AMReX ..")
-        message(STATUS "")
-        message(STATUS "====================================================================")
-        message(STATUS "")
-        message(FATAL_ERROR "AMReX required but not found")
-      endif()
-
-      message(STATUS "Found AMReX: ${AMReX_DIR}")
-      message(VERBOSE "  AMReX_VERSION: ${AMReX_VERSION}")
-
-      if (TARGET AMReX::amrex)
-        print_target_properties(AMReX::amrex)
-      else()
-        print_target_properties(amrex)
-      endif()
-    endif()
-
-    # Multi-config generators (Visual Studio) put binaries in a per-config subdirectory
-    # that is not known at configure time, so the path keeps a wildcard for the test
-    # launchers to expand. Single-config generators (Ninja on Windows, everything on
-    # Linux and macOS) have no subdirectory and get a plain path.
-    get_property(_erf_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
-    if(WIN32 AND _erf_multi_config)
-      set(FCOMPARE_EXE ${AMReX_DIR}/../../../*/amrex_fcompare.exe
-        CACHE STRING "Path to fcompare executable for regression tests")
-      set(FEXTREMA_EXE ${AMReX_DIR}/../../../*/amrex_fextrema.exe
-        CACHE STRING "Path to fextrema executable for regression tests")
-      set(FEXTRACT_EXE ${AMReX_DIR}/../../../*/amrex_fextract.exe
-        CACHE STRING "Path to fextract executable for regression tests")
-    else()
-      set(FCOMPARE_EXE ${AMReX_DIR}/../../../bin/amrex_fcompare${CMAKE_EXECUTABLE_SUFFIX}
-        CACHE STRING "Path to fcompare executable for regression tests")
-      set(FEXTREMA_EXE ${AMReX_DIR}/../../../bin/amrex_fextrema${CMAKE_EXECUTABLE_SUFFIX}
-        CACHE STRING "Path to fextrema executable for regression tests")
-      set(FEXTRACT_EXE ${AMReX_DIR}/../../../bin/amrex_fextract${CMAKE_EXECUTABLE_SUFFIX}
-        CACHE STRING "Path to fextract executable for regression tests")
-    endif()
-    message(VERBOSE "fcompare executable: ${FCOMPARE_EXE}")
-    message(VERBOSE "fextrema executable: ${FEXTREMA_EXE}")
-    message(VERBOSE "fextract executable: ${FEXTRACT_EXE}")
-
-endif()
-
-list(POP_BACK CMAKE_MESSAGE_CONTEXT)
-
-########################## EKAT ##################################
-
-if(ERF_ENABLE_RRTMGP OR ERF_ENABLE_EAMXX_SHOC)
-  set(ERF_ENABLE_EKAT ON)
-else()
-  set(ERF_ENABLE_EKAT OFF)
-endif()
-
-if(ERF_ENABLE_EKAT)
-  list(APPEND CMAKE_MESSAGE_CONTEXT "EKAT")
-
-  message(STATUS "Configuring EKAT")
-
-  if(NOT ERF_ENABLE_MPI)
-    message(FATAL_ERROR "CMake Error: MPI must be enabled if EKAT is enabled.")
-  endif()
-
-  # NOTE: EKAT provides KOKKOS, so set relevant flags for KOKKOS
-  if(ERF_ENABLE_CUDA)
-    message(VERBOSE "Enabling Kokkos CUDA support")
-    set(Kokkos_ENABLE_CUDA ON CACHE BOOL "kokkos enable cuda")
-    set(Kokkos_ENABLE_CUDA_LAMBDA ON CACHE BOOL "kokkos enable cuda lambda")
-    set(Kokkos_ENABLE_CUDA_RELOCATABLE_DEVICE_CODE ON CACHE BOOL "kokkos enable cuda RDC")
-  endif()
-
-  if(ERF_ENABLE_HIP)
-    message(VERBOSE "Enabling Kokkos HIP support")
-    set(Kokkos_ENABLE_HIP ON CACHE BOOL "kokkos enable hip")
-    set(Kokkos_ENABLE_HIP_LAMBDA ON CACHE BOOL "kokkos enable hip lambda")
-    set(Kokkos_ENABLE_HIP_RELOCATABLE_DEVICE_CODE ON CACHE BOOL "kokkos enable hip RDC")
-  endif()
-
-  if(ERF_ENABLE_SYCL)
-    message(VERBOSE "Enabling Kokkos SYCL support")
-    set(Kokkos_ENABLE_SYCL ON CACHE BOOL "kokkos enable sycl")
-    set(Kokkos_ENABLE_SYCL_LAMBDA ON CACHE BOOL "kokkos enable sycl lambda")
-  endif()
-
-  set(CMAKE_CXX_STANDARD 20)
-  set(EKAT_ENABLE_MPI ON CACHE BOOL "ekat enable mpi")
-  set(EKAT_ENABLE_TESTS OFF CACHE BOOL "ekat enable tests")
-  set(EKAT_ENABLE_KOKKOS ON CACHE BOOL "ekat enable kokkos")
-  set(EKAT_ENABLE_LOGGING ON CACHE BOOL "ekat enable spdlog")
-  # Kokkos deprecation used inside EKAT or RRTMGP is theirs to fix
-  set(Kokkos_ENABLE_DEPRECATION_WARNINGS OFF CACHE BOOL "kokkos deprecation warnings")
-  set(EKAT_BIN ${PROJECT_BINARY_DIR}/Submodules/ekat)
-
-  # Force use of internal spdlog from EKAT
-  message(STATUS "Forcing Ekat to build their own spdlog")
-  set(CMAKE_DISABLE_FIND_PACKAGE_spdlog TRUE)
-
-  message(VERBOSE "EKAT binary directory: ${EKAT_BIN}")
-  add_subdirectory(${PROJECT_SOURCE_DIR}/Submodules/ekat ${EKAT_BIN})
-
-  # Print Kokkos properties
-  if(TARGET Kokkos::kokkos)
-    print_target_properties(Kokkos::kokkos)
-  elseif(TARGET kokkoscore)
-    print_target_properties(kokkoscore)
-  endif()
-
-# Strip GPU flags from Kokkos (AMReX provides them)
-if(ERF_ENABLE_HIP AND ERF_ENABLE_EKAT)
-  # Clear ALL link options from Kokkos targets - AMReX provides everything we need
-  foreach(kokkos_target IN ITEMS kokkoscore kokkoscontainers kokkosalgorithms Kokkos::kokkos)
-    if(TARGET ${kokkos_target})
-      get_target_property(kokkos_link_opts ${kokkos_target} INTERFACE_LINK_OPTIONS)
-      if(kokkos_link_opts AND NOT kokkos_link_opts STREQUAL "kokkos_link_opts-NOTFOUND")
-        # Clear ALL link options - AMReX provides GPU flags
-        set_target_properties(${kokkos_target} PROPERTIES INTERFACE_LINK_OPTIONS "")
-        message(STATUS "Cleared link options from ${kokkos_target} (AMReX provides GPU flags)")
-      endif()
-    endif()
-  endforeach()
-
-  # Print kokkoscore after clearing
-  print_target_properties(kokkoscore)
-endif()
-# Strip GPU flags from Kokkos (AMReX provides them)
-#if(ERF_ENABLE_HIP AND ERF_ENABLE_EKAT)
-#  # Strip from ALL Kokkos targets
-#  foreach(kokkos_target IN ITEMS kokkoscore kokkoscontainers kokkosalgorithms Kokkos::kokkos)
-#    if(TARGET ${kokkos_target})
-#      get_target_property(kokkos_link_opts ${kokkos_target} INTERFACE_LINK_OPTIONS)
-#      if(kokkos_link_opts AND NOT kokkos_link_opts STREQUAL "kokkos_link_opts-NOTFOUND")
-#        # Filter out GPU-related generator expressions
-#        list(FILTER kokkos_link_opts EXCLUDE REGEX ".*--hip-link.*")
-#        list(FILTER kokkos_link_opts EXCLUDE REGEX ".*--offload-arch=.*")
-#        list(FILTER kokkos_link_opts EXCLUDE REGEX ".*-fgpu-rdc.*")
-#        set_target_properties(${kokkos_target} PROPERTIES INTERFACE_LINK_OPTIONS "${kokkos_link_opts}")
-#        message(STATUS "Stripped GPU flags from ${kokkos_target}")
-#      endif()
-#    endif()
-#  endforeach()
-
-#  # Print kokkoscore after stripping
-#  print_target_properties(kokkoscore)
-#endif()
-
-list(POP_BACK CMAKE_MESSAGE_CONTEXT)
-endif()
-
-########################### MPI #####################################
-
-if(ERF_ENABLE_MPI)
-  list(APPEND CMAKE_MESSAGE_CONTEXT "MPI")
-  message(STATUS "Configuring MPI")
-
-  # Check if we're on Cray with bare MPI wrappers (which will hang)
-  set(SKIP_MPI_DETECTION FALSE)
-
-  if(DEFINED ENV{CRAYPE_VERSION} OR DEFINED ENV{CRAY_MPICH_DIR})
-    # On Cray system - check if using problematic bare MPI wrappers
-    if(CMAKE_CXX_COMPILER MATCHES "mpicxx" OR
-       CMAKE_C_COMPILER MATCHES "mpicc" OR
-       CMAKE_Fortran_COMPILER MATCHES "mpifort")
-      message(STATUS "Detected bare MPI wrappers on Cray - skipping detection (would hang)")
-      set(SKIP_MPI_DETECTION TRUE)
-    endif()
-  endif()
-
-  if(SKIP_MPI_DETECTION)
-    # Workaround: Manual MPI setup (avoids hang)
-    message(VERBOSE "Manually configuring MPI (bypassing find_package)")
-
-    # Get Cray MPICH version for informational purposes
-    set(MPICH_VERSION "UNKNOWN")
-    if(DEFINED ENV{CRAY_MPICH_VERSION})
-      set(MPICH_VERSION "$ENV{CRAY_MPICH_VERSION}")
-    elseif(DEFINED ENV{CRAY_MPICH_VER})
-      set(MPICH_VERSION "$ENV{CRAY_MPICH_VER}")
-    endif()
-
-    # Cray MPICH 8.x supports MPI 3.1 standard
-    set(MPI_VERSION "3.1")
-
-    # Create MPI targets
-    if(NOT TARGET MPI::MPI_CXX)
-      add_library(MPI::MPI_CXX INTERFACE IMPORTED)
-      message(DEBUG "Created MPI::MPI_CXX target")
-    endif()
-
-    if(NOT TARGET MPI::MPI_C)
-      add_library(MPI::MPI_C INTERFACE IMPORTED)
-      message(DEBUG "Created MPI::MPI_C target")
-    endif()
-
-    if(NOT TARGET MPI::MPI_Fortran)
-      add_library(MPI::MPI_Fortran INTERFACE IMPORTED)
-      message(DEBUG "Created MPI::MPI_Fortran target")
-    endif()
-
-    # Set MPI variables
-    set(MPI_FOUND TRUE)
-    set(MPI_CXX_FOUND TRUE)
-    set(MPI_C_FOUND TRUE)
-    set(MPI_Fortran_FOUND TRUE)
-    set(MPI_C_VERSION "${MPI_VERSION}")
-    set(MPI_CXX_VERSION "${MPI_VERSION}")
-    set(MPI_Fortran_VERSION "${MPI_VERSION}")
-
-    message(STATUS "Cray MPICH: ${MPICH_VERSION}")
-    message(STATUS "MPI standard: ${MPI_VERSION}")
-    message(VERBOSE "Created MPI::MPI_CXX and MPI::MPI_C targets")
-  else()
-    # Normal path: Use find_package with QUIET
-    message(VERBOSE "Using find_package(MPI) for detection")
-    set(_mpi_comps C CXX)
-    if(ERF_ENABLE_MORR_FORT OR ERF_ENABLE_WSM6_FORT OR ERF_ENABLE_WDM6_FORT OR ERF_ENABLE_NOAHMP)
-      list(APPEND _mpi_comps Fortran)
-    endif()
-    message(DEBUG "MPI components: ${_mpi_comps}")
-
-    find_package(MPI QUIET COMPONENTS ${_mpi_comps})
-
-    if(NOT MPI_FOUND)
-      message(STATUS "")
-      message(STATUS "====================================================================")
-      message(STATUS "MPI Detection Failed")
-      message(STATUS "====================================================================")
-      message(STATUS "")
-      message(STATUS "To resolve, load modules from your machine profile:")
-      message(STATUS "")
-      erf_suggest_machine_profile()
-      message(STATUS "")
-      message(STATUS "  Or on non-Cray systems, install MPI:")
-      message(STATUS "    OpenMPI, MPICH, Intel MPI, etc.")
-      message(STATUS "")
-      message(STATUS "  Then configure with:")
-      message(STATUS "    cmake -DMPI_C_COMPILER=mpicc -DMPI_CXX_COMPILER=mpicxx ..")
-      message(STATUS "")
-      message(STATUS "====================================================================")
-      message(STATUS "")
-      message(FATAL_ERROR "MPI required but not found")
-    endif()
-
-    message(STATUS "Found MPI")
-    message(VERBOSE "  MPI_C_VERSION: ${MPI_C_VERSION}")
-    message(VERBOSE "  MPI_CXX_VERSION: ${MPI_CXX_VERSION}")
-  endif()
-
-  message(STATUS "MPI configuration complete")
-  list(POP_BACK CMAKE_MESSAGE_CONTEXT)
-else()
-  message(DEBUG "MPI not enabled")
-endif()
-
-########################## NETCDF ##################################
-
-if(ERF_ENABLE_NETCDF OR ERF_ENABLE_TOOLS)
-  list(APPEND CMAKE_MESSAGE_CONTEXT "NetCDF")
-
-  message(STATUS "Configuring NetCDF")
-  message(DEBUG "ERF_ENABLE_NETCDF: ${ERF_ENABLE_NETCDF}")
-  message(DEBUG "ERF_ENABLE_TOOLS: ${ERF_ENABLE_TOOLS}")
-
-  set(CMAKE_PREFIX_PATH ${NETCDF_DIR} ${CMAKE_PREFIX_PATH})
-  find_package (NetCDF REQUIRED)
-  if(NETCDF_FOUND)
-     message(STATUS "Found NetCDF: ${NETCDF_DIR}")
-     message(VERBOSE "NetCDF includes: ${NETCDF_INCLUDES}")
-     message(VERBOSE "NetCDF libraries: ${NETCDF_LIBRARIES}")
-  endif()
-
-  message(STATUS "NetCDF configuration complete")
-  list(POP_BACK CMAKE_MESSAGE_CONTEXT)
-endif()
-
-########################## NOAH-MP ##################################
-
-if(ERF_ENABLE_NOAHMP)
-  list(APPEND CMAKE_MESSAGE_CONTEXT "Noah-MP")
-
-  message(STATUS "Configuring Noah-MP")
-
-  if(ERF_ENABLE_NETCDF)
-     set(NOAHMP_HOME ${PROJECT_SOURCE_DIR}/Submodules/Noah-MP/drivers/erf)
-     set(NOAHMP_BIN  ${PROJECT_BINARY_DIR}/Submodules/Noah-MP/drivers/erf)
-     message(VERBOSE "Noah-MP source: ${NOAHMP_HOME}")
-     message(VERBOSE "Noah-MP binary: ${NOAHMP_BIN}")
-     add_subdirectory(${NOAHMP_HOME} ${NOAHMP_BIN})
-
-     if(ERF_PRECISION STREQUAL "DOUBLE")
-        target_compile_definitions(noahmp PUBLIC DOUBLE_PREC)
-     endif()
-  else()
-     message(FATAL_ERROR "Noah-MP requires NetCDF be enabled")
-  endif()
-
-  message(STATUS "Noah-MP configuration complete")
-  list(POP_BACK CMAKE_MESSAGE_CONTEXT)
-endif()
-
-########################### RRTMGP #################################
-
-if(ERF_ENABLE_RRTMGP)
-  list(APPEND CMAKE_MESSAGE_CONTEXT "RRTMGP")
-
-  message(STATUS "Configuring RRTMGP")
-
-  if(NOT ERF_ENABLE_EKAT)
-      message(FATAL_ERROR "EKAT must be enabled if RRTMGP is enabled")
-  endif()
-
-  if(NOT ERF_ENABLE_NETCDF)
-      message(FATAL_ERROR "NetCDF must be enabled if RRTMGP is enabled")
-  endif()
-
-  message(VERBOSE "Building RRTMGP with Kokkos support")
-
-  # Build the static rrtmgp library
-  set(RRTMGP_BIN ${PROJECT_BINARY_DIR}/Submodules/rrtmgp)
-  message(VERBOSE "RRTMGP binary directory: ${RRTMGP_BIN}")
-  add_subdirectory(${PROJECT_SOURCE_DIR}/Submodules/RRTMGP/cpp ${RRTMGP_BIN})
-
-  # Set up kokkos library and definitions
-  set(RRTMGP_ENABLE_KOKKOS TRUE)
-  target_compile_definitions(rrtmgp PUBLIC RRTMGP_ENABLE_KOKKOS)
-  target_compile_options(rrtmgp PRIVATE
-    $<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wno-unused-local-typedefs>
-    $<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang>:-Wno-c++11-narrowing>
-  )
-  target_link_libraries(rrtmgp kokkos)
-  message(DEBUG "Added Kokkos to RRTMGP target")
-
-  # Print RRTMGP properties
-  print_target_properties(rrtmgp)
-
-  message(STATUS "RRTMGP configuration complete")
-  list(POP_BACK CMAKE_MESSAGE_CONTEXT)
-endif()
-
-########################### SHOC #################################
-
-if(ERF_ENABLE_EAMXX_SHOC)
-  list(APPEND CMAKE_MESSAGE_CONTEXT "SHOC")
-
-  message(STATUS "Configuring SHOC")
-
-  if(NOT ERF_ENABLE_EKAT)
-      message(FATAL_ERROR "EKAT must be enabled if SHOC is enabled")
-  endif()
-
-  # NOTE: We compile shoc src files directly
-  message(VERBOSE "SHOC source files will be compiled directly")
-
-  # E3SM Cloned Check
-  message(VERBOSE "Checking EAMxx files from E3SM")
-
-  set(E3SM_EXPECTED_PATH "${PROJECT_SOURCE_DIR}/external/E3SM")
-
-  if(NOT EXISTS "${PROJECT_SOURCE_DIR}/external/E3SM/components/eamxx/src/physics")
-      message(FATAL_ERROR
-          "E3SM provides eamxx required for SHOC but not found.\n"
-          "\n"
-          "This requires specific EAMxx physics source files from E3SM at commit 2eb52d9.\n"
-          "\n"
-          "Option 1 - Use provided script (recommended):\n"
-          "  ${PROJECT_SOURCE_DIR}/Build/eamxx_clone.sh\n"
-          "\n"
-          "Option 2 - Symlink existing E3SM (not tested, must be at commit 2eb52d9b3d):\n"
-          "  ln -s /path/to/your/E3SM ${PROJECT_SOURCE_DIR}/external/E3SM\n"
-          "\n"
-          "Or disable features:\n"
-          "  cmake -DERF_ENABLE_EAMXX_SHOC=OFF ..\n")
-  endif()
-
-  message(STATUS "SHOC configuration complete")
-  list(POP_BACK CMAKE_MESSAGE_CONTEXT)
-endif()
-
-########################## STRUCTURES ##############################
-
+# MoorDyn-C (or the stub) and ERF_ENABLE_MOVING_BODIES, before ERF is configured
 if(ERF_ENABLE_STRUCTURES)
   include(${PROJECT_SOURCE_DIR}/Structures/ERFStructures.cmake)
 endif()
 
-########################### ERF #####################################
+############################ ERF #######################################
 
-# General information about machine, compiler, and build type
-message(STATUS "ERF Information:")
-message(STATUS "CMAKE_SYSTEM_NAME = ${CMAKE_SYSTEM_NAME}")
-message(STATUS "CMAKE_CXX_COMPILER_ID = ${CMAKE_CXX_COMPILER_ID}")
-message(STATUS "CMAKE_CXX_COMPILER_VERSION = ${CMAKE_CXX_COMPILER_VERSION}")
-message(STATUS "CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
+enable_testing()
+add_subdirectory(Submodules/ERF EXCLUDE_FROM_ALL)
 
-# Turn on rpath stuff
-include(${PROJECT_SOURCE_DIR}/CMake/SetRpath.cmake)
+########################## EXECUTABLE ##################################
 
-#Build erf executables and intermediate object library and link to amrex library
-add_subdirectory(Exec)
+set(flare_exe_name flare)
+add_executable(${flare_exe_name})
+target_sources(${flare_exe_name} PRIVATE ${PROJECT_SOURCE_DIR}/Exec/ERF_Prob.cpp)
+target_include_directories(${flare_exe_name} PRIVATE ${PROJECT_SOURCE_DIR}/Exec)
 
-if(ERF_ENABLE_TESTS OR ERF_ENABLE_UNIT_TESTS)
-  message(STATUS "Configuring tests")
-  include(CTest)
+# FLARE's models, compiled into a target. Each directory's file defines the function that
+# adds its sources to a target; *_DIR names the directory during the call. They are added
+# before erf_setup_executable, which compiles every .cpp of the target as CUDA in a CUDA
+# build. Tests/Unit calls this for FLARE's unit-test executable too.
+function(flare_add_models target)
+  if(ERF_ENABLE_FIRE)
+    set(ERF_FIRE_ENGINE_DIR "${PROJECT_SOURCE_DIR}/FireEngine")
+    include("${ERF_FIRE_ENGINE_DIR}/ERFFireEngine.cmake")
+    erf_fire_engine_add(${target})
+  endif()
+  if(ERF_ENABLE_DUST)
+    set(ERF_DUST_MODEL_DIR "${PROJECT_SOURCE_DIR}/Dust")
+    include("${ERF_DUST_MODEL_DIR}/ERFDustModel.cmake")
+    erf_dust_model_add(${target})
+  endif()
+  if(ERF_ENABLE_STRUCTURES)
+    set(ERF_STRUCTURE_MODEL_DIR "${PROJECT_SOURCE_DIR}/Structures")
+    include("${ERF_STRUCTURE_MODEL_DIR}/ERFStructureModel.cmake")
+    erf_structure_model_add(${target})
+  endif()
+endfunction()
+
+flare_add_models(${flare_exe_name})
+erf_setup_executable(${flare_exe_name})
+
+############################ TESTS #####################################
+
+if(FLARE_ENABLE_TESTS OR FLARE_ENABLE_UNIT_TESTS)
   add_subdirectory(Tests)
 endif()
-
-if(ERF_ENABLE_DOCUMENTATION)
-  message(STATUS "Configuring documentation")
-  add_subdirectory(Docs)
-endif()
-
-# Installation rules
-list(APPEND CMAKE_MESSAGE_CONTEXT "Install")
-
-message(STATUS "Configuring installation")
-
-include(CMakePackageConfigHelpers)
-include(GNUInstallDirs)
-
-# Create non-object library for use as external target
-add_library(erf_api)
-if (BUILD_SHARED_LIBS)
-  set_target_properties(erf_api PROPERTIES POSITION_INDEPENDENT_CODE ON)
-endif()
-if (ERF_ENABLE_CUDA)
-   setup_target_for_cuda_compilation(erf_api)
-endif ()
-target_link_libraries(erf_api PUBLIC erf_srclib)
-add_library(${PROJECT_NAME}::erf_api ALIAS erf_srclib)
-
-# Collect all headers and make them installable with the target
-file(GLOB_RECURSE ERF_INCLUDES "${PROJECT_SOURCE_DIR}/Source/*.H")
-
-set_target_properties(
-  erf_srclib PROPERTIES PUBLIC_HEADER "${ERF_INCLUDES}")
-
-if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
-  # Install ERF
-  install(
-    TARGETS erf_api erf_srclib
-    EXPORT ${PROJECT_NAME}Targets
-    RUNTIME       DESTINATION bin
-    ARCHIVE       DESTINATION lib
-    LIBRARY       DESTINATION lib
-    INCLUDES      DESTINATION include
-    PUBLIC_HEADER DESTINATION include
-    )
-
-  # Install all headers in include directories
-  #install(
-  #  DIRECTORY ${ERF_INCLUDE_DIRECTORIES}
-  #  DESTINATION include
-  #  FILES_MATCHING PATTERN "*.H")
-
-  # Make ERF discoverable using `find_package`
-  install(
-    EXPORT ${PROJECT_NAME}Targets
-    NAMESPACE ${PROJECT_NAME}::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}
-    )
-  configure_package_config_file(
-    CMake/${PROJECT_NAME}Config.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}
-    )
-  install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}
-    )
-endif()
-
-message(VERBOSE "Install prefix: ${CMAKE_INSTALL_PREFIX}")
-message(VERBOSE "Install libdir: ${CMAKE_INSTALL_LIBDIR}")
-
-list(POP_BACK CMAKE_MESSAGE_CONTEXT)
-
-# Pop main ERF context
-list(POP_BACK CMAKE_MESSAGE_CONTEXT)
-
-message(STATUS "ERF configuration complete")
