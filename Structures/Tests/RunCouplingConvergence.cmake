@@ -7,8 +7,8 @@
 # WORKING_DIRECTORY, LOG, COLUMNS, SUBSTEPS, SIGDIGITS, ULPS.
 
 cmake_minimum_required(VERSION 3.20)
-include("${CMAKE_CURRENT_LIST_DIR}/../../Tests/MPILauncher.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/../../Tests/ResolveExecutable.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../Submodules/ERF/Tests/MPILauncher.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../Submodules/ERF/Tests/ResolveExecutable.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/../../Tests/CompareDataLogs.cmake")
 set(ERF_DATALOG_ZERO_EXPONENT -4)
 

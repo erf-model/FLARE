@@ -1,6 +1,6 @@
 # The unit tests of FLARE's structures (Structures/), added to ERF's gtest executables by
-# Tests/Unit/CMakeLists.txt when ERF_ENABLE_STRUCTURES is ON. The tests include the shared
-# helpers in Tests/Unit (ERF_GTestTempDir.H) and Tests/Unit/MovingBodies
+# Tests/Unit/CMakeLists.txt when ERF_ENABLE_STRUCTURES is ON. The tests include ERF's shared
+# helpers in Submodules/ERF/Tests/Unit (ERF_GTestTempDir.H) and its MovingBodies
 # (ERF_GTestThrowOnAbort.H).
 set(_erf_structures_tests_dir ${CMAKE_CURRENT_LIST_DIR})
 set(_erf_structures_frame_files ${CMAKE_CURRENT_LIST_DIR}/../test_files/FrameSubDynTower)
@@ -8,8 +8,8 @@ set(_erf_structures_frame_files ${CMAKE_CURRENT_LIST_DIR}/../test_files/FrameSub
 function(erf_structures_unit_tests target)
   target_include_directories(${target} PRIVATE
     ${_erf_structures_tests_dir}
-    ${PROJECT_SOURCE_DIR}/Tests/Unit
-    ${PROJECT_SOURCE_DIR}/Tests/Unit/MovingBodies)
+    ${ERF_SOURCE_DIR}/Tests/Unit
+    ${ERF_SOURCE_DIR}/Tests/Unit/MovingBodies)
   # Motivation: a lattice tower's member drag must be the normal-flow drag of every node, equal
   # the hand values in a uniform wind and the fine integral in a log-law wind; the one-mode tower
   # must respond to a step load with its frequency and damping and its foundation must take the
@@ -121,8 +121,8 @@ endfunction()
 function(erf_structures_parallel_tests target)
   target_include_directories(${target} PRIVATE
     ${_erf_structures_tests_dir}
-    ${PROJECT_SOURCE_DIR}/Tests/Unit
-    ${PROJECT_SOURCE_DIR}/Tests/Unit/MovingBodies)
+    ${ERF_SOURCE_DIR}/Tests/Unit
+    ${ERF_SOURCE_DIR}/Tests/Unit/MovingBodies)
   # Motivation: the SubDyn file reader is the tower code's one collective (the I/O rank reads,
   # every rank receives the broadcast): every rank must get the same frame and the same refusals.
   target_sources(${target} PRIVATE
