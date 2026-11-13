@@ -29,7 +29,7 @@ import sys
 
 TOOL = "fragility_fit"
 PLAN_KEYS = ("demand_table", "output_dir", "intensity", "by_direction", "capacity", "groups",
-             "resamples", "seed", "confidence")
+             "resamples", "seed", "confidence", "damage_states")
 INTENSITIES = ("max_speed", "peak_speed", "stripe")
 KINDS = ("conductor", "insulator", "hardware", "footing_uplift", "footing_compression", "member")
 NEEDED = ("member", "stripe", "nominal_direction", "seed", "kind", "component", "peak_ratio", "peak_speed",
@@ -40,6 +40,13 @@ CURVE_COLUMNS = ("curve", "kind", "direction", "intensity", "members", "exceedan
                  "theta_low", "theta_high", "beta_low", "beta_high", "theta_sd", "beta_sd", "resamples_used",
                  "bracket_low", "bracket_high", "log_likelihood")
 POINT_COLUMNS = ("curve", "direction", "stripe", "members", "mean_intensity", "exceedances", "fraction", "fitted")
+# the damage states of a line network, each read from the member's damage summary
+# (damage_table_all.csv of the ensemble driver); a member is in the highest state it reaches
+STATES = ("DS1", "DS2", "DS3", "DS4")
+STATE_LOG = {"DS1": None, "DS2": "breaks_log", "DS3": "tower_log", "DS4": "tower_log"}
+DAMAGE_NEEDED = ("member", "stripe", "nominal_direction", "seed", "max_peak_ratio", "breaks_log", "lines_released",
+                 "tower_log", "towers_lost")
+MAX_CASCADE = 100000
 MAX_RESAMPLES = 100000
 FEW = 1.0e-6           # fewer expected exceedances (or survivals) than this over all members count as none
 FLAT_RISE = 0.05       # a fitted curve that rises by less than this over the data's winds is not reported
@@ -354,6 +361,32 @@ class Plan:
         if not is_number(self.confidence) or not 0.5 <= self.confidence < 1.0:
             stop("confidence must be in [0.5, 1), got %s" % json.dumps(self.confidence))
 
+        self.damage = None
+        if "damage_states" in p:
+            ds = p["damage_states"]
+            keys = ("table", "states", "cascade_towers")
+            if not isinstance(ds, dict) or sorted(k for k in ds if k not in keys) or "table" not in ds \
+                    or "states" not in ds:
+                stop("damage_states must be {\"table\": .., \"states\": [..], \"cascade_towers\": N} (cascade_towers "
+                     "with DS4 only)")
+            if not isinstance(ds["table"], str) or not ds["table"].strip():
+                stop("damage_states: table must name the gathered damage table (a path relative to the plan)")
+            states = ds["states"]
+            if not isinstance(states, list) or not states or any(x not in STATES for x in states) \
+                    or len(set(states)) != len(states):
+                stop("damage_states: states must list some of %s, each once, got %s"
+                     % (", ".join(STATES), json.dumps(states)))
+            n = ds.get("cascade_towers")
+            if "DS4" in states and n is None:
+                stop("damage_states: DS4 (a cascade over N towers) needs cascade_towers = N; it has no default, since "
+                     "N is the user's choice")
+            if n is not None and "DS4" not in states:
+                stop("damage_states: cascade_towers is used by DS4 only, which states does not list")
+            if n is not None and (not isinstance(n, int) or isinstance(n, bool) or not 2 <= n <= MAX_CASCADE):
+                stop("damage_states: cascade_towers must be an integer in [2, %d] (one tower lost is DS3), got %s"
+                     % (MAX_CASCADE, json.dumps(n)))
+            self.damage = {"table": ds["table"], "states": [x for x in STATES if x in states], "cascade_towers": n}
+
     def path_of(self, name):
         return os.path.normpath(os.path.join(self.directory, name))
 
@@ -495,6 +528,101 @@ def group_curves(rows, plan):
     return curves
 
 
+def read_damage_table(path):
+    """The members' damage summaries as dicts, with numbers where the states need them."""
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            header = reader.fieldnames or []
+            rows = list(reader)
+    except OSError as e:
+        stop("damage_states: cannot read %s (%s)" % (path, e.strerror))
+    except (ValueError, csv.Error) as e:
+        stop("damage_states: %s is not a readable CSV table (%s)" % (path, e))
+    if not rows:
+        stop("damage_states: %s holds no rows" % path)
+    lacking = [c for c in DAMAGE_NEEDED if c not in header]
+    if lacking:
+        stop("damage_states: %s lacks the column(s) %s" % (path, ", ".join(lacking)))
+    out, seen = [], set()
+    for n, r in enumerate(rows, start=2):
+        if None in r or any(v is None for v in r.values()):
+            stop("damage_states: line %d of %s does not have the header's number of fields" % (n, path))
+        row = {k: v.strip() for k, v in r.items()}
+        if row["member"] in seen:
+            stop("damage_states: member %s is listed twice in %s" % (row["member"], path))
+        seen.add(row["member"])
+        for col in ("stripe", "nominal_direction"):
+            try:
+                row[col] = float(row[col])
+            except ValueError:
+                stop("damage_states: line %d of %s has no number in %s" % (n, path, col))
+            if not math.isfinite(row[col]):
+                stop("damage_states: line %d of %s is not finite in %s" % (n, path, col))
+        if row["stripe"] <= 0.0:
+            stop("damage_states: line %d of %s has a stripe that is not positive" % (n, path))
+        for log, col in (("breaks_log", "lines_released"), ("tower_log", "towers_lost")):
+            if row[log] not in ("yes", "no"):
+                stop("damage_states: line %d of %s has %s = '%s'; it is yes or no" % (n, path, log, row[log]))
+            if row[log] == "no":
+                row[col] = None
+                continue
+            try:
+                row[col] = int(row[col])
+            except ValueError:
+                stop("damage_states: line %d of %s has no whole number in %s" % (n, path, col))
+            if row[col] < 0:
+                stop("damage_states: line %d of %s has a negative %s" % (n, path, col))
+        if row["max_peak_ratio"]:
+            try:
+                row["max_peak_ratio"] = float(row["max_peak_ratio"])
+            except ValueError:
+                stop("damage_states: line %d of %s has no number in max_peak_ratio" % (n, path))
+            if not (math.isfinite(row["max_peak_ratio"]) and row["max_peak_ratio"] >= 0.0):
+                stop("damage_states: line %d of %s has a max_peak_ratio that is negative or not finite" % (n, path))
+        else:
+            row["max_peak_ratio"] = None
+        out.append(row)
+    return out
+
+
+def damage_curves(rows, plan, notes):
+    """One set of observations per damage state: a member is in the highest of the listed states it reaches,
+    and counts as exceeding every listed state up to that one. DS1 is a peak ratio above 1 (the rule of the
+    component curves without a capacity distribution), DS2 a line released (breaks.dat), DS3 a tower lost and
+    DS4 at least cascade_towers towers lost (tower_failures.dat). Every member must hold the log a listed
+    state is read from; the intensity is the member's stripe."""
+    states, n = plan.damage["states"], plan.damage["cascade_towers"]
+    for state in states:
+        log = STATE_LOG[state]
+        lacking = [r["member"] for r in rows if (r["max_peak_ratio"] is None if log is None else r[log] != "yes")]
+        if lacking:
+            why = "no peak ratio" if log is None else "no %s (its option was off)" % (
+                "breaks.dat" if log == "breaks_log" else "tower_failures.dat")
+            stop("damage_states: %s needs every member's record, but %d member(s) have %s: %s%s"
+                 % (state, len(lacking), why, ", ".join(lacking[:5]), ", ..." if len(lacking) > 5 else ""))
+    reached = {"DS1": lambda r: r["max_peak_ratio"] > 1.0, "DS2": lambda r: r["lines_released"] >= 1,
+               "DS3": lambda r: r["towers_lost"] >= 1, "DS4": lambda r: r["towers_lost"] >= n}
+    by, odd = {}, []
+    for r in rows:
+        flags = [reached[s](r) for s in states]
+        level = max([i + 1 for i, f in enumerate(flags) if f] or [0])
+        if not all(flags[:level]):
+            odd.append(r["member"])
+        direction = r["nominal_direction"] if plan.by_direction else None
+        by.setdefault(direction, []).append((r["member"], r["stripe"], level))
+    if odd:
+        notes.append("NOTE %d member(s) reach a damage state without every lower one listed (%s%s); each counts in "
+                     "the highest it reaches and every one below" % (len(odd), ", ".join(odd[:5]),
+                                                                     ", ..." if len(odd) > 5 else ""))
+    curves = []
+    for direction, members in by.items():
+        for i, state in enumerate(states):
+            obs = [(m, x, x, 1.0 if level > i else 0.0) for m, x, level in members]
+            curves.append((state, "damage_state", direction, obs, []))
+    return curves
+
+
 def curve_seed(seed, name, kind, direction):
     """A seed of the curve's own, so that its spread does not depend on the other curves or their order."""
     text = "%d|%s|%s|%s" % (seed, name, kind, direction)
@@ -504,10 +632,22 @@ def curve_seed(seed, name, kind, direction):
 def run(plan, log=print):
     rows, notes = read_table(plan.path_of(plan.demand_table))
     curves = component_curves(rows, plan) + group_curves(rows, plan)
+    if plan.damage is not None:
+        names = set(r["component"] for r in rows) | set(g[0] for g in plan.groups)
+        for state in plan.damage["states"]:
+            if state in names:
+                stop("damage_states: %s is also the name of a component or group" % state)
+        curves += damage_curves(read_damage_table(plan.path_of(plan.damage["table"])), plan, notes)
+        if plan.capacity:
+            notes.append("NOTE the damage states are the runs' own outcomes, at the nominal capacities; capacity "
+                         "applies to the component and group curves only")
+        if plan.damage["cascade_towers"] is not None:
+            notes.append("NOTE DS4 is %d or more towers lost (cascade_towers, the user's choice)"
+                         % plan.damage["cascade_towers"])
     curve_rows, point_rows = [], []
     for name, kind, direction, obs, skipped in curves:
         d = "all" if direction is None else fmt(direction)
-        used = "stripe" if kind == "group" else plan.intensity
+        used = "stripe" if kind in ("group", "damage_state") else plan.intensity
         if skipped:
             notes.append("NOTE %s (direction %s): %d member(s) recorded no %s and are left out: %s%s"
                          % (name, d, len(skipped), plan.intensity, ", ".join(skipped[:5]),
