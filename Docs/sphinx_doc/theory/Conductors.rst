@@ -2203,6 +2203,16 @@ without it stops the tool. The states are the runs' own outcomes at the
 capacities of their decks, so ``capacity`` acts on the component and group
 curves only.
 
+**Through ERF.** ``Structures/Exec/CascadeStripes`` runs two stripes (10 and
+25 m/s, two seeds each, a shared spin-up per stripe) with the line failures
+on and a synthetic footing uplift allowable between the stripes' demands. The
+CTest ``CascadeStripes_DamageStates`` requires every member to restart from
+its stripe's checkpoint with no conductor state in it, no failure at 10 m/s,
+at least 2 towers lost at 25 m/s, and the fit's four states 0 of 2 at
+10 m/s and 2 of 2 at 25 m/s. The damage counts alone would not catch a
+spin-up that kept the lines: its towers fail during the spin-up and the
+members restart with the same counts.
+
 **Outputs.** ``fragility_curves.csv`` has one row per component and per
 group (and per direction with ``by_direction``): the wind the curve was
 fitted against, the number of members, the sum of the outcomes, the status, :math:`\hat\theta`, :math:`\hat\beta`,

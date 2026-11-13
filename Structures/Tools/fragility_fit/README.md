@@ -187,6 +187,7 @@ fitted to probabilities.
 
 `FragilityFit_Published`, `FragilityFit_ByHand`, `FragilityFit_Table`, `FragilityFit_Refused`
 and `FragilityFit_DamageStates` (labels `unit`, `conductors`, `fragility`) run
-`tests/test_fragility_fit.py`; they need Python 3 and run no ERF executable.
+`tests/test_fragility_fit.py`; they need Python 3 and run no ERF executable. The damage states
+from ERF runs are tested by `CascadeStripes_DamageStates` (`Structures/Exec/CascadeStripes/README.md`).
 
     python3 tests/test_fragility_fit.py

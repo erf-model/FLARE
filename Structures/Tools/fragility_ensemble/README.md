@@ -213,12 +213,21 @@ first span of L1 at 30 degrees, 23 992 N and 35 285 N). This is a run of 9 s fro
 state, long enough to show that the rotated inflow runs and reaches the lines; it is not a
 spun-up flow.
 
+A third trial ran the shared spin-up through ERF (2026-11-13, MoorDyn-C, one rank): the same deck
+at 10 and 25 m/s, seeds 7 and 8, `spinup: {"max_step": 5}`, every capacity at 1e9 N. Both spin-ups
+wrote `chk00005` at 4.5 s; all four members restarted from their stripe's checkpoint, and their
+conductor logs start at 4.5 s, so the lines were made at the restart and not carried in the
+checkpoint. `Structures/Exec/CascadeStripes` runs this plan with a footing allowable and the
+failures on, and its CTest `CascadeStripes_DamageStates` checks the restart and the damage table.
+
 
 ## CTest
 
 `FragilityEnsemble_DryRun`, `FragilityEnsemble_Refused`, `FragilityEnsemble_Run`,
 `FragilityEnsemble_Collect` and `FragilityEnsemble_Spinup` (labels `unit`, `conductors`, `fragility`) run
 `tests/test_fragility_ensemble.py`; they need Python 3 and run no ERF executable. The expected
-decks, wind files, manifest and gathered tables are written out by hand in the test file.
+decks, wind files, manifest and gathered tables are written out by hand in the test file. The
+spin-up and the damage table through ERF are tested by `CascadeStripes_DamageStates`
+(`Structures/Exec/CascadeStripes/README.md`).
 
     python3 tests/test_fragility_ensemble.py
