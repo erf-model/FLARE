@@ -35,7 +35,7 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
       cmake_parse_arguments(ATC "" "TOTALS;EXTRA_LOGS;GOLD_SUFFIX;OPTIONS" "" ${ARGN})
       setup_test()
       set(PLOT_GOLD ${ERF_TEST_GOLD_FILES_DIRECTORY}/${PLOT_GOLD_NAME})
-      resolve_test_exe("" "erf_exec" TEST_EXE)
+      resolve_test_exe("" "${ERF_TEST_EXE}" TEST_EXE)
       add_test(NAME ${TEST_NAME} COMMAND ${CMAKE_COMMAND}
           "-DMPIEXEC=${MPIEXEC_EXECUTABLE}"
           "-DMPIEXEC_NUMPROC_FLAG=${MPIEXEC_NUMPROC_FLAG}"
@@ -71,7 +71,7 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
   # COLUMNS of the log LOG must agree row by row to 3 significant digits (2 units of the last).
   function(setup_test_coupling_convergence TEST_NAME TEST_FILES_DIR LOG COLUMNS SUBSTEPS)
       setup_test()
-      resolve_test_exe("" "erf_exec" TEST_EXE)
+      resolve_test_exe("" "${ERF_TEST_EXE}" TEST_EXE)
       add_test(NAME ${TEST_NAME} COMMAND ${CMAKE_COMMAND}
           "-DMPIEXEC=${MPIEXEC_EXECUTABLE}"
           "-DMPIEXEC_NUMPROC_FLAG=${MPIEXEC_NUMPROC_FLAG}"
@@ -146,7 +146,7 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
     file(MAKE_DIRECTORY ${_cap_dir})
     file(GLOB _cap_files ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TwoLevel/*)
     file(COPY ${_cap_files} DESTINATION ${_cap_dir})
-    resolve_test_exe("" "erf_exec" _cap_exe)
+    resolve_test_exe("" "${ERF_TEST_EXE}" _cap_exe)
     set(_cap_mpi "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}")
     add_test(NAME Conductors_Capacities_TwoLevel
              COMMAND sh -c "rm -rf plt0* conductors S1.dat && ${_cap_mpi} ${_cap_exe} Conductors_TwoLevel.i conductors.S1.rated_breaking_strength=13892.0 amrex.call_addr2line=0 > run.log 2>&1 && awk -v rbs=13892.0 'FNR == 1 { f++ } f == 1 && FNR > 1 { if (t1 == \"\" && $10 > rbs) t1 = $1; if ($10 > peak) peak = $10 } f == 2 && FNR == 2 { tf = $1; kind = $2; name = $3 } f == 2 && FNR > 1 { rows++ } f == 3 && FNR == 2 { split($0, c, \",\"); pd = c[6] } END { coarse = (t1 / 0.25 == int(t1 / 0.25)); printf \"first crossing in S1.dat %s s, first row of failures.dat %s s (%s %s), %d row(s); peak tension %s N, capacities.csv peak demand %s N\\n\", t1, tf, kind, name, rows, peak, pd; exit !(t1 == 1.875 && tf == t1 && !coarse && rows == 1 && kind == \"conductor\" && name == \"S1\" && pd + 0 == peak + 0) }' S1.dat conductors/failures.dat conductors/capacities.csv"
@@ -276,7 +276,7 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
       set(_fh_check_1 "--dt 0.25 --fire-lags 0 --fire-dx 10")
       set(_fh_check_2 "--dt 0.5 --fire-lags 1 --fire-dx 5")
       set(_fh_mpi "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}")
-      resolve_test_exe("" "erf_exec" _fh_exe)
+      resolve_test_exe("" "${ERF_TEST_EXE}" _fh_exe)
       foreach(_i RANGE 2)
         list(GET _fh_names ${_i} _fh_name)
         set(_fh_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/${_fh_name})
@@ -362,7 +362,7 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
     set(_fn_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/Conductors_Thermal_FireNeedsFractionAbort)
     file(MAKE_DIRECTORY ${_fn_dir})
     file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_FireHeating/input_sounding DESTINATION ${_fn_dir})
-    resolve_test_exe("" "erf_exec" _fn_exe)
+    resolve_test_exe("" "${ERF_TEST_EXE}" _fn_exe)
     add_test(NAME Conductors_Thermal_FireNeedsFractionAbort
              COMMAND sh -c "sed '/radiative_fraction/d' ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_FireHeating/Conductors_FireHeating.i > nofraction.i && ${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS} ${_fn_exe} nofraction.i max_step=1 amrex.call_addr2line=0 > run.log 2>&1 && { echo 'the run did not stop'; exit 1; }; grep -q 'conductors.thermal.radiative_fraction is needed when the run has a fire' run.log"
              WORKING_DIRECTORY ${_fn_dir})
@@ -439,7 +439,7 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_FFT AND ERF_ENABLE_MPI AND NOT WIN32 AND
     message(STATUS "Conductors_Break_TwoLevel${_br_suffix} needs Python 3 and is not registered")
   else()
     set(_br_src ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_TwoLevel)
-    resolve_test_exe("" "erf_exec" _br_exe)
+    resolve_test_exe("" "${ERF_TEST_EXE}" _br_exe)
     set(_br_mpi "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}")
     set(_br_names Conductors_Break_TwoLevel${_br_suffix})
     set(_br_run_0 "conductors.S1.rated_breaking_strength=5000 max_step=24 stop_time=100")
@@ -873,7 +873,7 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_MPI AND ERF_ENABLE_FCOMPARE AND NOT WIN3
   get_filename_component(_cmb_fcmp_name "${FCOMPARE_EXE}" NAME)
   string(REPLACE "fcompare" "fvolumesum" _cmb_fvs_name "${_cmb_fcmp_name}")
   set(_cmb_fvs "${_cmb_tools}/${_cmb_fvs_name}")
-  resolve_test_exe("" "erf_exec" _cmb_exe)
+  resolve_test_exe("" "${ERF_TEST_EXE}" _cmb_exe)
   set(_cmb_mpi "${ERF_SH_MPI_LAUNCHER}${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}")
   set(_cmb_src ${CMAKE_CURRENT_SOURCE_DIR}/test_files/Conductors_MomentumBudget)
   set(_cmb_two "amr.max_level=1 amr.ref_ratio_vect=2 2 2 erf.dt_ref_ratio=2 erf.coupling_type=TwoWay erf.refinement_indicators=box1 erf.box1.max_level=1")
@@ -975,7 +975,7 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_MPI AND ERF_ENABLE_FCOMPARE AND NOT WIN3
   if(NOT ERF_MOORDYN_USE_STUB)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
-      resolve_test_exe("" "erf_exec" _bw_exe)
+      resolve_test_exe("" "${ERF_TEST_EXE}" _bw_exe)
       add_test(NAME BrokenWire_ThroughERF
                COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/Structures/Exec/BrokenWire/run_study.py"
                        --exe "${_bw_exe}" --out "${CMAKE_CURRENT_BINARY_DIR}/test_files/BrokenWire_ThroughERF"

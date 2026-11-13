@@ -1,5 +1,5 @@
-# The native fire engine directory. ERF builds it when FIRE_HOME lists this
-# directory (Exec/Make.ERF puts it on VPATH and the include path).
+# FLARE's fire engine. Exec/GNUmakefile sets FIRE_HOME to this directory, and ERF's
+# Exec/Make.ERF puts it on VPATH and the include path.
 CEXE_sources += ERF_NativeFireEngine.cpp
 CEXE_sources += ERF_FireEnginePrerequisites.cpp
 CEXE_sources += ERF_FireWindAdjust.cpp

@@ -1,3 +1,0 @@
-ifeq ($(USE_WW3_COUPLING),TRUE)
-CEXE_sources += ERF_ReadWaves.cpp
-endif

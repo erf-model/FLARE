@@ -16,7 +16,7 @@
 
 #include "ERF_FarsiteWindOutput.H"
 #include "ERF_EpochTime.H"
-#include "../ERF_GTestTempDir.H"
+#include "ERF_GTestTempDir.H"
 
 /**
  * @file ERF_GTestFarsiteWindOutput.cpp

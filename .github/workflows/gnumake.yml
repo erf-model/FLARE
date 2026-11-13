@@ -1,0 +1,39 @@
+name: FLARE GNU Make
+
+# flare from FLARE's Exec/GNUmakefile, with ERF (Submodules/ERF) and AMReX from ERF's submodule
+on:
+  push:
+    branches: [development]
+  pull_request:
+    branches: [development]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gnumake:
+    name: GNU Make - fire${{ matrix.dust == 'TRUE' && ', dust' || '' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        dust: [FALSE, TRUE]
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+        persist-credentials: false
+
+    - name: Install Dependencies
+      run: Submodules/ERF/Submodules/AMReX/.github/workflows/dependencies/dependencies.sh
+
+    - name: Compile and link
+      run: |
+        unset AMREX_HOME
+        make -C Exec -j2 USE_NETCDF=FALSE USE_PARTICLES=FALSE USE_DUST=${{ matrix.dust }} \
+             AMREX_HOME=${{github.workspace}}/Submodules/ERF/Submodules/AMReX

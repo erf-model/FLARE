@@ -18,8 +18,8 @@
 # CHK_NRANKS/RESTART_NRANKS let the checkpoint and restart legs run at different widths;
 # REQUIRE_LEVEL0_REMAKE asserts the restart really did re-make the level-0 grids.
 # -DX= defines X as empty, so test for a value, not for DEFINED
-include("${CMAKE_CURRENT_LIST_DIR}/MPILauncher.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/ResolveExecutable.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../Submodules/ERF/Tests/MPILauncher.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../Submodules/ERF/Tests/ResolveExecutable.cmake")
 
 foreach(arg NRANKS TEST_EXE INPUT WORKING_DIRECTORY FCOMPARE STEP_CHK STEP_END RTOL ATOL RUN_TIMEOUT)
     if("${${arg}}" STREQUAL "")

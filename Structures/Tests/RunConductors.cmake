@@ -19,8 +19,8 @@
 # EXTRA_LOGS, GOLD_DIR, GOLD_SUFFIX, OPTIONS.
 
 cmake_minimum_required(VERSION 3.20)
-include("${CMAKE_CURRENT_LIST_DIR}/../../Tests/MPILauncher.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/../../Tests/ResolveExecutable.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../Submodules/ERF/Tests/MPILauncher.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../Submodules/ERF/Tests/ResolveExecutable.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/../../Tests/CompareDataLogs.cmake")
 # The golds come from another machine: a quantity zero by symmetry (the drag along a span set
 # square to the wind, the wind along it) prints as roundoff, 1e-12 on one machine and 1e-7 on

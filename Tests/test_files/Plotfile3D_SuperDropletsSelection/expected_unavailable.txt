@@ -1,2 +1,0 @@
-# Motivation: Every requested fixed field is valid for water-only
-# SuperDroplets; this test expects no unavailable-variable warnings.

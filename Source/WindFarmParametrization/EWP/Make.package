@@ -1,2 +1,0 @@
-CEXE_sources += ERF_AdvanceEWP.cpp
-CEXE_headers += ERF_EWP.H

@@ -1,2 +1,0 @@
-# Motivation: every requested variable is valid for a TwoStream run; this
-# test expects no unavailable-variable warnings.

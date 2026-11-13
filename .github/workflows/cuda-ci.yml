@@ -1,11 +1,10 @@
-name: ERF CI (cuda)
+name: FLARE CI (cuda)
 
 on:
   push:
     branches: [development]
     paths:
       - '**'
-      - '!Build/spack/**'
       - '!Docs/**'
       - '!paper/**'
       - '!**.md'
@@ -20,7 +19,6 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - '**'
-      - '!Build/spack/**'
       - '!Docs/**'
       - '!paper/**'
       - '!**.md'
@@ -75,14 +73,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          submodules: true
+          submodules: recursive
           persist-credentials: false
       - name: Free up disk space
         uses: ./.github/actions/free-space-ubuntu
       - name: Prepare CUDA environment
-        run: Submodules/AMReX/.github/workflows/dependencies/dependencies_nvcc.sh ${{matrix.cuda_ver}}
+        run: Submodules/ERF/Submodules/AMReX/.github/workflows/dependencies/dependencies_nvcc.sh ${{matrix.cuda_ver}}
       - name: Install CCache
-        run: Submodules/AMReX/.github/workflows/dependencies/dependencies_ccache.sh
+        run: Submodules/ERF/Submodules/AMReX/.github/workflows/dependencies/dependencies_ccache.sh
       # GHCR trunk per configuration; the old Actions cache seeds the first restore.
       - name: Restore Cache
         id: ghcr-cache
@@ -132,7 +130,7 @@ jobs:
             -DERF_PARTICLES_PRECISION:STRING=${{matrix.particles_precision}} \
             -DERF_ENABLE_DUST:BOOL=ON \
             -DERF_TEST_NRANKS:STRING=2 \
-            -DERF_ENABLE_UNIT_TESTS:BOOL=ON .
+            -DFLARE_ENABLE_UNIT_TESTS:BOOL=ON .
           echo "Building with $(nproc) processes"
           cmake --build build-${{matrix.cuda_pkg}} --parallel "$(nproc)" \
           2>&1 | tee -a ${{runner.workspace}}/build-${{matrix.cuda_pkg}}-output.txt;
@@ -167,7 +165,7 @@ jobs:
           fi
           diagnostics="${{runner.workspace}}/build-${{matrix.cuda_pkg}}-diagnostics.txt"
           grep -Ei "warning:|warning #|error:|error #" "$build_log" \
-            | grep -Ev "Submodules/(amrex|AMReX|googletest)" \
+            | grep -Ev "Submodules/" \
             | grep -Ev "lto-wrapper: warning:" \
             | sort -fu > "$diagnostics" || true
           cat "$diagnostics"

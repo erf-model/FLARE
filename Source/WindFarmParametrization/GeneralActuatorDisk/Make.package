@@ -1,2 +1,0 @@
-CEXE_sources += ERF_AdvanceGeneralAD.cpp
-CEXE_headers += ERF_GeneralAD.H

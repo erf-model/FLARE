@@ -1,10 +1,10 @@
 name: Linux GCC MoorDyn
 
 # FLARE's structures (Structures/: the MoorDyn-C wrapper and the lattice tower models) on
-# ERF's actuator core, twice: built against the bundled MoorDyn stub library (no MoorDyn
+# ERF's actuator core (Submodules/ERF), twice: built against the bundled MoorDyn stub library (no MoorDyn
 # installation needed) and against the real MoorDyn-C, installed with
 # Structures/setup_moordyn.sh. Both jobs run every unit test (the MoorDynSystem suite
-# answers from whichever library is linked), and the actuator and SubDyn-reader suites on
+# answers from whichever library is linked), and the SubDyn-reader suite on
 # two ranks.
 
 on:
@@ -48,13 +48,13 @@ jobs:
 
     - uses: actions/checkout@v7
       with:
-        submodules: true
+        submodules: recursive
 
     - name: Install Dependencies
-      run: Submodules/AMReX/.github/workflows/dependencies/dependencies.sh
+      run: Submodules/ERF/Submodules/AMReX/.github/workflows/dependencies/dependencies.sh
 
     - name: Install CCache
-      run: Submodules/AMReX/.github/workflows/dependencies/dependencies_ccache.sh
+      run: Submodules/ERF/Submodules/AMReX/.github/workflows/dependencies/dependencies_ccache.sh
 
     - name: Set Up Cache
       uses: actions/cache@v6
@@ -76,8 +76,8 @@ jobs:
           -DERF_ENABLE_FFT:BOOL=ON \
           -DERF_ENABLE_STRUCTURES:BOOL=ON \
           -DERF_MOORDYN_USE_STUB:BOOL=ON \
-          -DERF_ENABLE_TESTS:BOOL=ON \
-          -DERF_ENABLE_UNIT_TESTS:BOOL=ON \
+          -DFLARE_ENABLE_TESTS:BOOL=ON \
+          -DFLARE_ENABLE_UNIT_TESTS:BOOL=ON \
           -DERF_ENABLE_ALL_WARNINGS:BOOL=ON \
           -DERF_ENABLE_FCOMPARE:BOOL=ON \
           -DERF_TEST_NRANKS:STRING=2 \
@@ -99,7 +99,7 @@ jobs:
     - name: Report
       run: |
         egrep "Warning:|Error:|warning:|error:" ${{runner.workspace}}/build-output.txt \
-          | egrep -v "Submodules/AMReX" | sort | uniq \
+          | egrep -v "Submodules/" | sort | uniq \
           | awk 'BEGIN{i=0}{print $0}{i++}END{print "Warnings: "i}' > ${{runner.workspace}}/build-output-warnings.txt
         cat ${{runner.workspace}}/build-output-warnings.txt
         return=$(tail -n 1 ${{runner.workspace}}/build-output-warnings.txt | awk '{print $2}')
@@ -108,12 +108,12 @@ jobs:
     - name: Unit Tests
       # every suite, including the tower, frame, member-check and MoorDynSystem suites of Structures/
       run: |
-        Tests/Unit/erf_unit_tests
+        Tests/Unit/flare_unit_tests
       working-directory: ${{runner.workspace}}/ERF/build
 
-    - name: Actuator and SubDyn-Reader Unit Tests on Two Ranks
+    - name: SubDyn-Reader Unit Tests on Two Ranks
       run: |
-        ctest -R "erf_parallel_tests.(Actuator|FrameSubDyn)" --output-on-failure --no-tests=error
+        ctest -R "flare_parallel_tests" --output-on-failure --no-tests=error
       working-directory: ${{runner.workspace}}/ERF/build
 
     - name: Upload backtraces from failed tests
@@ -133,13 +133,13 @@ jobs:
 
     - uses: actions/checkout@v7
       with:
-        submodules: true
+        submodules: recursive
 
     - name: Install Dependencies
-      run: Submodules/AMReX/.github/workflows/dependencies/dependencies.sh
+      run: Submodules/ERF/Submodules/AMReX/.github/workflows/dependencies/dependencies.sh
 
     - name: Install CCache
-      run: Submodules/AMReX/.github/workflows/dependencies/dependencies_ccache.sh
+      run: Submodules/ERF/Submodules/AMReX/.github/workflows/dependencies/dependencies_ccache.sh
 
     - name: Set Up Cache
       uses: actions/cache@v6
@@ -171,8 +171,8 @@ jobs:
           -DERF_ENABLE_FFT:BOOL=ON \
           -DERF_ENABLE_STRUCTURES:BOOL=ON \
           -DMOORDYN_DIR:PATH=${{runner.workspace}}/moordyn \
-          -DERF_ENABLE_TESTS:BOOL=ON \
-          -DERF_ENABLE_UNIT_TESTS:BOOL=ON \
+          -DFLARE_ENABLE_TESTS:BOOL=ON \
+          -DFLARE_ENABLE_UNIT_TESTS:BOOL=ON \
           -DERF_ENABLE_ALL_WARNINGS:BOOL=ON \
           -DERF_ENABLE_FCOMPARE:BOOL=ON \
           -DERF_TEST_NRANKS:STRING=2 \
@@ -194,7 +194,7 @@ jobs:
     - name: Report
       run: |
         egrep "Warning:|Error:|warning:|error:" ${{runner.workspace}}/build-output.txt \
-          | egrep -v "Submodules/AMReX" | sort | uniq \
+          | egrep -v "Submodules/" | sort | uniq \
           | awk 'BEGIN{i=0}{print $0}{i++}END{print "Warnings: "i}' > ${{runner.workspace}}/build-output-warnings.txt
         cat ${{runner.workspace}}/build-output-warnings.txt
         return=$(tail -n 1 ${{runner.workspace}}/build-output-warnings.txt | awk '{print $2}')
@@ -203,12 +203,12 @@ jobs:
     - name: Unit Tests
       # every suite, including the tower, frame, member-check and MoorDynSystem suites of Structures/
       run: |
-        Tests/Unit/erf_unit_tests
+        Tests/Unit/flare_unit_tests
       working-directory: ${{runner.workspace}}/ERF/build
 
-    - name: Actuator and SubDyn-Reader Unit Tests on Two Ranks
+    - name: SubDyn-Reader Unit Tests on Two Ranks
       run: |
-        ctest -R "erf_parallel_tests.(Actuator|FrameSubDyn)" --output-on-failure --no-tests=error
+        ctest -R "flare_parallel_tests" --output-on-failure --no-tests=error
       working-directory: ${{runner.workspace}}/ERF/build
 
     - name: Upload backtraces from failed tests

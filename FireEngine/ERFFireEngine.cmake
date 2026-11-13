@@ -1,6 +1,7 @@
-# The native fire engine directory, for CMake: ERF includes this file when
-# ERF_FIRE_ENGINE_DIRS lists this directory and calls erf_fire_engine_add with
-# its object library (ERF_FIRE_ENGINE_DIR is this directory during the call).
+# FLARE's fire engine, for CMake: FLARE's CMakeLists.txt (flare_add_models) includes
+# this file and calls erf_fire_engine_add with the target to compile the engine into
+# (ERF_FIRE_ENGINE_DIR is this directory during the call). The engine registers on ERF's
+# fire coupling as erf.fire.engine = flare.
 function(erf_fire_engine_add target)
   target_sources(${target} PRIVATE
     ${ERF_FIRE_ENGINE_DIR}/ERF_NativeFireEngine.cpp

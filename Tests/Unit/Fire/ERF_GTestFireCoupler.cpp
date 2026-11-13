@@ -12,7 +12,7 @@
 #include <AMReX_PlotFileUtil.H>
 #include <AMReX_FileSystem.H>
 #include <AMReX_ParallelDescriptor.H>
-#include "../ERF_GTestTempDir.H"
+#include "ERF_GTestTempDir.H"
 #include <cmath>
 #include <limits>
 #include <memory>
