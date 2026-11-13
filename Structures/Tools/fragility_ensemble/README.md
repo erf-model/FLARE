@@ -38,6 +38,7 @@ A JSON object. Paths are relative to the plan file.
 | `side_type` | the type of the base deck's side faces | `SlipWall`, `NoSlipWall` or `Symmetry`; not with `conductors.prescribed_velocity` | the type of a pair of lateral faces the member's wind blows along |
 | `inputs` | `{}` | deck keys with a number, `true`/`false`, a string (without `#` or `=`) or a list; not an input the members' wind is derived from (see below) | deck inputs set for every member (a capacity, `conductors.gust_type`, `conductors.intensity_averaging_time`) |
 | `support_files` | `[]` | files in the base deck's directory or below it, no repeats; must hold every file the deck names that stands beside it | files copied into every member's directory (a terrain file, a member design file) |
+| `spinup` | none (each member runs from the initial state) | `{"max_step": n}`, n an integer in [1, 100000000] below every member's `max_step`; not with `conductors.prescribed_velocity`; the members' inputs may not set `erf.check_int` or `erf.check_per` | the flow of each stripe and direction runs n steps once, without the structure model, and its members restart from that checkpoint with the lines (see below) |
 
 The plan gives at most 100 000 members. These inputs cannot be given in `inputs` or in a stripe's
 `inputs`: `conductors.intensity_measure`, `conductors.prescribed_velocity`,
@@ -72,6 +73,29 @@ not `Inflow`, `Outflow`, `SlipWall`, `NoSlipWall`, `Symmetry` or periodic, or wr
 diagnostics outside the run directory is refused with the input's name. Other inputs that hold a
 wind speed (`conductors.asce74_wind`, the event gust's inputs) are not scaled. The driver reads
 one `key = value` per line; a `FILE` include is looked for beside the file that names it.
+
+### Shared spin-up
+
+The seed sets only `conductors.gust_seed`, which the flow does not see. Members of one stripe and
+direction therefore share one flow. With `spinup`, the driver writes one spin-up run per distinct
+flow under `spinup/<name>` (`u001_s10_d0`: the flow's number, stripe and direction). Its deck is
+the member's deck without any `conductors.` or `erf.structures.` input, with `max_step = n` and
+`erf.check_int = n`. Members are grouped by a SHA-256 of that deck and of their wind files, so a
+stripe's own `inputs` that change the flow give it its own spin-up. Each member's deck gets
+`amr.restart = ../../spinup/<name>/<check_file>NNNNN` (`erf.check_file`, default `chk`, and n
+written with five digits) and runs from step n to its own `max_step`.
+
+The spin-up has no structure model because a restart keeps the conductor model's peak demands,
+first exceedances, intensity records and failure logs from the checkpoint. A checkpoint without
+them makes the lines afresh at the restart time, so every member starts its lines, records and
+logs on the spun-up flow.
+
+`run` runs each spin-up once, before its members, and skips one whose status is `done` and whose
+checkpoint `Header` is there. A spin-up that ends with return code 0 but without the checkpoint
+(its `stop_time` ended it before step n) is marked failed. When a spin-up fails, its members are
+marked failed without a run, with the detail `not run: its spin-up spinup/<name> failed (return
+code c)`; giving `run` again tries the spin-up again. The manifest lists the spin-ups
+(`spinups`) and each member's (`spinup`).
 
 ## How to run
 
@@ -128,6 +152,29 @@ In `output_dir`:
   `no_intensity_table`, `bad_demand_table` or `bad_intensity_table`, with the return code, the
   rows gathered and, for a failed run, the abort message of its log. A member goes into both
   gathered tables or into neither. `run` and `collect` return 1 when a member is not complete.
+- `breaks_all.csv`, `tower_failures_all.csv`, `failures_all.csv`: the rows of every complete
+  member's `breaks.dat` (`time line released component tension`), `tower_failures.dat`
+  (`time tower component releases`) and `failures.dat`
+  (`time kind component demand capacity ratio`) behind the same key columns. A run writes these
+  logs only with the options that make the events (`conductors.failure_break`,
+  `conductors.tower_failure = release`); a log with another header or a row with the wrong number
+  of fields gives the member the status `bad_breaks_log`, `bad_tower_failures_log` or
+  `bad_failures_log`, and it is not gathered.
+- `damage_table_all.csv`: one row per complete member behind the key columns:
+
+  | Column | Value |
+  | --- | --- |
+  | `max_peak_ratio` | the largest `peak_ratio` of its demand table |
+  | `components_exceeded` | the number of components with `peak_ratio` > 1 |
+  | `failures_log`, `breaks_log`, `tower_log` | `yes` when the run wrote that log, `no` when it did not |
+  | `failures` | rows of `failures.dat` |
+  | `lines_released` | distinct lines in `breaks.dat` |
+  | `releases` | rows of `breaks.dat` |
+  | `towers_lost` | distinct towers in `tower_failures.dat` |
+
+  A count is empty when its log was not written. A tower that fails lets go of its spans, and
+  those releases are also written to `breaks.dat`, so a member with a tower lost also has a line
+  released. `fragility_fit.py` reads this table for damage-state curves.
 
 ## Expected results
 
@@ -167,8 +214,8 @@ spun-up flow.
 
 ## CTest
 
-`FragilityEnsemble_DryRun`, `FragilityEnsemble_Refused`, `FragilityEnsemble_Run` and
-`FragilityEnsemble_Collect` (labels `unit`, `conductors`, `fragility`) run
+`FragilityEnsemble_DryRun`, `FragilityEnsemble_Refused`, `FragilityEnsemble_Run`,
+`FragilityEnsemble_Collect` and `FragilityEnsemble_Spinup` (labels `unit`, `conductors`, `fragility`) run
 `tests/test_fragility_ensemble.py`; they need Python 3 and run no ERF executable. The expected
 decks, wind files, manifest and gathered tables are written out by hand in the test file.
 

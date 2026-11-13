@@ -1892,6 +1892,21 @@ processes are found as the launcher's descendants with ``ps``; when the
 driver is interrupted or receives SIGTERM it ends the run with it, and that
 member runs again next time.
 
+**Shared spin-up.** The seed sets only ``conductors.gust_seed``, which the
+flow does not see, so the members of one stripe and direction share one flow.
+With the plan key ``spinup: {"max_step": n}`` the script writes one spin-up
+run per distinct flow under ``spinup/``: the member's deck without any
+``conductors.`` or ``erf.structures.`` input, run for n steps with a
+checkpoint at step n. Members are grouped by a SHA-256 of that deck and of
+their wind files. Each member restarts from the checkpoint
+(``amr.restart``) with the structure model and runs to its own
+``max_step``. The spin-up leaves the structure model out because a restart
+keeps the model's peak demands, first exceedances, intensity record and
+failure logs from the checkpoint; without them the lines are made afresh at
+the restart time, so every member's records start on the spun-up flow. A
+spin-up runs once, before its members; when it fails, or ends without its
+checkpoint, its members are marked failed without a run.
+
 **Gathering.** After the runs (or with ``collect``) the script writes
 ``demand_table_all.csv`` and ``intensity_all.csv``: the rows of every
 complete member's ``demand_table.csv`` and ``intensity.csv`` behind the four
@@ -1903,13 +1918,18 @@ per member with its status (``complete``, ``not_run``, ``failed``,
 ``bad_intensity_table``), return code and, for a failed run, the abort
 message of its log. Members that are not complete are listed on the screen
 and the command returns 1; a member goes into both tables or into neither.
+The failure logs ``breaks.dat``, ``tower_failures.dat`` and ``failures.dat``
+of the complete members are gathered the same way, and
+``damage_table_all.csv`` holds one row per member: the largest peak ratio,
+the number of components above 1, whether each log was written, and the
+counts of failures, released lines, releases and lost towers.
 
 **Limits.**
 
-* The members' flows start from the scaled sounding. A deck that restarts
-  from a spun-up checkpoint (``amr.restart``) would start every member from
-  the checkpoint's wind, so the script stops on it; such a case needs a
-  spin-up per member, which the script does not run.
+* The members' flows start from the scaled sounding, or with ``spinup``
+  from a spin-up of it. A base deck that restarts from its own checkpoint
+  (``amr.restart``) would start every member from that checkpoint's wind, so
+  the script stops on it.
 * An inflow through two faces has no regression test in ERF beyond the trial
   described in the tool's README; the corner column between an inflow and an
   outflow face takes the profile on one side and a zero gradient on the other.
@@ -1956,7 +1976,11 @@ process of the run and continues it, and a driver that is told to end leaves
 no process behind;
 ``FragilityEnsemble_Collect`` gathers stored tables, among them a member
 without a demand table, a failed one, one not run and one with another
-header. No test runs ERF. The tool's README records two ensembles run by
+header; ``FragilityEnsemble_Spinup`` compares the spin-up decks and the
+members' restart paths with values written by hand, requires each spin-up to
+run once, a failed or checkpoint-less one to hold back its members, a lost
+checkpoint to be run again, and the gathered failure logs and damage table
+to hold the stand-in's rows. No test runs ERF. The tool's README records two ensembles run by
 hand: four members on ``Conductors_TwoLevel``, whose recorded wind equals the
 planned stripe within 0.01 % and the planned direction within 0.001°, and an
 oblique wind through two inflow faces on ``Conductors_RandomGusts``.
@@ -2145,6 +2169,32 @@ vary less between members than simulated 0 and 1 outcomes do, so the same
 procedure would overstate their spread; those curves are reported without
 one.
 
+**Damage states.** With the plan key ``damage_states`` the tool also reads
+the driver's ``damage_table_all.csv`` and fits one curve per listed state of
+the line network. With :math:`r_i` the member's largest peak ratio,
+:math:`L_i` its number of released lines and :math:`T_i` its number of lost
+towers, member :math:`i` reaches
+
+.. math::
+
+   \mathrm{DS1}: r_i > 1, \quad
+   \mathrm{DS2}: L_i \ge 1, \quad
+   \mathrm{DS3}: T_i \ge 1, \quad
+   \mathrm{DS4}: T_i \ge N.
+
+**What the level is.** The member's level is the highest listed state it
+reaches, and its outcome is 1 for every listed state up to that level and 0
+above it. A member that reaches a state without a lower one listed is named
+in a note. A lost tower releases its spans, so DS3 implies DS2 in the runs.
+The curves are fitted against the nominal stripe with the likelihood above.
+
+**Why N has no default.** :math:`N`, the number of lost towers that makes a
+cascade, is the plan's ``cascade_towers``, an integer in [2, 100 000]. No
+source available to the tool fixes it, so it is the user's choice; DS4
+without it stops the tool. The states are the runs' own outcomes at the
+capacities of their decks, so ``capacity`` acts on the component and group
+curves only.
+
 **Outputs.** ``fragility_curves.csv`` has one row per component and per
 group (and per direction with ``by_direction``): the wind the curve was
 fitted against, the number of members, the sum of the outcomes, the status, :math:`\hat\theta`, :math:`\hat\beta`,
@@ -2178,6 +2228,8 @@ probability at that mean wind.
   assumption beyond the points in ``fragility_points.csv``.
 * No spread is given for curves fitted to probabilities. A spread from
   resampling the members would need its own source and is not in the tool.
+* Damage states are fitted one by one. Their curves are not forced to keep
+  their order and can cross when the members are few.
 
 **Tests.** ``FragilityFit_Published`` reproduces numbers printed in Baker
 (2015): with a true :math:`\theta = 1` and :math:`\beta = 0.4`, 40
@@ -2201,8 +2253,11 @@ table above except ``not_converged``, which no test reaches, the tail of
 :eq:`frag-capacity`. ``FragilityFit_Table`` runs two stored tables through
 the command (a separated conductor, a fitted hardware item, groups by Eq.
 :eq:`frag-series`, directions, a spread that does not depend on the order of
-the rows), and ``FragilityFit_Refused`` gives every plan key a value out of
-range and the tool tables it cannot use. The tool's README records the fit of
+the rows), ``FragilityFit_Refused`` gives every plan key a value out of
+range and the tool tables it cannot use, and ``FragilityFit_DamageStates``
+counts DS1 to DS4 by hand for twelve members, requires DS1 to equal the
+curve of the group of every component, moves the cascade threshold, and
+names a member that skips a state. The tool's README records the fit of
 one ensemble that was run.
 
 **References.**

@@ -12,6 +12,10 @@ by maximum likelihood on the members' outcomes (Baker 2015, Eqs. 1 and 8 to 11: 
 analysis, doi:10.1193/021113EQS025M), with the spread of the two estimates found by simulating
 outcomes from the fitted function and estimating again (the same paper's assessment procedure).
 
+With damage_states it also reads the driver's damage_table_all.csv (one row per member) and fits one
+curve per damage state of the line network against the nominal stripe: DS1 a peak ratio above 1,
+DS2 a line released, DS3 a tower lost, DS4 at least cascade_towers towers lost (N has no default).
+
     python3 fragility_fit.py --plan plan.json
 
 The plan and the outputs are described in README.md beside this file and in

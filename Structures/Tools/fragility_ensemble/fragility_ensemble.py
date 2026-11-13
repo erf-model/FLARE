@@ -8,9 +8,13 @@ From one base deck and a plan (wind-speed stripes x wind directions x gust seeds
      conductors.intensity_measure = wind switched on;
   2. runs the members one after another (subcommand run), waiting for a quiet machine before each
      run and pausing the run while the machine is busy; a member that finished is not run again;
+     with the plan key spinup each distinct flow first runs once without the structure model under
+     <output_dir>/spinup, and its members restart from that checkpoint;
   3. gathers every member's conductors/demand_table.csv and conductors/intensity.csv into two long
      tables keyed by member, stripe, direction and seed (subcommand collect), and lists every member
-     that failed, did not run or lacks a table in members_status.csv.
+     that failed, did not run or lacks a table in members_status.csv; the failure logs
+     (breaks.dat, tower_failures.dat, failures.dat) are gathered the same way, and
+     damage_table_all.csv holds one damage summary per member.
 
     python3 fragility_ensemble.py run --plan plan.json --dry-run
     python3 fragility_ensemble.py run --plan plan.json --exe <build>/Exec/erf_exec --ranks 2
@@ -1208,7 +1212,8 @@ def log_detail(path):
 
 
 def collect(out, log=print):
-    """Write the two long tables and the members' status. Returns the number of members not collected."""
+    """Write the two long tables, the three gathered failure logs, the damage table and the members' status.
+    Returns the number of members not collected."""
     try:
         with open(os.path.join(out, MANIFEST)) as f:
             manifest = json.load(f)
