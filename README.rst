@@ -12,9 +12,13 @@ meshes, LES and PBL closures, surface layer, radiation, microphysics and land
 surface models) is available to a FLARE run.
 
 This repository was the ``ERF-Fire`` branch of ``hgopalan/ERF`` until October
-2026. Its ``development`` branch takes upstream ERF ``development`` merges
-regularly, so the atmospheric core, build system and inputs stay the same as
-ERF's.
+2026, and carried a copy of ERF until November 2026. FLARE now uses ERF the way
+ERF uses AMReX: ERF is the submodule ``Submodules/ERF``, built as a library, and
+FLARE builds its own executable, ``flare``, from its fire engine
+(``FireEngine/``), dust layer (``Dust/``), structures (``Structures/``) and
+problem file (``Exec/ERF_Prob.cpp``). The submodule is pinned to a tagged ERF
+release, or to a later ERF commit when FLARE needs one; every change FLARE needs
+in ERF goes to ERF as a pull request.
 
 =================  ================
 Regression Tests    |firetests|
@@ -98,17 +102,29 @@ decks to run.
 Building and running
 --------------------
 
-FLARE builds with CMake exactly like ERF; the ERF
-`Getting Started <https://erf.readthedocs.io/en/latest/GettingStarted.html>`_
-page gives the system requirements. Clone with the submodules::
+FLARE builds with CMake, and takes ERF's options (``ERF_ENABLE_MPI``,
+``ERF_ENABLE_CUDA``, ``ERF_ENABLE_NETCDF``, ...) on its own configure line; the
+ERF `Getting Started <https://erf.readthedocs.io/en/latest/GettingStarted.html>`_
+page gives the system requirements. Clone with the submodules, which brings ERF
+and, through ERF, AMReX::
 
    git clone --recursive https://github.com/erf-model/FLARE.git FLARE
    cd FLARE
    cmake -S . -B cmake-build -DERF_ENABLE_MPI=ON
    cmake --build cmake-build -j
 
+The executable is ``cmake-build/flare``. ``-DFLARE_ENABLE_TESTS=ON`` adds FLARE's
+regression and unit tests (``ctest``); ERF's own tests stay in ERF. GNU make
+builds from ``Exec/`` (``make -C Exec``), with ``USE_DUST = TRUE`` for the dust
+layer. To move the submodule to another ERF commit::
+
+   cd Submodules/ERF && git fetch && git checkout <tag or commit> && cd ../..
+   git submodule update --init --recursive
+   git add Submodules/ERF
+
 The fire engine is built in by default (``ERF_ENABLE_FIRE=ON``); dust is opt-in
-(``ERF_ENABLE_DUST=ON``). A deck turns the fire on with ``erf.fire.enable = true``
+(``ERF_ENABLE_DUST=ON``), and so are the structures (``ERF_ENABLE_STRUCTURES=ON``,
+with ``ERF_MOORDYN_USE_STUB=ON`` where MoorDyn-C is not installed). A deck turns the fire on with ``erf.fire.enable = true``
 and selects the engine with ``erf.fire.engine = flare``, the default; the
 ``erf.fire.*`` keys are listed in the inputs documentation. Each case folder
 holds the inputs it needs and a README with the expected behaviour.

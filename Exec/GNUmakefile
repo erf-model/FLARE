@@ -39,10 +39,18 @@ USE_FFT = FALSE
 # Enable particles (required for ParticleTests, MultiSpeciesBubble or inputs_SDM in RICO)  
 USE_PARTICLES = FALSE
 
-# GNU Make
-Bpack := ./Make.package
-Blocs := .
+# FLARE: the fire engine (FireEngine/) and, with USE_DUST = TRUE, the dust layer (Dust/)
+USE_FIRE = TRUE
+USE_DUST = FALSE
 
-ERF_HOME := ..
-ERF_PROBLEM_DIR = $(ERF_HOME)/Exec
+# GNU Make: ERF is Submodules/ERF; the problem file is FLARE's own (this directory)
+FLARE_HOME := ..
+ERF_HOME := $(FLARE_HOME)/Submodules/ERF
+ERF_PROBLEM_DIR = $(FLARE_HOME)/Exec
+ifeq ($(USE_FIRE), TRUE)
+    FIRE_HOME := $(FLARE_HOME)/FireEngine
+endif
+ifeq ($(USE_DUST), TRUE)
+    DUST_HOME := $(FLARE_HOME)/Dust
+endif
 include $(ERF_HOME)/Exec/Make.ERF
