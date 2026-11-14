@@ -226,6 +226,11 @@ conductor logs start at 4.5 s, so the lines were made at the restart and not car
 checkpoint. `Structures/Exec/CascadeStripes` runs this plan with a footing allowable and the
 failures on, and its CTest `CascadeStripes_DamageStates` checks the restart and the damage table.
 
+A full-size run is `Structures/Exec/PowerLinesStripes` (2026-11-13 to 14, MoorDyn-C, 4 ranks): the
+PowerLines network over hills, 7 stripes x 3 seeds, a 600 s spin-up per stripe and 120 s with the
+lines. All 21 members restarted from their stripe's `chk01715` with the lines made at the restart;
+its README lists the damage table and the damage-state curves.
+
 
 ## CTest
 
