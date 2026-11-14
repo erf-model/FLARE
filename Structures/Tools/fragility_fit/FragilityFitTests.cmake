@@ -12,9 +12,12 @@
 #                           directions, the points per stripe
 #   FragilityFit_Refused    every plan key out of range and a table that cannot be used stop the
 #                           tool, named
+#   FragilityFit_DamageStates  DS1-DS4 counted by hand from a damage table, DS1 equal to the group
+#                           of every component, the cascade threshold, a member that skips a
+#                           state, and every damage_states key out of range
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
-  foreach(_ff_class Published ByHand Table Refused)
+  foreach(_ff_class Published ByHand Table Refused DamageStates)
     add_test(NAME FragilityFit_${_ff_class}
              COMMAND "${Python3_EXECUTABLE}" -I
                      "${PROJECT_SOURCE_DIR}/Structures/Tools/fragility_fit/tests/test_fragility_fit.py"

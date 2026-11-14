@@ -986,4 +986,27 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_MPI AND ERF_ENABLE_FCOMPARE AND NOT WIN3
       message(STATUS "BrokenWire_ThroughERF needs Python 3 and is not registered")
     endif()
   endif()
+  # Damage states through the fragility tools (Structures/Exec/CascadeStripes/run_case.py): the
+  # ensemble driver runs Conductors_RandomGusts at 10 and 25 m/s with two gust seeds each, one shared
+  # spin-up of the flow alone per stripe and the line failures on; the towers' footings hold a
+  # synthetic uplift allowable of 20 kN (the calibration's largest uplift is 0 at 10 m/s and 33 to
+  # 66 kN at 25 m/s). The case requires every member to restart from its stripe's checkpoint with
+  # no conductor state in it (the run log says so), no failure at 10 m/s, a first failure in footing uplift with a
+  # line released and 2 or more towers lost at 25 m/s, and the fit's DS1-DS4 points 0 of 2 and 2 of 2.
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    resolve_test_exe("" "${ERF_TEST_EXE}" _cs_exe)
+    set(_cs_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/CascadeStripes_DamageStates)
+    file(MAKE_DIRECTORY ${_cs_dir})
+    string(REPLACE ";" " " _cs_pre "${MPIEXEC_PREFLAGS}")
+    # the outputs (two spin-ups' checkpoints and four members) are removed after a pass and kept after a failure
+    add_test(NAME CascadeStripes_DamageStates
+             COMMAND sh -c "rm -rf ensemble fit && \"${Python3_EXECUTABLE}\" -I \"${PROJECT_SOURCE_DIR}/Structures/Exec/CascadeStripes/run_case.py\" --exe \"${_cs_exe}\" --out . --mpiexec \"${MPIEXEC_EXECUTABLE}\" \"--mpiexec-args=${_cs_pre}\" --ranks 1 --no-load-gate --check && rm -rf ensemble fit plan.json fit_plan.json"
+             WORKING_DIRECTORY ${_cs_dir})
+    set_tests_properties(CascadeStripes_DamageStates PROPERTIES
+        LABELS "regression;conductors;failure;fragility" TIMEOUT 1200 PROCESSORS 1
+        PASS_REGULAR_EXPRESSION "CascadeStripes: all checks hold")
+  else()
+    message(STATUS "CascadeStripes_DamageStates needs Python 3 and is not registered")
+  endif()
 endif()

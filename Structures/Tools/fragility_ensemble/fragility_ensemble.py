@@ -8,9 +8,13 @@ From one base deck and a plan (wind-speed stripes x wind directions x gust seeds
      conductors.intensity_measure = wind switched on;
   2. runs the members one after another (subcommand run), waiting for a quiet machine before each
      run and pausing the run while the machine is busy; a member that finished is not run again;
+     with the plan key spinup each distinct flow first runs once without the structure model under
+     <output_dir>/spinup, and its members restart from that checkpoint;
   3. gathers every member's conductors/demand_table.csv and conductors/intensity.csv into two long
      tables keyed by member, stripe, direction and seed (subcommand collect), and lists every member
-     that failed, did not run or lacks a table in members_status.csv.
+     that failed, did not run or lacks a table in members_status.csv; the failure logs
+     (breaks.dat, tower_failures.dat, failures.dat) are gathered the same way, and
+     damage_table_all.csv holds one damage summary per member.
 
     python3 fragility_ensemble.py run --plan plan.json --dry-run
     python3 fragility_ensemble.py run --plan plan.json --exe <build>/Exec/erf_exec --ranks 2
@@ -43,7 +47,7 @@ INTENSITY_ALL = "intensity_all.csv"
 STATUS_ALL = "members_status.csv"
 KEY_COLUMNS = ("member", "stripe", "nominal_direction", "seed")
 PLAN_KEYS = ("base_deck", "output_dir", "speeds", "directions", "seeds", "reference_height",
-             "side_type", "inputs", "support_files")
+             "side_type", "inputs", "support_files", "spinup")
 SIDE_TYPES = ("SlipWall", "NoSlipWall", "Symmetry")
 # inputs the members' wind is derived from: a plan that set them would run another wind than the manifest's
 DRIVER_KEYS = ("conductors.intensity_measure", "conductors.prescribed_velocity", "erf.init_type",
@@ -53,6 +57,22 @@ DRIVER_KEYS = ("conductors.intensity_measure", "conductors.prescribed_velocity",
 LATERAL_FACES = ("xlo", "xhi", "ylo", "yhi")
 MAX_SPEED = 150.0      # m/s: above any wind a line is designed for
 MAX_MEMBERS = 100000
+MAX_SPINUP_STEPS = 100000000
+SPINUP_DIR = "spinup"
+# the keys a spin-up leaves out: it runs the flow alone, so its checkpoint holds no conductor state and
+# every member's lines start afresh at the restart (a checkpoint with conductor state would hand every
+# member the spin-up's peaks, first exceedances and failure logs)
+SPINUP_CHECK_KEYS = ("erf.check_int", "erf.check_per", "amr.check_int", "amr.check_per")
+SPINUP_DROPPED = ("conductors.", "erf.structures.")
+# the failure logs a member may write (whitespace tables), with the header each must have
+FAILURE_LOGS = (("breaks", "breaks.dat", ("time", "line", "released", "component", "tension"), "breaks_all.csv"),
+                ("tower_failures", "tower_failures.dat", ("time", "tower", "component", "releases"),
+                 "tower_failures_all.csv"),
+                ("failures", "failures.dat", ("time", "kind", "component", "demand", "capacity", "ratio"),
+                 "failures_all.csv"))
+DAMAGE_ALL = "damage_table_all.csv"
+DAMAGE_COLUMNS = ("max_peak_ratio", "components_exceeded", "failures_log", "failures", "breaks_log",
+                  "lines_released", "releases", "tower_log", "towers_lost")
 PARALLEL = 1.0e-12     # a direction cosine below this is a wind along the face
 
 
@@ -439,6 +459,17 @@ class Plan:
             stop("support_files: a file is listed twice")
         self.support_files = list(files)
 
+        self.spinup = None
+        if "spinup" in p:
+            s = p["spinup"]
+            if not isinstance(s, dict) or sorted(s) != ["max_step"]:
+                stop("spinup must be {\"max_step\": n}: the steps each stripe's flow runs alone before its members "
+                     "restart from it")
+            n = s["max_step"]
+            if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= MAX_SPINUP_STEPS:
+                stop("spinup: max_step must be an integer in [1, %d], got %s" % (MAX_SPINUP_STEPS, json.dumps(n)))
+            self.spinup = n
+
         n = len(self.speeds) * len(self.directions or [0]) * len(self.seeds or [0])
         if n > MAX_MEMBERS:
             stop("speeds x directions x seeds gives %d members; at most %d" % (n, MAX_MEMBERS))
@@ -494,6 +525,15 @@ class Ensemble:
             for key in given:
                 if key in DRIVER_KEYS + ("conductors.diagnostics_dir",):
                     stop("%s: %s cannot be given: the driver sets it or reads the base deck's" % (where, key))
+        # an ensemble needs every member to run to its end: with failure_stop the model aborts at the first
+        # capacity exceeded, the member counts as failed and the members with damage would drop out of the tables
+        for where, given in [("base_deck", {"conductors.failure_stop": (deck.tokens("conductors.failure_stop")
+                                                                         or ["false"])[0]}),
+                             ("inputs", plan.inputs)] + [("speeds: a stripe's inputs", e) for e in plan.speed_inputs]:
+            if "conductors.failure_stop" in given and \
+                    str(given["conductors.failure_stop"]).strip().lower() not in ("false", "0"):
+                stop("%s: conductors.failure_stop must be false in an ensemble: it aborts a member at the first "
+                     "capacity exceeded, and the members that fail would be left out of every table" % where)
         model = deck.tokens("erf.structures.model")
         if plan.inputs.get("erf.structures.model", model and model[0]) != "conductors":
             stop("base_deck: %s does not set erf.structures.model = conductors" % plan.base_deck)
@@ -555,6 +595,76 @@ class Ensemble:
             with open(os.path.join(deck.directory, name), "rb") as f:
                 self.sources[name] = hashlib.sha256(f.read()).hexdigest()
         self.members = self._members()
+        self.spinups = self._spinups() if plan.spinup is not None else []
+
+    def _spinups(self):
+        """The spin-ups: members whose decks and wind files are the same once the conductor keys are left out
+        (members that differ only in the gust seed) share one. Each member's deck restarts from its spin-up's
+        checkpoint (amr.restart, a path relative to the member's directory)."""
+        plan, deck = self.plan, self.deck
+        if self.mode != "sounding":
+            stop("spinup needs a flow to spin up: conductors.prescribed_velocity runs no flow")
+        n = plan.spinup
+        dropped = {k: None for k, _, _ in deck.lines if k is not None and k.startswith(SPINUP_DROPPED)}
+        groups, order = {}, []
+        for m in self.members:
+            changes = {k: v for k, v in m["inputs"].items() if not k.startswith(SPINUP_DROPPED)}
+            last = changes.get("max_step", deck.get("max_step"))
+            try:
+                last = int(last)
+            except (TypeError, ValueError):
+                last = None
+            if last is None or last < 0:
+                stop("spinup: %s needs a max_step >= 0 in the base deck or the plan's inputs (the member's last step), "
+                     "got %s" % (m["member"], changes.get("max_step", deck.get("max_step"))))
+            if last <= n:
+                stop("spinup: max_step = %d must be below %s's max_step = %d (the member runs on from the spin-up's "
+                     "checkpoint to its own max_step)" % (n, m["member"], last))
+            for key in SPINUP_CHECK_KEYS:
+                if key in changes:
+                    stop("spinup: %s's inputs set %s; the driver sets the spin-up's checkpoint itself" % (m["member"], key))
+            stop_time, dt = changes.get("stop_time", deck.get("stop_time")), changes.get("erf.fixed_dt",
+                                                                                        deck.get("erf.fixed_dt"))
+            try:
+                stop_time, dt = float(stop_time), float(dt)
+            except (TypeError, ValueError):
+                stop_time = dt = None
+            if stop_time is not None and math.isfinite(stop_time) and math.isfinite(dt) and dt > 0.0 \
+                    and stop_time <= n * dt * (1.0 + 1e-9):
+                stop("spinup: %s's stop_time = %s s ends at or before the spin-up's end (max_step %d x erf.fixed_dt %s s "
+                     "= %s s): the spin-up would write no checkpoint at step %d, or the member would stop at once"
+                     % (m["member"], fmt(stop_time), n, fmt(dt), fmt(n * dt), n))
+            changes.update(dropped)
+            changes.update({"max_step": str(n), "erf.check_int": str(n), "erf.check_per": None,
+                            "amr.check_int": None, "amr.check_per": None})
+            text = deck.text_with(changes)
+            winds = {name: wind.text_with(*m["_wind"]) for name, wind in self.files.items()}
+            key = digest(text + "".join(name + "\n" + winds[name] for name in sorted(winds)))
+            if key not in groups:
+                check = (deck.tokens("erf.check_file") or ["chk"])[0]
+                check = tokens_of(changes["erf.check_file"])[0] if "erf.check_file" in changes else check
+                if os.path.isabs(check) or ".." in check.replace("\\", "/").split("/"):
+                    stop("spinup: erf.check_file = %s must lie inside the run directory, or the spin-ups would write "
+                         "their checkpoints to one place" % check)
+                digits = (tokens_of(changes["erf.file_name_digits"]) if "erf.file_name_digits" in changes
+                          else deck.tokens("erf.file_name_digits")) or ["5"]
+                try:
+                    digits = int(digits[0])
+                except ValueError:
+                    stop("spinup: erf.file_name_digits = %s is not an integer" % digits[0])
+                if not 1 <= digits <= 20:
+                    stop("spinup: erf.file_name_digits = %d must be in [1, 20]" % digits)
+                name = "u%0*d_s%s_d%s" % (max(3, len(str(len(self.members)))), len(order) + 1, name_tag(m["stripe"]),
+                                          name_tag(m["nominal_direction"]))
+                groups[key] = {"spinup": name, "directory": SPINUP_DIR + "/" + name, "max_step": n,
+                               "checkpoint": "%s%0*d" % (check, digits, n),
+                               "initial_checkpoint": "%s%0*d" % (check, digits, 0), "members": [], "_text": text, "_winds": winds}
+                order.append(key)
+            g = groups[key]
+            g["members"].append(m["member"])
+            m["spinup"] = g["spinup"]
+            m["inputs"]["amr.restart"] = "../../%s/%s" % (g["directory"], g["checkpoint"])
+        return [groups[k] for k in order]
 
     def _read_sounding_mode(self):
         deck, plan = self.deck, self.plan
@@ -753,7 +863,9 @@ class Ensemble:
             "base_deck": self.plan.base_deck, "deck": self.deck_name,
             "diagnostics_dir": self.diagnostics_dir,
             "wind": wind, "support_files": self.plan.support_files, "sources": self.sources,
-            "members": [{k: v for k, v in m.items() if not k.startswith("_")} for m in self.members]}
+            "members": [{k: v for k, v in m.items() if not k.startswith("_")} for m in self.members],
+            **({"spinups": [{k: v for k, v in g.items() if not k.startswith("_")} for g in self.spinups]}
+               if self.spinups else {})}
 
     def write(self, out):
         """Write the manifest and every member directory that is not there yet. An existing manifest
@@ -789,6 +901,23 @@ class Ensemble:
             except OSError as e:
                 stop("output_dir: cannot write %s (%s)" % (d, e.strerror))
             written += 1
+        for g in self.spinups:
+            d = os.path.join(out, g["directory"])
+            deck_path = os.path.join(d, self.deck_name)
+            if os.path.exists(deck_path):
+                continue
+            os.makedirs(d, exist_ok=True)
+            try:
+                for name in self.plan.support_files:
+                    target = os.path.join(d, name)
+                    os.makedirs(os.path.dirname(target), exist_ok=True)
+                    shutil.copyfile(os.path.join(self.deck.directory, name), target)
+                for name, text in g["_winds"].items():
+                    write_text(os.path.join(d, name), text)
+                write_text(deck_path + ".tmp", g["_text"])
+                os.replace(deck_path + ".tmp", deck_path)
+            except OSError as e:
+                stop("output_dir: cannot write %s (%s)" % (d, e.strerror))
         return written
 
     def notes(self):
@@ -951,7 +1080,71 @@ def run_members(out, manifest, command, ranks, gate, log=print):
         os.remove(lock)
 
 
+def write_status(d, status):
+    with open(os.path.join(d, STATUS + ".tmp"), "w") as f:
+        json.dump(status, f)
+        f.write("\n")
+    os.replace(os.path.join(d, STATUS + ".tmp"), os.path.join(d, STATUS))
+
+
+def run_one(name, d, deck, command, gate, started, log):
+    """Run one deck in its directory behind the gate, logging started once it may start; returns
+    (return code, wall seconds)."""
+    gate.wait_to_start(name)
+    log(started)
+    t0 = time.time()
+    with open(os.path.join(d, RUN_LOG), "w") as logf:
+        try:
+            proc = subprocess.Popen(command + [deck], cwd=d, stdin=subprocess.DEVNULL, stdout=logf,
+                                    stderr=subprocess.STDOUT, start_new_session=True)
+        except OSError as e:
+            stop("--exe/--mpiexec: cannot start '%s' (%s)" % (" ".join(command), e.strerror))
+        try:
+            gate.watch(name, proc)
+        except BaseException:
+            end_run(proc)   # interrupted: the run has no status and runs again next time
+            raise
+    return proc.returncode, round(time.time() - t0, 1)
+
+
+def spinup_ready(out, g):
+    """True when the spin-up finished and left its checkpoint."""
+    d = os.path.join(out, g["directory"])
+    status = read_status(d)
+    return status is not None and status.get("status") == "done" and \
+        os.path.isfile(os.path.join(d, g["checkpoint"], "Header"))
+
+
+def run_spinup(out, manifest, g, command, ranks, gate, log):
+    """Run a spin-up that has not finished. Returns None when its checkpoint is there, else why not."""
+    if spinup_ready(out, g):
+        return None
+    d = os.path.join(out, g["directory"])
+    if os.path.exists(os.path.join(d, STATUS)):
+        os.remove(os.path.join(d, STATUS))
+    # an earlier attempt's checkpoint must not be taken for this run's
+    if os.path.isdir(os.path.join(d, g["checkpoint"])):
+        shutil.rmtree(os.path.join(d, g["checkpoint"]))
+    code, wall = run_one(g["spinup"], d, manifest["deck"], command, gate,
+                         "%s: spin-up started (%d steps of the flow alone, for %d member(s))"
+                         % (g["spinup"], g["max_step"], len(g["members"])), log)
+    status = {"status": "done" if code == 0 else "failed", "returncode": code, "ranks": ranks, "wall_seconds": wall}
+    if code == 0 and not os.path.isfile(os.path.join(d, g["checkpoint"], "Header")):
+        status.update({"status": "failed", "detail": "the run ended without writing %s (does its stop_time end it "
+                                                      "before max_step?)" % g["checkpoint"]})
+    if status["status"] == "done" and g.get("initial_checkpoint"):
+        # ERF also writes a checkpoint at step 0 of a run that is not a restart; the members do not use it
+        shutil.rmtree(os.path.join(d, g["initial_checkpoint"]), ignore_errors=True)
+    write_status(d, status)
+    log("%s: spin-up %s (return code %d)" % (g["spinup"], status["status"], code))
+    if status["status"] == "done":
+        return None
+    return status.get("detail") or "return code %d" % code
+
+
 def _run_members(out, manifest, command, ranks, gate, log, failed, diag):
+    spinups = {g["spinup"]: g for g in manifest.get("spinups", [])}
+    tried = {}      # spin-up -> None (ready) or why it is not, once per invocation
     for m in manifest["members"]:
         name, d = m["member"], os.path.join(out, m["directory"])
         status = read_status(d)
@@ -959,32 +1152,25 @@ def _run_members(out, manifest, command, ranks, gate, log, failed, diag):
             log("%s: finished earlier, skipped" % name)
             continue
         # a run starts from a clean record: an earlier attempt's status and tables must not be taken for this one's
-        for stale in (STATUS, os.path.join(diag, "demand_table.csv"), os.path.join(diag, "intensity.csv")):
+        for stale in (STATUS, os.path.join(diag, "demand_table.csv"), os.path.join(diag, "intensity.csv")) + \
+                tuple(os.path.join(diag, f[1]) for f in FAILURE_LOGS):
             if os.path.exists(os.path.join(d, stale)):
                 os.remove(os.path.join(d, stale))
-        gate.wait_to_start(name)
-        log("%s: started (stripe %s m/s, direction %s degrees%s)" % (
+        if "spinup" in m:
+            g = spinups[m["spinup"]]
+            if g["spinup"] not in tried:
+                tried[g["spinup"]] = run_spinup(out, manifest, g, command, ranks, gate, log)
+            if tried[g["spinup"]] is not None:
+                write_status(d, {"status": "failed", "returncode": None, "ranks": ranks, "wall_seconds": 0.0,
+                                 "detail": "not run: its spin-up %s failed (%s)" % (g["directory"], tried[g["spinup"]])})
+                log("%s: not run, its spin-up %s failed" % (name, g["spinup"]))
+                failed.append(name)
+                continue
+        code, wall = run_one(name, d, manifest["deck"], command, gate, "%s: started (stripe %s m/s, direction %s degrees%s)" % (
             name, fmt(m["stripe"]), fmt(m["nominal_direction"]),
-            "" if m["seed"] is None else ", seed %d" % m["seed"]))
-        t0 = time.time()
-        with open(os.path.join(d, RUN_LOG), "w") as logf:
-            try:
-                proc = subprocess.Popen(command + [manifest["deck"]], cwd=d, stdin=subprocess.DEVNULL, stdout=logf,
-                                        stderr=subprocess.STDOUT, start_new_session=True)
-            except OSError as e:
-                stop("--exe/--mpiexec: cannot start '%s' (%s)" % (" ".join(command), e.strerror))
-            try:
-                gate.watch(name, proc)
-            except BaseException:
-                end_run(proc)   # interrupted: the member has no status and runs again next time
-                raise
-        code = proc.returncode
+            "" if m["seed"] is None else ", seed %d" % m["seed"]), log)
         state = "done" if code == 0 else "failed"
-        with open(os.path.join(d, STATUS + ".tmp"), "w") as f:
-            json.dump({"status": state, "returncode": code, "ranks": ranks,
-                       "wall_seconds": round(time.time() - t0, 1)}, f)
-            f.write("\n")
-        os.replace(os.path.join(d, STATUS + ".tmp"), os.path.join(d, STATUS))
+        write_status(d, {"status": state, "returncode": code, "ranks": ranks, "wall_seconds": wall})
         log("%s: %s (return code %d)" % (name, state, code))
         if code != 0:
             failed.append(name)
@@ -1018,6 +1204,51 @@ def read_table(path, need):
     return header, body, None
 
 
+def read_log(path, header):
+    """(rows, problem) of a failure log (a whitespace table with the given header); rows is None for a log the
+    run did not write (its option was off), problem is None for a log that can be used."""
+    try:
+        with open(path) as f:
+            lines = [ln.split() for ln in f if ln.strip()]
+    except OSError:
+        return None, None
+    if not lines or tuple(lines[0]) != header:
+        return None, "its header is not '%s'" % " ".join(header)
+    body = lines[1:]
+    for r in body:
+        if len(r) != len(header):
+            return None, "a row has %d fields, the header %d" % (len(r), len(header))
+        try:
+            float(r[0])
+        except ValueError:
+            return None, "a row's time is not a number"
+    return body, None
+
+
+def exact(x):
+    """x in the fewest digits that read back as the same float (1.4, not 1.3999999999999999; 1, not 1.0)."""
+    r = repr(float(x))
+    return r[:-2] if r.endswith(".0") else r
+
+
+def damage_row(header, body, logs):
+    """The member's damage summary (DAMAGE_COLUMNS) from its demand table and failure logs."""
+    # the model writes an empty ratio for a component it never recorded
+    ratios = [float(r[header.index("peak_ratio")]) for r in body
+              if r[header.index("peak_ratio")].strip()] if "peak_ratio" in header else []
+    # full precision: a ratio just above 1 must not print as 1 (DS1 is a ratio above 1)
+    out = [exact(max(ratios)) if ratios else "", str(sum(1 for x in ratios if x > 1.0)) if ratios else ""]
+    for which, count in (("failures", lambda rows: str(len(rows))),
+                         ("breaks", lambda rows: "%d %d" % (len(set(r[1] for r in rows)), len(rows))),
+                         ("tower_failures", lambda rows: str(len(set(r[1] for r in rows))))):
+        rows = logs[which]
+        if rows is None:
+            out += ["no", ""] + ([""] if which == "breaks" else [])
+        else:
+            out += ["yes"] + count(rows).split()
+    return out
+
+
 def log_detail(path):
     """The abort message of a run's log, or its last line."""
     try:
@@ -1032,7 +1263,8 @@ def log_detail(path):
 
 
 def collect(out, log=print):
-    """Write the two long tables and the members' status. Returns the number of members not collected."""
+    """Write the two long tables, the three gathered failure logs, the damage table and the members' status.
+    Returns the number of members not collected."""
     try:
         with open(os.path.join(out, MANIFEST)) as f:
             manifest = json.load(f)
@@ -1043,6 +1275,8 @@ def collect(out, log=print):
         stop("output_dir: %s holds no %s written by this driver" % (out, MANIFEST))
     tables = {"demand": [None, []], "intensity": [None, []]}
     first = {"demand": None, "intensity": None}
+    failure_rows = {f[0]: [] for f in FAILURE_LOGS}
+    damage_rows = []
     status_rows = []
     for m in members:
         d = os.path.join(out, m["directory"])
@@ -1053,7 +1287,7 @@ def collect(out, log=print):
         if status is None:
             state, detail = "not_run", ""
         elif status.get("status") != "done":
-            state, detail = "failed", log_detail(os.path.join(d, RUN_LOG))
+            state, detail = "failed", status.get("detail") or log_detail(os.path.join(d, RUN_LOG))
         else:
             state, detail, got = "complete", "", {}
             for which, name, need in (("demand", "demand_table.csv", ("kind", "component")),
@@ -1066,12 +1300,22 @@ def collect(out, log=print):
                     detail = "%s/%s: %s" % (diag, name, problem)
                     break
                 got[which] = (header, body)
-            if state == "complete":     # a member goes into both tables or into neither
+            logs = {}
+            for which, name, header, _ in FAILURE_LOGS if state == "complete" else ():
+                rows, problem = read_log(os.path.join(d, diag, name), header)
+                if problem is not None:
+                    state, detail = "bad_%s_log" % which, "%s/%s: %s" % (diag, name, problem)
+                    break
+                logs[which] = rows
+            if state == "complete":     # a member goes into every table or into none
                 for which, (header, body) in got.items():
                     if tables[which][0] is None:
                         tables[which][0], first[which] = header, m["member"]
                     tables[which][1].extend(key + r for r in body)
                 counts = [str(len(got["demand"][1])), str(len(got["intensity"][1]))]
+                for which, rows in logs.items():
+                    failure_rows[which].extend(key + r for r in rows or [])
+                damage_rows.append(key + damage_row(got["demand"][0], got["demand"][1], logs))
         status_rows.append(key + [state, code] + counts + [detail])
 
     for which, name in (("demand", DEMAND_ALL), ("intensity", INTENSITY_ALL)):
@@ -1080,13 +1324,22 @@ def collect(out, log=print):
             w = csv.writer(f, lineterminator="\n")
             w.writerow(list(KEY_COLUMNS) + (header or []))
             w.writerows(rows)
+    for which, _, header, name in FAILURE_LOGS:
+        with open(os.path.join(out, name), "w", newline="") as f:
+            w = csv.writer(f, lineterminator="\n")
+            w.writerow(list(KEY_COLUMNS) + list(header))
+            w.writerows(failure_rows[which])
+    with open(os.path.join(out, DAMAGE_ALL), "w", newline="") as f:
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow(list(KEY_COLUMNS) + list(DAMAGE_COLUMNS))
+        w.writerows(damage_rows)
     with open(os.path.join(out, STATUS_ALL), "w", newline="") as f:
         w = csv.writer(f, lineterminator="\n")
         w.writerow(list(KEY_COLUMNS) + ["status", "returncode", "demand_rows", "intensity_rows", "detail"])
         w.writerows(status_rows)
     missing = [r for r in status_rows if r[4] != "complete"]
-    log("collected %d of %d members into %s and %s" % (len(members) - len(missing), len(members),
-                                                       DEMAND_ALL, INTENSITY_ALL))
+    log("collected %d of %d members into %s, %s and %s" % (len(members) - len(missing), len(members),
+                                                           DEMAND_ALL, INTENSITY_ALL, DAMAGE_ALL))
     for r in missing:
         log("NOT COLLECTED %s: %s%s" % (r[0], r[4], (" (" + r[8] + ")") if r[8] else ""))
     return len(missing)
@@ -1174,8 +1427,10 @@ def main(argv=None, gate=None):
         ensemble = Ensemble(plan)
         os.makedirs(out, exist_ok=True)
         written = ensemble.write(out)
-        print("%d members in %s (%d directories written now); the base wind is %s m/s towards %s degrees%s" % (
-            len(ensemble.members), out, written, fmt(ensemble.base_speed), fmt(ensemble.base_direction),
+        print("%d members%s in %s (%d directories written now); the base wind is %s m/s towards %s degrees%s" % (
+            len(ensemble.members),
+            " and %d spin-up(s)" % len(ensemble.spinups) if getattr(ensemble, "spinups", None) else "",
+            out, written, fmt(ensemble.base_speed), fmt(ensemble.base_direction),
             "" if ensemble.mode == "prescribed" else " at %s m in %s" % (fmt(ensemble.reference_height),
                                                                         ensemble.reference_file)))
         for note in ensemble.notes():

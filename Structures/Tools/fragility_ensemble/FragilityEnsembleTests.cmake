@@ -13,9 +13,12 @@
 #                              again, the load gate waits, pauses and resumes
 #   FragilityEnsemble_Collect  stored member tables, with a member without a table, a failed one,
 #                              one not run and one with another header
+#   FragilityEnsemble_Spinup   a shared spin-up per stripe and direction: its deck (the member's
+#                              without the conductor keys), the members' restart, a failed spin-up
+#                              or one without a checkpoint, the failure logs and the damage table
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND AND NOT WIN32)
-  foreach(_fe_class DryRun Refused Run Collect)
+  foreach(_fe_class DryRun Refused Run Collect Spinup)
     add_test(NAME FragilityEnsemble_${_fe_class}
              COMMAND "${Python3_EXECUTABLE}" -I
                      ${PROJECT_SOURCE_DIR}/Structures/Tools/fragility_ensemble/tests/test_fragility_ensemble.py

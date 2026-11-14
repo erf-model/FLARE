@@ -206,6 +206,40 @@ class ByHand(unittest.TestCase):
         self.assertEqual(ff.quantile([1.0, 2.0, 3.0, 4.0, 5.0], 0.05), 1.2)
         self.assertEqual(ff.quantile([1.0, 2.0, 3.0, 4.0, 5.0], 0.5), 3.0)
 
+    def test_separated_sets_count_as_beta_zero(self):
+        # 5 stripes of 3 with 1, 2, 3, 3, 3 exceeding (the PowerLines DS1 counts, 13 to 17 m/s): most simulated
+        # sets separate. Their likelihood's supremum is at beta -> 0, so they count as beta = 0 in beta's interval
+        # and the lower bound is 0; left out, the bound would sit at the fitted beta itself
+        data = [(x, 1.0 if k < n else 0.0) for x, n in zip((13.0, 14.0, 15.0, 16.0, 17.0), (1, 2, 3, 3, 3))
+                for k in range(3)]
+        f = ff.fit(data)
+        self.assertEqual(f["status"], "fitted")
+        s = ff.reestimate(data, f["theta"], f["beta"], 1000, 0.9, random.Random(3))
+        self.assertGreater(s["resamples_separated"], 300)
+        self.assertLessEqual(s["resamples_used"] + s["resamples_separated"], 1000)
+        self.assertEqual(s["beta_low"], 0.0)
+        self.assertGreater(s["beta_high"], f["beta"])
+        self.assertGreater(s["theta_high"], s["theta_low"])
+        # no separated set: the interval is over the fitted sets alone, as before
+        wide = [(x, 0.0) for x in (0.6, 1.0, 1.5) for _ in range(40)]
+        t = ff.reestimate(wide, 1.0, 0.4, 200, 0.9, random.Random(7))
+        self.assertEqual(t["resamples_separated"], 0)
+        self.assertGreater(t["beta_low"], 0.2)
+
+    def test_crossing_damage_state_curves_are_named(self):
+        # DS3 (14.028, 0.0913) and DS4 (14.480, 0.0501) over stripes 13 to 17 cross where
+        # ln x = (b3 ln t4 - b4 ln t3) / (b3 - b4) = (0.0913 ln 14.480 - 0.0501 ln 14.028) / 0.0412 = 2.71134, x = 15.049
+        notes = ff.crossing_notes({"all": [("DS3", 14.028, 0.0913, 13.0, 17.0), ("DS4", 14.480, 0.0501, 13.0, 17.0)]})
+        self.assertEqual(len(notes), 1)
+        self.assertIn("DS3 and DS4 (direction all): the curves cross at 15.049", notes[0])
+        # the PowerLines fits cross at 11.25 m/s, below the stripes: no note
+        self.assertEqual(ff.crossing_notes({"all": [("DS3", 13.43696145, 0.05893949262, 13.0, 17.0),
+                                                    ("DS4", 13.74233833, 0.06638969011, 13.0, 17.0)]}), [])
+        # a higher state's median below a lower one's is always named
+        notes = ff.crossing_notes({"0": [("DS2", 20.0, 0.1, 10.0, 30.0), ("DS3", 19.0, 0.1, 10.0, 30.0)]})
+        self.assertEqual(len(notes), 1)
+        self.assertIn("DS3 (direction 0): its median 19 lies below DS2's median 20", notes[0])
+
     def test_tails_and_close_intensities(self):
         # ln Phi far in the tail, against the series -t^2/2 - ln(-t) - ln(2 pi)/2 + ln(1 - 1/t^2 + 3/t^4) worked
         # here at t = -40: -800 - 3.688879454 - 0.918938533 - 0.000624024 = -804.608442011
@@ -427,6 +461,203 @@ class Table(Case):
         first = self.table("fragility_points.csv")[0]
         self.assertEqual((first["curve"], first["stripe"], first["members"], first["mean_intensity"]),
                          ("S1", "20", "1", "20.5"))
+
+
+# Twelve members, four seeds at each of 20, 30 and 40 m/s. Each member's line S1 has the peak ratio
+# below, its end S1_end_a 0.5; lines released and towers lost are counted from its logs.
+#   20 m/s: ratios 0.8 1.2 1.0 1.1   released 0 0 0 0   towers 0 0 0 0
+#   30 m/s: ratios 1.3 1.5 1.4 0.95  released 1 2 0 0   towers 0 1 0 0
+#   40 m/s: ratios 1.6 1.8 1.7 1.9   released 1 3 2 4   towers 1 3 0 2
+# A ratio of exactly 1 is not an exceedance (the model's rule is demand > capacity). Exceedances per
+# stripe, with cascade_towers = 2:
+#   DS1 (ratio > 1)      2 3 4      DS2 (a line released)  0 2 4
+#   DS3 (a tower lost)   0 1 3      DS4 (2 or more towers) 0 0 2
+RATIOS = [0.8, 1.2, 1.0, 1.1, 1.3, 1.5, 1.4, 0.95, 1.6, 1.8, 1.7, 1.9]
+RELEASED = [0, 0, 0, 0, 1, 2, 0, 0, 1, 3, 2, 4]
+TOWERS = [0, 0, 0, 0, 0, 1, 0, 0, 1, 3, 0, 2]
+EXPECTED = {"DS1": (2, 3, 4), "DS2": (0, 2, 4), "DS3": (0, 1, 3), "DS4": (0, 0, 2)}
+
+
+def member_name(i):
+    return "m%03d_s%d_d0_seed%d" % (i + 1, 20 + 10 * (i // 4), i % 4 + 1)
+
+
+def damage_text(breaks="yes", towers="yes", released=RELEASED, ratios=RATIOS):
+    rows = ["member,stripe,nominal_direction,seed,max_peak_ratio,components_exceeded,failures_log,failures,"
+            "breaks_log,lines_released,releases,tower_log,towers_lost"]
+    for i, r in enumerate(ratios):
+        rows.append("%s,%d,0,%d,%s,%d,yes,%d,%s,%s,%s,%s,%s" % (
+            member_name(i), 20 + 10 * (i // 4), i % 4 + 1, r, 1 if r > 1 else 0, 1 if r > 1 else 0, breaks,
+            released[i] if breaks == "yes" else "", released[i] if breaks == "yes" else "", towers,
+            TOWERS[i] if towers == "yes" else ""))
+    return "\n".join(rows) + "\n"
+
+
+def demand_text(ratios=RATIOS):
+    rows = ["member,stripe,nominal_direction,seed,kind,component,peak_ratio,peak_speed,max_speed"]
+    for i, r in enumerate(ratios):
+        x = 20 + 10 * (i // 4)
+        rows.append("%s,%d,0,%d,conductor,S1,%s,%d,%d" % (member_name(i), x, i % 4 + 1, r, x, x))
+        rows.append("%s,%d,0,%d,hardware,S1_end_a,0.5,%d,%d" % (member_name(i), x, i % 4 + 1, x, x))
+    return "\n".join(rows) + "\n"
+
+
+class DamageStates(Case):
+    def damage_plan(self, damage=None, demand=None, **keys):
+        for name, text in (("demand.csv", demand or demand_text()), ("damage.csv", damage or damage_text())):
+            with open(os.path.join(self.tmp, name), "w") as f:
+                f.write(text)
+        p = {"demand_table": "demand.csv", "resamples": 0,
+             "damage_states": {"table": "damage.csv", "states": ["DS1", "DS2", "DS3", "DS4"], "cascade_towers": 2}}
+        p.update(keys)
+        p = {k: v for k, v in p.items() if v is not None}
+        path = os.path.join(self.tmp, "plan.json")
+        with open(path, "w") as f:
+            json.dump(p, f)
+        return path
+
+    def test_each_state_counts_the_members_that_reach_it_or_a_higher_one(self):
+        code, out, err = self.call(self.damage_plan(groups={"network": {"components": ".*"}}))
+        self.assertEqual((code, err), (0, ""), out)
+        curves = {r["curve"]: r for r in self.table("fragility_curves.csv")}
+        points = self.table("fragility_points.csv")
+        for state, counts in EXPECTED.items():
+            got = [(p["stripe"], p["members"], p["exceedances"]) for p in points if p["curve"] == state]
+            self.assertEqual(got, [("20", "4", str(counts[0])), ("30", "4", str(counts[1])),
+                                   ("40", "4", str(counts[2]))], state)
+            c = curves[state]
+            self.assertEqual((c["kind"], c["intensity"], c["members"], c["direction"]),
+                             ("damage_state", "stripe", "12", "all"))
+            # the curve is the fit of the outcomes above, at the stripes
+            data = [(x, 1.0 if k < n else 0.0) for x, n in zip((20.0, 30.0, 40.0), counts) for k in range(4)]
+            f = ff.fit(data)
+            self.assertEqual(c["status"], f["status"], state)
+            if f["status"] == "fitted":
+                self.assertAlmostEqual(float(c["theta"]), f["theta"], places=6)
+                self.assertAlmostEqual(float(c["beta"]), f["beta"], places=6)
+        # DS1 is the group of every component of the demand table (no capacity distribution): the same curve
+        for col in ("status", "exceedances", "theta", "beta", "log_likelihood"):
+            self.assertEqual(curves["DS1"][col], curves["network"][col], col)
+        self.assertIn("NOTE DS4 is 2 or more towers lost (cascade_towers, the user's choice)", out)
+        self.assertNotIn("reach a damage state without", out)
+
+    def test_members_the_driver_did_not_collect_are_named(self):
+        status = os.path.join(self.tmp, "members_status.csv")
+        header = "member,stripe,nominal_direction,seed,status,returncode,demand_rows,intensity_rows,detail\n"
+        rows = "".join("%s,20,0,1,complete,0,2,1,\n" % member_name(i) for i in range(12))
+        with open(status, "w") as f:
+            f.write(header + rows + "m013_s40_d0_seed5,40,0,5,failed,1,,,amrex::Abort line S1 left the domain\n")
+        code, out, err = self.call(self.damage_plan())
+        self.assertEqual((code, err), (0, ""), out)
+        self.assertIn("NOTE damage_states: 1 of 13 member(s) of the ensemble are not in the tables "
+                      "(m013_s40_d0_seed5 (failed))", out)
+        with open(status, "w") as f:
+            f.write(header + rows)
+        code, out, _ = self.call(self.damage_plan())
+        self.assertEqual(code, 0)
+        self.assertNotIn("not in the tables", out)
+        self.assertNotIn("members_status.csv", out)
+        os.remove(status)
+        code, out, _ = self.call(self.damage_plan())
+        self.assertIn("NOTE damage_states: no members_status.csv beside", out)
+
+    def test_a_cascade_threshold_moves_members_out_of_ds4(self):
+        # with cascade_towers = 3 only the 40 m/s member with three towers lost is in DS4
+        code, _, _ = self.call(self.damage_plan(damage_states={"table": "damage.csv", "states": ["DS3", "DS4"],
+                                                               "cascade_towers": 3}))
+        self.assertEqual(code, 0)
+        points = self.table("fragility_points.csv")
+        self.assertEqual([p["exceedances"] for p in points if p["curve"] == "DS4"], ["0", "0", "1"])
+        self.assertEqual([p["exceedances"] for p in points if p["curve"] == "DS3"], ["0", "1", "3"])
+        self.assertFalse(any(p["curve"] in ("DS1", "DS2") for p in points))
+
+    def test_a_member_that_skips_a_state_is_named_and_counts_below(self):
+        # m008 releases a line with its peak ratio at 0.95: it is in DS2, so it counts in DS1 too
+        released = list(RELEASED)
+        released[7] = 1
+        code, out, _ = self.call(self.damage_plan(damage=damage_text(released=released)))
+        self.assertEqual(code, 0)
+        self.assertIn("NOTE 1 member(s) reach a damage state without every lower one (m008_s30_d0_seed4)", out)
+        points = self.table("fragility_points.csv")
+        self.assertEqual([p["exceedances"] for p in points if p["curve"] == "DS1"], ["2", "4", "4"])
+        self.assertEqual([p["exceedances"] for p in points if p["curve"] == "DS2"], ["0", "3", "4"])
+
+    def test_a_state_does_not_depend_on_the_other_states_listed(self):
+        # m008 (ratio 0.95, a line released) counts in DS1 whether or not DS2 is listed: the states are
+        # cumulative over all four, read from every log the runs wrote
+        released = list(RELEASED)
+        released[7] = 1
+        for states in (["DS1"], ["DS1", "DS3"], ["DS1", "DS2"]):
+            code, out, _ = self.call(self.damage_plan(damage=damage_text(released=released),
+                                                      damage_states={"table": "damage.csv", "states": states}))
+            self.assertEqual(code, 0, states)
+            self.assertIn("(m008_s30_d0_seed4)", out)
+            points = self.table("fragility_points.csv")
+            self.assertEqual([p["exceedances"] for p in points if p["curve"] == "DS1"], ["2", "4", "4"], states)
+
+    def test_only_ds1_needs_no_failure_log(self):
+        # a capacity distribution changes the component curves only: DS1 is the runs' own outcome
+        code, out, err = self.call(self.damage_plan(damage=damage_text(breaks="no", towers="no"),
+                                                    damage_states={"table": "damage.csv", "states": ["DS1"]},
+                                                    capacity={"conductor": {"cov": 0.1}}))
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("NOTE the damage states are the runs' own outcomes, at the nominal capacities; capacity applies "
+                      "to the component and group curves only", out)
+        self.assertEqual([p["exceedances"] for p in self.table("fragility_points.csv") if p["curve"] == "DS1"],
+                         ["2", "3", "4"])
+
+    def test_tables_from_other_members_are_refused(self):
+        lines = damage_text().splitlines(True)
+        cases = (("1 member(s) of the other table are not in the damage table: m012_s40_d0_seed4",
+                  "".join(lines[:-1])),
+                 ("1 member(s) of the other table are not in the demand table: m099",
+                  "".join(lines) + lines[1].replace("m001_s20_d0_seed1", "m099")),
+                 ("member(s) m002_s20_d0_seed2 differ between the two tables in stripe, nominal_direction or seed",
+                  "".join(lines).replace("m002_s20_d0_seed2,20,0,2,", "m002_s20_d0_seed2,20,0,7,")),
+                 ("member(s) m005_s30_d0_seed1 differ between the two tables",
+                  "".join(lines).replace("m005_s30_d0_seed1,30,0,", "m005_s30_d0_seed1,35,0,")))
+        for expect, text in cases:
+            code, _, err = self.call(self.damage_plan(damage=text))
+            self.assertEqual(code, 2, expect)
+            self.assertIn("damage_states: " if "member(s) m0" in expect else "damage_states: the two tables are "
+                          "from different members: ", err)
+            self.assertIn(expect, err)
+
+    def test_refused(self):
+        def refuse(expect, damage=None, **keys):
+            code, _, err = self.call(self.damage_plan(damage=damage, **keys))
+            self.assertEqual(code, 2, expect)
+            self.assertIn(expect, err)
+
+        def ds(**d):
+            base = {"table": "damage.csv", "states": ["DS1", "DS2", "DS3", "DS4"], "cascade_towers": 2}
+            base.update(d)
+            return {k: v for k, v in base.items() if v is not None}
+
+        refuse("damage_states: DS4 (a cascade over N towers) needs cascade_towers = N; it has no default, since N is "
+               "the user's choice", damage_states=ds(cascade_towers=None))
+        refuse("damage_states: cascade_towers is used by DS4 only, which states does not list",
+               damage_states=ds(states=["DS1", "DS3"]))
+        for n in (1, 0, 2.5, "3", True, 100001):
+            refuse("damage_states: cascade_towers must be an integer in [2, 100000] (one tower lost is DS3), got",
+                   damage_states=ds(cascade_towers=n))
+        for states in ([], ["DS5"], ["DS1", "DS1"], "DS1"):
+            refuse("damage_states: states must list some of DS1, DS2, DS3, DS4, each once",
+                   damage_states=ds(states=states))
+        refuse("damage_states must be {", damage_states=ds(level=1))
+        refuse("damage_states must be {", damage_states=ds(table=None))
+        refuse("damage_states must be {", damage_states=["DS1"])
+        refuse("damage_states: table must name the gathered damage table", damage_states=ds(table=" "))
+        refuse("damage_states: DS2 needs every member's record, but 12 member(s) have no breaks.dat (its option was "
+               "off): m001_s20_d0_seed1, m002_s20_d0_seed2, m003_s20_d0_seed3, m004_s20_d0_seed4, m005_s30_d0_seed1, "
+               "...", damage=damage_text(breaks="no"))
+        refuse("damage_states: DS3 needs every member's record, but 12 member(s) have no tower_failures.dat",
+               damage=damage_text(towers="no"), damage_states=ds(states=["DS3"], cascade_towers=None))
+        refuse("damage_states: DS1 is also the name of a component or group", groups={"DS1": {"kinds": ["conductor"]}})
+        refuse("damage_states: ", damage=damage_text().replace("towers_lost", "towers"))
+        refuse("damage_states: line 2 of", damage=damage_text().replace(",yes,0\n", ",maybe,0\n", 1))
+        refuse("has a negative towers_lost", damage=damage_text().replace(",yes,0\n", ",yes,-1\n", 1))
+        refuse("is listed twice", damage=damage_text() + damage_text().splitlines()[1] + "\n")
 
 
 class Refused(Case):

@@ -511,6 +511,29 @@ class Refused(Case):
         with_deck(text + "conductors.prescribed_velocity = 0. 5. 0.\n",
                   "reference_height is not used with conductors.prescribed_velocity", reference_height=10)
 
+    def test_failure_stop_is_refused(self):
+        # failure_stop aborts a member at the first capacity exceeded: the damaged members would drop out
+        self.refuse("base_inflow", "inputs: conductors.failure_stop must be false in an ensemble",
+                    inputs={"conductors.failure_stop": True})
+        d = self.stage("base_inflow")
+        deck = os.path.join(d, "span.i")
+        with open(deck, "a") as f:
+            f.write("conductors.failure_stop = 1\n")
+        code, _, err = call(["run", "--plan", os.path.join(d, "plan.json"), "--dry-run"])
+        self.assertEqual(code, 2, err)
+        self.assertIn("base_deck: conductors.failure_stop must be false in an ensemble", err)
+        # the base deck is checked on its own, whatever the plan's inputs give
+        code, out, err = call(["run", "--plan", self.edit_plan(d, inputs={"conductors.failure_stop": False}),
+                               "--dry-run"])
+        self.assertEqual(code, 2, err)
+        self.assertIn("base_deck: conductors.failure_stop must be false", err)
+        # false, the ensemble's setting, is accepted in both
+        text = read(deck).replace("conductors.failure_stop = 1\n", "conductors.failure_stop = false\n")
+        with open(deck, "w") as f:
+            f.write(text)
+        code, out, err = call(["run", "--plan", os.path.join(d, "plan.json"), "--dry-run"])
+        self.assertEqual((code, err), (0, ""), out)
+
     def test_a_run_needs_an_executable(self):
         d = self.stage("base_prescribed")
         plan = os.path.join(d, "plan.json")
@@ -764,6 +787,260 @@ class Run(Case):
         self.assertLess(time.time() - t0, 8.0)
         self.wait_for(lambda: all(s in ("", "Z") for s in self.states(pids)))
         self.assertIsNotNone(proc.returncode)
+
+
+# A stand-in for a sounding deck. A deck without erf.structures.model is a spin-up: it writes the
+# checkpoint chk<max_step> (a Header file). A member must restart from a checkpoint that is there; it
+# writes its demand table (the 10 m/s stripe's hardware exactly at its capacity, which is not an
+# exceedance: the model's rule is demand > capacity) and, for the 20 m/s stripe, a release log with two releases of one line
+# and a tower-failure log with one tower.
+FAKE_SPIN = """\
+import os, sys
+deck = dict((k.strip(), v.strip()) for k, _, v in (ln.partition("=") for ln in open(sys.argv[1]) if "=" in ln))
+with open("runs.txt", "a") as f:
+    f.write("run\\n")
+fast = deck["xlo.KE"] == "12.5"
+if "erf.structures.model" not in deck:
+    if fast and not os.path.exists(os.path.join("..", "..", "..", "repaired")):
+        print("amrex::Abort::0::the stand-in fails the 20 m/s spin-up !!!")
+        sys.exit(5)
+    if any(k.startswith("conductors.") for k in deck) or "amr.restart" in deck:
+        sys.exit(6)
+    os.makedirs("chk00000", exist_ok=True)     # ERF's checkpoint at step 0 of a run that is not a restart
+    open(os.path.join("chk00000", "Header"), "w").close()
+    chk = "chk%05d" % int(deck["max_step"])
+    os.makedirs(chk, exist_ok=True)
+    open(os.path.join(chk, "Header"), "w").close()
+    sys.exit(0)
+if not os.path.isfile(os.path.join(deck["amr.restart"], "Header")):
+    print("amrex::Abort::0::no checkpoint !!!")
+    sys.exit(4)
+os.makedirs("conductors", exist_ok=True)
+with open("conductors/demand_table.csv", "w") as f:
+    f.write("kind,component,peak_ratio\\nconductor,S1,%s\\nhardware,S1_end_a,%s\\n" % (
+        "1.4" if fast else "0.6", "1.1" if fast else "1"))
+with open("conductors/intensity.csv", "w") as f:
+    f.write("point,speed\\nS1,%s\\n" % ("20" if fast else "10"))
+with open("conductors/failures.dat", "w") as f:
+    f.write("time kind component demand capacity ratio\\n")
+    if fast:
+        f.write("2.5 conductor S1 70000 50000 1.4\\n")
+if fast:
+    with open("conductors/breaks.dat", "w") as f:
+        f.write("time line released component tension\\n2.5 S1 span0_end1 S1 70000\\n2.5 S1 span1_end0 T1 0\\n")
+    with open("conductors/tower_failures.dat", "w") as f:
+        f.write("time tower component releases\\n2.5 T1 T1_leg 2\\n")
+"""
+
+
+class Spinup(Case):
+    def stage_spinup(self, **plan):
+        d = self.stage("base_inflow")
+        path = self.edit_plan(d, spinup={"max_step": 4}, **plan)
+        return d, path
+
+    def test_members_differing_only_in_the_seed_share_a_spin_up_of_the_flow_alone(self):
+        d, plan = self.stage_spinup()
+        code, out, err = call(["run", "--plan", plan, "--dry-run"])
+        self.assertEqual((code, err), (0, ""), out)
+        manifest = json.loads(read(os.path.join(d, "out", "manifest.json")))
+        names = ["u001_s10_d0", "u002_s10_d90", "u003_s10_dm135", "u004_s20_d0", "u005_s20_d90", "u006_s20_dm135"]
+        self.assertEqual([g["spinup"] for g in manifest["spinups"]], names)
+        for i, g in enumerate(manifest["spinups"]):
+            self.assertEqual(g["directory"], "spinup/" + names[i])
+            self.assertEqual((g["max_step"], g["checkpoint"]), (4, "chk00004"))
+            # members m001..m012 run seeds 3 and 8 of each stripe and direction in turn
+            self.assertEqual(g["members"], [manifest["members"][2 * i]["member"], manifest["members"][2 * i + 1]["member"]])
+        for i, m in enumerate(manifest["members"]):
+            g = names[i // 2]
+            self.assertEqual(m["spinup"], g)
+            self.assertEqual(m["inputs"]["amr.restart"], "../../spinup/%s/chk00004" % g)
+            member = read(os.path.join(d, "out", m["directory"], "span.i"))
+            self.assertIn("amr.restart = ../../spinup/%s/chk00004\n" % g, member)
+            spin = read(os.path.join(d, "out", "spinup", g, "span.i"))
+            # the spin-up is the member's deck without the conductor keys and the restart, run to step 4
+            # with a checkpoint there
+            only_member, only_spin = self.changed_lines(member, spin)
+            self.assertEqual(sorted(only_spin), ["erf.check_int = 4", "max_step = 4"])
+            self.assertEqual(sorted(only_member), sorted(
+                ["amr.restart = ../../spinup/%s/chk00004" % g, "conductors.diagnostics_dir = conductors",
+                 "erf.structures.model = conductors", "conductors.lines     = S1",
+                 "conductors.gust_type = random", "conductors.gust_seed = %d" % m["seed"],
+                 "conductors.S1.rated_breaking_strength = 50000", "conductors.intensity_measure = wind",
+                 "max_step = %d" % (20 if m["stripe"] == 20 else 10)]))
+            for name in ("inflow_profile", "input_sounding", "terrain.txt"):
+                self.assertEqual(read(os.path.join(d, "out", "spinup", g, name)),
+                                 read(os.path.join(d, "out", m["directory"], name)))
+
+    def test_the_checkpoint_name_follows_check_file_and_file_name_digits(self):
+        d, plan = self.stage_spinup(inputs={"erf.check_file": "spin/chk", "erf.file_name_digits": 7,
+                                            "stop_time": 2.01})
+        code, out, err = call(["run", "--plan", plan, "--dry-run"])
+        self.assertEqual((code, err), (0, ""), out)
+        manifest = json.loads(read(os.path.join(d, "out", "manifest.json")))
+        self.assertEqual(manifest["spinups"][0]["checkpoint"], "spin/chk0000004")
+        self.assertEqual(manifest["members"][0]["inputs"]["amr.restart"], "../../spinup/u001_s10_d0/spin/chk0000004")
+
+    def test_without_spinup_the_manifest_has_no_spin_ups(self):
+        d = self.stage("base_inflow")
+        self.assertEqual(call(["run", "--plan", os.path.join(d, "plan.json"), "--dry-run"])[0], 0)
+        manifest = json.loads(read(os.path.join(d, "out", "manifest.json")))
+        self.assertNotIn("spinups", manifest)
+        self.assertFalse(any("spinup" in m or "amr.restart" in m["inputs"] for m in manifest["members"]))
+        self.assertFalse(os.path.exists(os.path.join(d, "out", "spinup")))
+
+    def test_spin_up_options_out_of_range_are_refused(self):
+        for value, expect in (([4], "spinup must be {\"max_step\": n}"),
+                              ({"max_step": 4, "steps": 4}, "spinup must be {\"max_step\": n}"),
+                              ({"max_step": 0}, "spinup: max_step must be an integer in [1, 100000000], got 0"),
+                              ({"max_step": 2.5}, "spinup: max_step must be an integer in [1, 100000000], got 2.5"),
+                              ({"max_step": True}, "spinup: max_step must be an integer"),
+                              ({"max_step": 10}, "spinup: max_step = 10 must be below m001_s10_d0_seed3's max_step = 10")):
+            d = self.stage("base_inflow")
+            code, _, err = call(["run", "--plan", self.edit_plan(d, spinup=value), "--dry-run"])
+            self.assertEqual(code, 2, value)
+            self.assertIn(expect, err)
+        d = self.stage("base_inflow")
+        code, _, err = call(["run", "--plan", self.edit_plan(d, spinup={"max_step": 4},
+                                                             inputs={"erf.check_int": 2}), "--dry-run"])
+        self.assertEqual(code, 2)
+        self.assertIn("spinup: m001_s10_d0_seed3's inputs set erf.check_int; the driver sets the spin-up's checkpoint "
+                      "itself", err)
+        for inputs, expect in (({"amr.check_int": 2}, "spinup: m001_s10_d0_seed3's inputs set amr.check_int"),
+                               ({"amr.check_per": 1.0}, "spinup: m001_s10_d0_seed3's inputs set amr.check_per"),
+                               ({"erf.check_file": "/scratch/chk"}, "spinup: erf.check_file = /scratch/chk must lie "
+                                                                    "inside the run directory"),
+                               ({"erf.check_file": "../chk"}, "spinup: erf.check_file = ../chk must lie inside"),
+                               ({"erf.file_name_digits": "x"}, "spinup: erf.file_name_digits = x is not an integer"),
+                               ({"erf.file_name_digits": 0}, "spinup: erf.file_name_digits = 0 must be in [1, 20]"),
+                               # 4 steps of 0.5 s end at 2 s
+                               ({"stop_time": 2.0}, "spinup: m001_s10_d0_seed3's stop_time = 2 s ends at or before the "
+                                                    "spin-up's end (max_step 4 x erf.fixed_dt 0.5 s = 2 s)")):
+            d = self.stage("base_inflow")
+            code, _, err = call(["run", "--plan", self.edit_plan(d, spinup={"max_step": 4}, inputs=inputs),
+                                 "--dry-run"])
+            self.assertEqual(code, 2, inputs)
+            self.assertIn(expect, err)
+        d = self.stage("base_prescribed")
+        code, _, err = call(["run", "--plan", self.edit_plan(d, spinup={"max_step": 4}), "--dry-run"])
+        self.assertEqual(code, 2)
+        self.assertIn("spinup needs a flow to spin up: conductors.prescribed_velocity runs no flow", err)
+
+    def stage_run(self):
+        d, plan = self.stage_spinup(directions=[0])
+        with open(os.path.join(d, "fake_erf.py"), "w") as f:
+            f.write(FAKE_SPIN)
+        exe = os.path.join(d, "fake_erf")
+        with open(exe, "w") as f:
+            f.write("#!/bin/sh\n'%s' '%s' \"$@\"\nexit $?\n" % (sys.executable, os.path.join(d, "fake_erf.py")))
+        os.chmod(exe, os.stat(exe).st_mode | stat.S_IXUSR)
+        return d, ["run", "--plan", plan, "--exe", exe, "--mpiexec", "", "--ranks", "1", "--no-load-gate",
+                   "--load-poll", "0.05"]
+
+    def runs(self, d, rel):
+        path = os.path.join(d, "out", rel, "runs.txt")
+        return len(read(path).splitlines()) if os.path.exists(path) else 0
+
+    def test_each_spin_up_runs_once_and_a_failed_one_holds_back_its_members(self):
+        d, argv = self.stage_run()
+        members = ["m001_s10_d0_seed3", "m002_s10_d0_seed8", "m003_s20_d0_seed3", "m004_s20_d0_seed8"]
+        code, out, err = call(argv)
+        self.assertEqual((code, err), (1, ""), out)
+        self.assertEqual([self.runs(d, "spinup/" + g) for g in ("u001_s10_d0", "u002_s20_d0")], [1, 1])
+        self.assertEqual([self.runs(d, "members/" + m) for m in members], [1, 1, 0, 0])
+        self.assertIn("u002_s20_d0: spin-up failed (return code 5)", out)
+        self.assertIn("m004_s20_d0_seed8: not run, its spin-up u002_s20_d0 failed", out)
+        self.assertIn("NOT COLLECTED m003_s20_d0_seed3: failed (not run: its spin-up spinup/u002_s20_d0 failed "
+                      "(return code 5))", out)
+
+        # repaired: the finished spin-up and members are not run again; the failed spin-up runs once more,
+        # then its two members. m001 is made to run again with a release log an earlier attempt left: the
+        # rerun writes none (failure_break off), so the old one must not be gathered as its
+        open(os.path.join(d, "repaired"), "w").close()
+        m001 = os.path.join(d, "out", "members", "m001_s10_d0_seed3")
+        os.remove(os.path.join(m001, "member_status.json"))
+        with open(os.path.join(m001, "conductors", "breaks.dat"), "w") as f:
+            f.write("time line released component tension\n1 S1 span0_end0 S1 1\n")
+        code, out, _ = call(argv)
+        self.assertEqual(code, 0, out)
+        self.assertEqual([self.runs(d, "spinup/" + g) for g in ("u001_s10_d0", "u002_s20_d0")], [1, 2])
+        self.assertEqual([self.runs(d, "members/" + m) for m in members], [2, 1, 1, 1])
+        self.assertIn("collected 4 of 4 members", out)
+        # each spin-up keeps the checkpoint its members restart from and not ERF's step-0 one
+        for g in ("u001_s10_d0", "u002_s20_d0"):
+            spin = os.path.join(d, "out", "spinup", g)
+            self.assertTrue(os.path.isfile(os.path.join(spin, "chk00004", "Header")), g)
+            self.assertFalse(os.path.exists(os.path.join(spin, "chk00000")), g)
+
+        # the failure logs, gathered with the key columns, and each member's damage summary
+        self.assertEqual(read(os.path.join(d, "out", "breaks_all.csv")),
+                         "member,stripe,nominal_direction,seed,time,line,released,component,tension\n"
+                         "m003_s20_d0_seed3,20,0,3,2.5,S1,span0_end1,S1,70000\n"
+                         "m003_s20_d0_seed3,20,0,3,2.5,S1,span1_end0,T1,0\n"
+                         "m004_s20_d0_seed8,20,0,8,2.5,S1,span0_end1,S1,70000\n"
+                         "m004_s20_d0_seed8,20,0,8,2.5,S1,span1_end0,T1,0\n")
+        self.assertEqual(read(os.path.join(d, "out", "tower_failures_all.csv")),
+                         "member,stripe,nominal_direction,seed,time,tower,component,releases\n"
+                         "m003_s20_d0_seed3,20,0,3,2.5,T1,T1_leg,2\n"
+                         "m004_s20_d0_seed8,20,0,8,2.5,T1,T1_leg,2\n")
+        self.assertEqual(read(os.path.join(d, "out", "damage_table_all.csv")),
+                         "member,stripe,nominal_direction,seed,max_peak_ratio,components_exceeded,failures_log,failures,"
+                         "breaks_log,lines_released,releases,tower_log,towers_lost\n"
+                         "m001_s10_d0_seed3,10,0,3,1,0,yes,0,no,,,no,\n"
+                         "m002_s10_d0_seed8,10,0,8,1,0,yes,0,no,,,no,\n"
+                         "m003_s20_d0_seed3,20,0,3,1.4,2,yes,1,yes,1,2,yes,1\n"
+                         "m004_s20_d0_seed8,20,0,8,1.4,2,yes,1,yes,1,2,yes,1\n")
+
+        # a log with another header is named, and its member is not collected
+        path = os.path.join(d, "out", "members", "m003_s20_d0_seed3", "conductors", "breaks.dat")
+        with open(path, "w") as f:
+            f.write("time line component tension\n")
+        code, out, _ = call(["collect", "--plan", argv[2]])
+        self.assertEqual(code, 1)
+        self.assertIn("NOT COLLECTED m003_s20_d0_seed3: bad_breaks_log (conductors/breaks.dat: its header is not "
+                      "'time line released component tension')", out)
+
+    def test_a_component_never_recorded_is_left_out_of_the_damage_summary(self):
+        # an empty peak ratio (a component the run never recorded) neither stops collect nor counts
+        header = ["kind", "component", "peak_ratio"]
+        body = [["conductor", "S1", "1.2"], ["hardware", "S1_end_a", ""], ["hardware", "S1_end_b", "0.7"]]
+        logs = {"failures": [], "breaks": None, "tower_failures": None}
+        self.assertEqual(fe.damage_row(header, body, logs), ["1.2", "1", "yes", "0", "no", "", "", "no", ""])
+        self.assertEqual(fe.damage_row(header, [["hardware", "S1_end_a", ""]], logs)[:2], ["", ""])
+        # a ratio just above 1 is written so that it reads back above 1 (DS1), as components_exceeded counts it
+        self.assertEqual(fe.damage_row(header, [["conductor", "S1", "1.0000000000004"]], logs)[:2],
+                         ["1.0000000000004", "1"])
+
+    def test_a_finished_spin_up_whose_checkpoint_is_gone_runs_again(self):
+        d, argv = self.stage_run()
+        open(os.path.join(d, "repaired"), "w").close()
+        self.assertEqual(call(argv)[0], 0)
+        spin = os.path.join(d, "out", "spinup", "u001_s10_d0")
+        shutil.rmtree(os.path.join(spin, "chk00004"))
+        os.remove(os.path.join(d, "out", "members", "m001_s10_d0_seed3", "member_status.json"))
+        code, out, _ = call(argv)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.runs(d, "spinup/u001_s10_d0"), 2)
+        self.assertEqual(self.runs(d, "spinup/u002_s20_d0"), 1)
+
+    def test_a_spin_up_that_writes_no_checkpoint_has_failed(self):
+        d, argv = self.stage_run()
+        open(os.path.join(d, "repaired"), "w").close()
+        # the stand-in writes chk<max_step>; a deck whose check file is another name leaves no chk00004
+        text = read(os.path.join(d, "fake_erf.py")).replace('chk = "chk%05d"', 'chk = "other%05d"')
+        with open(os.path.join(d, "fake_erf.py"), "w") as f:
+            f.write(text)
+        # an earlier attempt's checkpoint, left behind, must not be taken for this run's
+        self.assertEqual(call(argv[:3] + ["--dry-run"])[0], 0)
+        os.makedirs(os.path.join(d, "out", "spinup", "u001_s10_d0", "chk00004"))
+        open(os.path.join(d, "out", "spinup", "u001_s10_d0", "chk00004", "Header"), "w").close()
+        code, out, _ = call(argv)
+        self.assertEqual(code, 1)
+        self.assertIn("u001_s10_d0: spin-up failed (return code 0)", out)
+        status = json.loads(read(os.path.join(d, "out", "spinup", "u001_s10_d0", "member_status.json")))
+        self.assertEqual(status["detail"], "the run ended without writing chk00004 (does its stop_time end it before "
+                                           "max_step?)")
+        self.assertEqual(self.runs(d, "members/m001_s10_d0_seed3"), 0)
 
 
 DEMAND_HEADER = ("kind,component,peak_ratio,peak_demand,peak_capacity,peak_time,point,peak_speed,peak_direction,"

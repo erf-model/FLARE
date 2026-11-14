@@ -68,6 +68,7 @@ A JSON object. Paths are relative to the plan file.
 | `resamples` | 1000 | integer in [0, 100000] | simulated sets for the spread of the estimates; 0 leaves the spread out; the spread is given only for curves whose outcomes are all 0 or 1 (no capacity distribution) |
 | `seed` | 1 | integer in [0, 2147483647] | makes the simulated sets repeatable; each curve has its own sequence from the seed and its name |
 | `confidence` | 0.9 | [0.5, 1) | probability of the central interval reported for theta and beta |
+| `damage_states` | none (no damage-state curves) | `{"table": path, "states": [..], "cascade_towers": N}`; `table` a `damage_table_all.csv` relative to the plan; `states` some of `DS1`, `DS2`, `DS3`, `DS4`, each once; `cascade_towers` an integer in [2, 100000], given with `DS4` and only then | one curve per listed damage state of the line network, fitted against the nominal stripe (see below) |
 
 There are no default capacity statistics: `cov` and `mean_factor` are the user's, with their
 source. None of the publications above gives measured statistics of conductor, insulator,
@@ -76,6 +77,45 @@ so does a table that lacks a column, has a short row, holds a value that is not 
 that is not positive, an unknown kind, one member's component twice, or a member whose rows
 disagree in stripe, direction or seed. A row without a peak ratio (a component the run never
 recorded) is left out and counted in a note; so is a member without the chosen wind, by name.
+
+### Damage states
+
+`damage_states` reads the per-member damage summary of the ensemble driver
+(`damage_table_all.csv`) and fits a curve for each listed state:
+
+| State | A member reaches it when | Read from |
+| --- | --- | --- |
+| `DS1` first exceedance | some component's peak ratio is above 1 (`max_peak_ratio` > 1) | the demand table |
+| `DS2` conductor down | a line is released (`lines_released` >= 1) | `breaks.dat` (`conductors.failure_break`) |
+| `DS3` tower lost | a tower fails (`towers_lost` >= 1) | `tower_failures.dat` (`conductors.tower_failure = release`) |
+| `DS4` cascade | at least `cascade_towers` towers fail (`towers_lost` >= N) | `tower_failures.dat` |
+
+The states are cumulative: the curve of DS*k* is the probability of reaching level *k* or higher.
+A member's level is the highest of the four states it reaches, read from every record its run
+wrote (a log the run did not write is a state not reached; DS4 counts only with
+`cascade_towers`, and it implies DS3). It counts as exceeding every listed state up to its level,
+so a listed state's curve does not depend on which other states are listed. A tower that fails releases its spans, so DS3 implies DS2 in the runs. A member that
+reaches a state without a lower one is named in a note and counted in every state up to its
+highest. Every member must hold the record a listed state needs; a member whose run did
+not write the log stops the tool with the state, the log and the members named. The curves have
+the kind `damage_state`, are fitted against the member's nominal stripe whatever `intensity`
+is, and follow `by_direction`. The damage table must hold the same members as the demand table,
+with the same stripe, direction and seed; a table from another ensemble stops the tool. With few
+members the higher states are often `separated` or `no_exceedance`. A state's name may not be the name of a component or group.
+
+DS4's N has no default. It is the user's choice: no source available to this tool gives a number
+of towers that defines a cascade, and the tool prints the N it used. The states are the runs' own
+outcomes at the capacities of the runs' decks, so `capacity` applies only to the component and
+group curves, and the tool says so. Each state is fitted on its own and the curves are not
+forced to keep their order: two lognormal curves with different dispersions always cross at some
+wind, often outside the stripes, and inside the stripes' range they can cross when the members
+are few. The tool prints a note when two listed states next to each other, both fitted, cross
+inside the stripes, or when the higher state's median lies below the lower one's.
+
+The tool reads the driver's `members_status.csv` beside the damage table and names, in a note,
+every member that is not in the tables (a run that failed or did not run). The states are fitted
+without them, and a run that aborted in a cascade would be missing from the states it reached, so
+rerun them or account for them. Without the file the tool notes that it could not check.
 
 ## How to run
 
@@ -94,11 +134,20 @@ with, for example,
 In `output_dir`:
 
 - `fragility_curves.csv`: one row per component and per group (per direction with
-  `by_direction`): `curve`, `kind` (`group` for a group), `direction`, `intensity` (the wind the
+  `by_direction`): `curve`, `kind` (`group` for a group, `damage_state` for a damage state), `direction`, `intensity` (the wind the
   curve was fitted against), `members`, `exceedances`
   (the sum of the outcomes), `status`, `theta` (m/s), `beta`, the interval `theta_low`,
   `theta_high`, `beta_low`, `beta_high`, the standard deviations `theta_sd`, `beta_sd`,
-  `resamples_used`, `bracket_low`, `bracket_high` and `log_likelihood`.
+  `resamples_used`, `bracket_low`, `bracket_high`, `log_likelihood` and `resamples_separated`.
+
+The spread comes from sets simulated from the fitted curve. A simulated set that separates has
+its likelihood's supremum at beta -> 0 with no single theta, so it counts as beta = 0 in
+`beta_low` and `beta_high` and is left out of theta's interval; sets with no exceedance or all
+exceeding are left out of both. `theta_sd` and `beta_sd` are over the sets that fitted
+(`resamples_used`); `resamples_separated` counts the separated ones. With few members per stripe
+most sets can separate and `beta_low` is then 0. The bounds carry a sampling error of about the
+standard deviation over the square root of `resamples_used`, so two curves with the same outcomes
+can show bounds that differ by that much.
 - `fragility_points.csv`: one row per curve and stripe, for a plot: `members`, `mean_intensity`,
   `exceedances`, `fraction` and the `fitted` probability at the mean intensity.
 
@@ -151,8 +200,9 @@ fitted to probabilities.
 
 ## CTest
 
-`FragilityFit_Published`, `FragilityFit_ByHand`, `FragilityFit_Table` and `FragilityFit_Refused`
-(labels `unit`, `conductors`, `fragility`) run `tests/test_fragility_fit.py`; they need Python 3
-and run no ERF executable.
+`FragilityFit_Published`, `FragilityFit_ByHand`, `FragilityFit_Table`, `FragilityFit_Refused`
+and `FragilityFit_DamageStates` (labels `unit`, `conductors`, `fragility`) run
+`tests/test_fragility_fit.py`; they need Python 3 and run no ERF executable. The damage states
+from ERF runs are tested by `CascadeStripes_DamageStates` (`Structures/Exec/CascadeStripes/README.md`).
 
     python3 tests/test_fragility_fit.py
