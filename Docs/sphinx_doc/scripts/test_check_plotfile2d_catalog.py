@@ -214,7 +214,7 @@ class CheckerTests(unittest.TestCase):
     def test_repository_catalog_passes(self):
         repo = SCRIPT_DIR.parents[2]
         fixed_count, dynamic_count = checker.check_catalog(
-            repo / "Source/IO/ERF_Plotfile2DCatalog.cpp",
+            repo / checker.CPP_CATALOG_PATH,
             repo / checker.DOCUMENTED_CATALOG_PATH,
         )
         self.assertGreater(fixed_count, 0)
@@ -224,6 +224,12 @@ class CheckerTests(unittest.TestCase):
         self.assertEqual(
             checker.DOCUMENTED_CATALOG_PATH.as_posix(),
             "Docs/sphinx_doc/plotfiles/Plotfile2DReference.rst",
+        )
+
+    def test_cpp_catalog_path_points_to_erf_submodule(self):
+        self.assertEqual(
+            checker.CPP_CATALOG_PATH.as_posix(),
+            "Submodules/ERF/Source/IO/ERF_Plotfile2DCatalog.cpp",
         )
 
 

@@ -6,6 +6,12 @@ ERF presents fixed 2-D diagnostic metadata in two places: the authoritative
 ``Docs/sphinx_doc/plotfiles/Plotfile2DReference.rst``. The repetition helps users, but it can
 drift. This checker keeps the public documentation and C++ catalog aligned.
 
+FLARE takes ERF as a submodule, so the C++ catalog is read from
+``Submodules/ERF/Source/IO/ERF_Plotfile2DCatalog.cpp`` and compared with FLARE's
+own copy of the RST table. A bump of the ERF pin that changes the catalog then
+fails here until FLARE's copy is updated. The submodule must be checked out
+(``git submodule update --init Submodules/ERF``).
+
 ``Docs/BuildDocs.sh`` runs this script before Doxygen and Sphinx. The GitHub
 documentation workflow runs ``Docs/BuildDocs.sh``, so a checker failure stops
 documentation CI before generation. Developers can run it from the repository
@@ -48,6 +54,7 @@ DYNAMIC_SOIL_BEGIN = ".. BEGIN ERF DYNAMIC SOIL DIAGNOSTIC FAMILIES"
 DYNAMIC_SOIL_END = ".. END ERF DYNAMIC SOIL DIAGNOSTIC FAMILIES"
 DYNAMIC_SOIL_PATTERNS = ("smois_<layer>", "sh2o_<layer>", "tslb_<layer>")
 DOCUMENTED_CATALOG_PATH = Path("Docs/sphinx_doc/plotfiles/Plotfile2DReference.rst")
+CPP_CATALOG_PATH = Path("Submodules/ERF/Source/IO/ERF_Plotfile2DCatalog.cpp")
 
 CATALOG_FUNCTION_RE = re.compile(
     r"(?ms)^[ \t]*const[ \t]+amrex::Vector<DiagnosticDescriptor>&"
@@ -340,7 +347,7 @@ def main() -> int:
     """Run the repository check and convert expected failures to status 1."""
 
     repo = Path(__file__).resolve().parents[3]
-    cpp = repo / "Source/IO/ERF_Plotfile2DCatalog.cpp"
+    cpp = repo / CPP_CATALOG_PATH
     rst = repo / DOCUMENTED_CATALOG_PATH
     try:
         fixed_count, dynamic_count = check_catalog(cpp, rst)
