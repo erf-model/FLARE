@@ -94,7 +94,7 @@ jobs:
         ccache -z
         build_start=$(date +%s)
 
-        cmake --build ${{runner.workspace}}/FLARE/build --parallel $(nproc) \
+        cmake --build ${{runner.workspace}}/FLARE/build --parallel "$(nproc)" \
           2>&1 | tee -a ${{runner.workspace}}/build-output.txt;
 
         echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -111,14 +111,15 @@ jobs:
         path: ~/.cache/ccache
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    # Warnings in FLARE's own sources fail the job; ERF's and its submodules' are ERF's CI's
+    # Warnings in FLARE's own sources fail the job; ERF's and its submodules' are ERF's CI's.
+    # A warning GCC reports against a system header is attributed to the code it was inlined
+    # from (or the translation unit), so ERF code inlined into <bits/...> is dropped too.
     - name: Report
       run: |
         build_log="${{runner.workspace}}/build-output.txt"
         test -r "$build_log"
-        grep -Ei "warning:|error:" "$build_log" \
-          | grep -Ev "Submodules/" | grep -Ev "lto-wrapper: warning:" | sort | uniq \
-          | awk 'BEGIN{i=0}{print $0}{i++}END{print "Warnings: "i}' > ${{runner.workspace}}/build-output-warnings.txt
+        python3 .github/tests/build_warnings.py --root "${{github.workspace}}" "$build_log" \
+          > ${{runner.workspace}}/build-output-warnings.txt
         cat ${{runner.workspace}}/build-output-warnings.txt
         return=$(tail -n 1 ${{runner.workspace}}/build-output-warnings.txt | awk '{print $2}')
         test "${return}" -eq 0

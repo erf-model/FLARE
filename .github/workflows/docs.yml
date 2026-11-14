@@ -17,6 +17,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Only the ERF submodule (not recursive): Docs/BuildDocs.sh compares ERF's
+          # C++ 2-D catalog with FLARE's copy of Plotfile2DReference.rst.
+          submodules: true
 
       - name: Dependencies
         run: |

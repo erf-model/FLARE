@@ -1,4 +1,10 @@
-"""Mutate real workflows to prove cache contracts catch wiring drift."""
+"""Mutate real workflows to prove cache contracts catch wiring drift.
+
+FLARE caches two workflows, ci.yml (no matrix) and cuda-ci.yml (the matrix and the
+legacy fallback), so the mutations below use cuda-ci.yml wherever ERF's suite used a
+matrix in ci.yml. The checker's HIP and native (macOS, Windows) paths have no workflow
+here to mutate; ERF's own copy of this suite covers them.
+"""
 
 import copy
 import unittest
@@ -61,8 +67,8 @@ class WorkflowTests(unittest.TestCase):
     def calls(self, name="ci.yml"):
         return [s for s in self.job(name)["steps"] if contracts.is_cache(s)]
 
-    def fallback(self):
-        return next(s for s in self.job()["steps"] if s.get("uses", "").startswith("actions/cache/restore@"))
+    def fallback(self, name="cuda-ci.yml"):
+        return next(s for s in self.job(name)["steps"] if s.get("uses", "").startswith("actions/cache/restore@"))
 
     def check(self):
         return contracts.check_workflows(self.workflows, self.defaults)
@@ -70,69 +76,21 @@ class WorkflowTests(unittest.TestCase):
     def test_repository_contracts(self):
         counts, tags = self.check()
         # Inventory assertions, not limits imposed by the checker.
-        self.assertEqual(counts, {"push": 21, "pull_request": 9, "workflow_dispatch": 21})
-        self.assertEqual(len(tags), 23)
-        self.assertIn("ubuntu-22.04-x64-gcc-mpich-double-particles-off", tags)
-        for arch in ("x64", "arm64"):
-            self.assertIn(f"macos-latest-{arch}-appleclang-openmpi-double-particles-on", tags)
-        for mpi in ("msmpi", "mpi-off"):
-            self.assertIn(f"windows-latest-x64-msvc-{mpi}-double-particles-on", tags)
+        self.assertEqual(counts, {"push": 3, "pull_request": 2, "workflow_dispatch": 3})
+        self.assertEqual(len(tags), 3)
+        self.assertIn("ubuntu-22.04-x64-gcc-mpich-double-flare", tags)
+        for precision in ("double", "single"):
+            self.assertIn(f"ubuntu-22.04-x64-cuda-12.2-sm8.0-openmpi-{precision}-particles-on", tags)
 
     def test_lost_key_dimension(self):
-        self.job()["env"]["CCACHE_TRUNK_KEY"] = "ubuntu-22.04-x64-gcc-mpich-double"
-        with self.assertRaisesRegex(ValueError, "ci.yml:.*cache tag collision"):
+        # Without mesh_precision the two CUDA rows of a push share one tag.
+        self.job("cuda-ci.yml")["env"]["CCACHE_TRUNK_KEY"] = (
+            "ubuntu-22.04-x64-cuda-${{ matrix.cuda_ver }}-sm${{ matrix.cuda_arch }}-openmpi-particles-on")
+        with self.assertRaisesRegex(ValueError, "cuda-ci.yml:.*cache tag collision"):
             self.check()
 
-    def test_hip_version_change_updates_installer_and_tags(self):
-        _, old_tags = self.check()
-        job = self.job("hip.yml")
-        job["strategy"]["matrix"]["rocm_version"] = ["6.4.0"]
-        _, new_tags = self.check()
-        expected = {tag.replace("-rocm-6.3.2-", "-rocm-6.4.0-") for tag in old_tags}
-        self.assertEqual(set(new_tags), expected)
-        installer = next(s["run"] for s in job["steps"] if "dependencies_hip.sh" in s.get("run", ""))
-        for event in ("push", "pull_request", "workflow_dispatch"):
-            for row in contracts.expand_matrix(job["strategy"]["matrix"], event):
-                command = contracts.render(installer, row, {}, {})
-                self.assertEqual(command, 'Submodules/AMReX/.github/workflows/dependencies/dependencies_hip.sh "6.4.0"')
-
-    def test_hip_installer_cannot_fall_back_to_default_or_another_version(self):
-        path = "Submodules/AMReX/.github/workflows/dependencies/dependencies_hip.sh"
-        for argument in ("", ' "6.3.2"', ' "${{ matrix.mesh_precision }}"'):
-            with self.subTest(argument=argument):
-                self.setUp()
-                step = next(s for s in self.job("hip.yml")["steps"] if "dependencies_hip.sh" in s.get("run", ""))
-                step["run"] = path + argument
-                with self.assertRaisesRegex(ValueError, "HIP installer must take"):
-                    self.check()
-
-    def test_hip_key_cannot_hardcode_version(self):
-        for version in ("6.3.2", "6.4.0"):
-            with self.subTest(version=version):
-                self.setUp()
-                env = self.job("hip.yml")["env"]
-                env["CCACHE_TRUNK_KEY"] = env["CCACHE_TRUNK_KEY"].replace("${{ matrix.rocm_version }}", version)
-                with self.assertRaisesRegex(ValueError, "HIP cache key must use matrix.rocm_version"):
-                    self.check()
-
-    def test_hip_step_key_override_must_match_selected_version(self):
-        job = self.job("hip.yml")
-        wrong_key = job["env"]["CCACHE_TRUNK_KEY"].replace("${{ matrix.rocm_version }}", "6.4.0")
-        for step in self.calls("hip.yml"):
-            step["with"]["key"] = wrong_key
-        with self.assertRaisesRegex(ValueError, "HIP cache key differs from selected ROCm version"):
-            self.check()
-
-    def test_hip_installer_must_appear_once(self):
-        for count in (0, 2):
-            with self.subTest(count=count):
-                self.setUp()
-                steps = self.job("hip.yml")["steps"]
-                installer = next(s for s in steps if "dependencies_hip.sh" in s.get("run", ""))
-                steps.remove(installer)
-                steps.extend([copy.deepcopy(installer) for _ in range(count)])
-                with self.assertRaisesRegex(ValueError, "HIP installer must take"):
-                    self.check()
+    # The HIP installer and version contracts need hip.yml, which FLARE does not have;
+    # ERF's suite mutates them there.
 
     def test_expanding_gpu_particles_requires_key_dimension(self):
         self.job("cuda-ci.yml")["strategy"]["matrix"]["particles"] = ["OFF", "ON"]
@@ -140,9 +98,15 @@ class WorkflowTests(unittest.TestCase):
             self.check()
 
     def test_case_and_sanitization_collisions(self):
+        # One axis in the key, one row per variant: the tags differ only by case or by a
+        # character the tag sanitizer folds.
         for variants in (["ON", "on"], ["a/b", "a b"], ["a?b", "a-b"]):
             with self.subTest(variants=variants):
-                self.job()["strategy"]["matrix"]["particles"] = variants
+                self.setUp()
+                matrix = self.job("cuda-ci.yml")["strategy"]["matrix"]
+                matrix["mesh_precision"] = variants
+                matrix["particles_precision"] = ["DOUBLE"]
+                matrix["exclude"] = []
                 with self.assertRaisesRegex(ValueError, "cache tag collision"):
                     self.check()
 
@@ -153,8 +117,8 @@ class WorkflowTests(unittest.TestCase):
             self.check()
         duplicate["jobs"]["Build-And-Test"]["env"]["CCACHE_TRUNK_KEY"] += "-new"
         counts, tags = self.check()
-        self.assertEqual(counts["push"], 23)
-        self.assertEqual(len(tags), 25)
+        self.assertEqual(counts["push"], 4)
+        self.assertEqual(len(tags), 4)
 
     def test_restore_save_settings_match(self):
         for field, value in (("key", "different"), ("path", "~/different"), ("transport", "oras")):
@@ -185,8 +149,10 @@ class WorkflowTests(unittest.TestCase):
                     step["with"][field] = value
                 with self.assertRaisesRegex(ValueError, error):
                     self.check()
+        # FLARE runs no macOS or Windows job, so the non-Linux runner is set here.
         self.setUp()
-        for step in self.calls("windows.yml"):
+        self.job()["runs-on"] = "macos-latest"
+        for step in self.calls():
             step["with"]["transport"] = "docker"
         with self.assertRaisesRegex(ValueError, "Docker cache transport requires a Linux runner"):
             self.check()
@@ -246,8 +212,8 @@ class WorkflowTests(unittest.TestCase):
             self.check()
 
     def test_known_workflow_cannot_disappear(self):
-        del self.workflows["windows.yml"]
-        with self.assertRaisesRegex(ValueError, "missing required cache job: windows.yml"):
+        del self.workflows["cuda-ci.yml"]
+        with self.assertRaisesRegex(ValueError, "missing required cache job: cuda-ci.yml"):
             self.check()
 
     def test_legacy_fallback_contract(self):
@@ -265,24 +231,15 @@ class WorkflowTests(unittest.TestCase):
             self.check()
 
     def test_fallback_tracks_actual_restore_id(self):
-        self.calls()[0]["id"] = "renamed-cache"
+        self.calls("cuda-ci.yml")[0]["id"] = "renamed-cache"
         self.fallback()["if"] = "steps.renamed-cache.outputs.hit != 'true'"
         self.check()
 
-    def test_native_architecture_must_be_in_key(self):
-        setup = next(s for s in self.job("macos.yml")["steps"] if "TRUNK_KEY" in s.get("env", {}))
-        setup["env"]["TRUNK_KEY"] = setup["env"]["TRUNK_KEY"].replace("${{ runner.arch }}", "x64")
-        with self.assertRaisesRegex(ValueError, "macos.yml:.*cache tag collision"):
-            self.check()
-
-    def test_native_setup_is_explicit_not_shell_interpretation(self):
-        setup = next(s for s in self.job("macos.yml")["steps"] if "TRUNK_KEY" in s.get("env", {}))
-        setup["run"] += "\necho CCACHE_TRUNK_KEY=other >> $GITHUB_ENV"
-        with self.assertRaisesRegex(ValueError, "unsupported CCACHE_TRUNK_KEY setup"):
-            self.check()
+    # The native key setup (a shell-set CCACHE_TRUNK_KEY carrying runner.arch) belongs to
+    # macos.yml and windows.yml, which FLARE does not have; ERF's suite mutates them there.
 
     def test_unknown_expression_and_runner_fail_loudly(self):
-        self.job()["env"]["CCACHE_TRUNK_KEY"] = "${{ format('cache-{0}', matrix.particles) }}"
+        self.job()["env"]["CCACHE_TRUNK_KEY"] = "${{ format('cache-{0}', matrix.mesh_precision) }}"
         with self.assertRaisesRegex(ValueError, "unsupported cache expression"):
             self.check()
         self.setUp()

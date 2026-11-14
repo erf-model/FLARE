@@ -20,10 +20,7 @@ from cache import read_config
 
 # Keep existing jobs covered even if someone accidentally removes both calls.
 REQUIRED_JOBS = {
-    "ci.yml": "Build-And-Test", "gcc.yml": "library",
-    "gcc-rrtmgp.yml": "library", "cuda-ci.yml": "cuda-build",
-    "hip.yml": "Build-And-Test-HIP", "sycl.yml": "Build-And-Test-SYCL",
-    "macos.yml": "MacOS-Clang", "windows.yml": "windows",
+    "ci.yml": "Build-And-Test", "cuda-ci.yml": "cuda-build",
 }
 SAVE_GUARD = ("always() && github.event_name != 'pull_request' && "
               "github.ref_name == github.event.repository.default_branch")
