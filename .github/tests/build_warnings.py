@@ -17,12 +17,16 @@ Each warning or error is therefore attributed to a file:
 
 * a location inside ``--root`` is its own file;
 * a location outside ``--root`` (a system or third-party header) is attributed to
-  the innermost frame inside ``--root`` among its context lines: the last
-  ``inlined from ... at`` or ``required from`` frame, else the translation unit that
-  ends the include chain.
+  the innermost frame inside ``--root`` among its context lines. GCC lists
+  ``inlined from ... at`` and ``required from`` frames innermost first, so this is
+  the first such frame inside ``--root``; without one, it is the translation unit
+  that ends the include chain.
 
 The warning is dropped when that file lies under ``Submodules/``. A header warning
-with no frame inside ``--root`` is kept, so nothing is dropped on a guess. Any line
+with no frame inside ``--root`` is kept. Context is read only from the lines right
+above a warning; a build line in between resets it. Parallel make could still
+interleave two jobs' output inside one diagnostic; this has not been seen in FLARE
+CI, where GCC writes each diagnostic in one piece. Any line
 that names ``Submodules/`` and linker ``lto-wrapper`` warnings are dropped, as the
 grep filter this replaces did.
 
@@ -50,8 +54,9 @@ COUNTED_RE = re.compile(r"warning:|error:", re.IGNORECASE)
 INCLUDE_RE = re.compile(r"^(?:In file included from|\s+from) (?P<path>[^\s:][^:]*):\d+[:,]")
 FRAME_RE = re.compile(r"^\s*inlined from .* at (?P<path>[^\s:][^:]*):\d+(?::\d+)?[:,]")
 REQUIRED_RE = re.compile(r"^(?P<path>[^\s:][^:]*):\d+:\d+:\s+(?:recursively )?required (?:from|by)")
-IN_FUNCTION_RE = re.compile(r"^(?:(?P<path>[^\s:][^:]*): )?In (?:static |member |constructor|destructor"
-                            r"|function|instantiation|lambda|substitution)")
+# "In function", "In static member function", "In copy constructor", "In instantiation of", ...
+IN_FUNCTION_RE = re.compile(r"^(?:(?P<path>[^\s:][^:]*): )?In [a-z ]*?"
+                            r"(?:function|constructor|destructor|instantiation|lambda|substitution|operator)\b")
 
 
 def inside(path: str, root: str) -> bool:
@@ -73,7 +78,7 @@ def attribute(path: str, context: Sequence[str], root: str) -> Optional[str]:
             if match:
                 bucket.append(match.group("path"))
                 break
-    for candidate in reversed(frames):
+    for candidate in frames:
         if inside(candidate, root):
             return candidate
     # The include chain runs from the header out to the translation unit.

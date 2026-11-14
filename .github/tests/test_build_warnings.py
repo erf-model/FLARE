@@ -61,6 +61,24 @@ class AttributionTests(unittest.TestCase):
         self.assertEqual(self.kept(gcc_block(ERF_TU, FLARE_TU)), [HEADER_WARNING])
         self.assertEqual(self.kept(gcc_block(FLARE_TU, ERF_TU)), [])
 
+    def test_first_root_frame_is_the_innermost(self):
+        # GCC lists inline frames innermost first: a FLARE helper inlined into an ERF caller
+        # is FLARE's, an ERF helper inlined into a FLARE caller is ERF's.
+        for helper, caller, expected in ((FLARE_TU, ERF_TU, [HEADER_WARNING]), (ERF_TU, FLARE_TU, [])):
+            with self.subTest(helper=helper):
+                lines = gcc_block(caller, caller)
+                last = next(i for i, l in enumerate(lines) if "inlined from 'void ERF" in l)
+                lines.insert(last, f"    inlined from 'void helper()' at {helper}:9:5,")
+                self.assertEqual(self.kept(lines), expected)
+
+    def test_constructor_and_operator_context_lines(self):
+        for header in ("In copy constructor 'X::X(const X&)',", "In move constructor 'X::X(X&&)',",
+                       "In member function 'X& X::operator=(const X&)',", "In function template 'f',"):
+            with self.subTest(header=header):
+                lines = gcc_block(ERF_TU, ERF_TU)
+                lines[lines.index(next(l for l in lines if l.startswith("In static")))] = header
+                self.assertEqual(self.kept(lines), [])
+
     def test_translation_unit_decides_without_inline_frames(self):
         for tu, expected in ((ERF_TU, []), (FLARE_TU, [HEADER_WARNING])):
             with self.subTest(tu=tu):
