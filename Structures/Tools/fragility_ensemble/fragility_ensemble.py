@@ -525,6 +525,15 @@ class Ensemble:
             for key in given:
                 if key in DRIVER_KEYS + ("conductors.diagnostics_dir",):
                     stop("%s: %s cannot be given: the driver sets it or reads the base deck's" % (where, key))
+        # an ensemble needs every member to run to its end: with failure_stop the model aborts at the first
+        # capacity exceeded, the member counts as failed and the members with damage would drop out of the tables
+        for where, given in [("base_deck", {"conductors.failure_stop": (deck.tokens("conductors.failure_stop")
+                                                                         or ["false"])[0]}),
+                             ("inputs", plan.inputs)] + [("speeds: a stripe's inputs", e) for e in plan.speed_inputs]:
+            if "conductors.failure_stop" in given and \
+                    str(given["conductors.failure_stop"]).strip().lower() not in ("false", "0"):
+                stop("%s: conductors.failure_stop must be false in an ensemble: it aborts a member at the first "
+                     "capacity exceeded, and the members that fail would be left out of every table" % where)
         model = deck.tokens("erf.structures.model")
         if plan.inputs.get("erf.structures.model", model and model[0]) != "conductors":
             stop("base_deck: %s does not set erf.structures.model = conductors" % plan.base_deck)
@@ -604,8 +613,10 @@ class Ensemble:
             try:
                 last = int(last)
             except (TypeError, ValueError):
-                stop("spinup: %s needs an integer max_step in the base deck or the plan's inputs, got %s"
-                     % (m["member"], last))
+                last = None
+            if last is None or last < 0:
+                stop("spinup: %s needs a max_step >= 0 in the base deck or the plan's inputs (the member's last step), "
+                     "got %s" % (m["member"], changes.get("max_step", deck.get("max_step"))))
             if last <= n:
                 stop("spinup: max_step = %d must be below %s's max_step = %d (the member runs on from the spin-up's "
                      "checkpoint to its own max_step)" % (n, m["member"], last))
@@ -646,7 +657,8 @@ class Ensemble:
                 name = "u%0*d_s%s_d%s" % (max(3, len(str(len(self.members)))), len(order) + 1, name_tag(m["stripe"]),
                                           name_tag(m["nominal_direction"]))
                 groups[key] = {"spinup": name, "directory": SPINUP_DIR + "/" + name, "max_step": n,
-                               "checkpoint": "%s%0*d" % (check, digits, n), "members": [], "_text": text, "_winds": winds}
+                               "checkpoint": "%s%0*d" % (check, digits, n),
+                               "initial_checkpoint": "%s%0*d" % (check, digits, 0), "members": [], "_text": text, "_winds": winds}
                 order.append(key)
             g = groups[key]
             g["members"].append(m["member"])
@@ -1120,6 +1132,9 @@ def run_spinup(out, manifest, g, command, ranks, gate, log):
     if code == 0 and not os.path.isfile(os.path.join(d, g["checkpoint"], "Header")):
         status.update({"status": "failed", "detail": "the run ended without writing %s (does its stop_time end it "
                                                       "before max_step?)" % g["checkpoint"]})
+    if status["status"] == "done" and g.get("initial_checkpoint"):
+        # ERF also writes a checkpoint at step 0 of a run that is not a restart; the members do not use it
+        shutil.rmtree(os.path.join(d, g["initial_checkpoint"]), ignore_errors=True)
     write_status(d, status)
     log("%s: spin-up %s (return code %d)" % (g["spinup"], status["status"], code))
     if status["status"] == "done":
@@ -1210,12 +1225,19 @@ def read_log(path, header):
     return body, None
 
 
+def exact(x):
+    """x in the fewest digits that read back as the same float (1.4, not 1.3999999999999999; 1, not 1.0)."""
+    r = repr(float(x))
+    return r[:-2] if r.endswith(".0") else r
+
+
 def damage_row(header, body, logs):
     """The member's damage summary (DAMAGE_COLUMNS) from its demand table and failure logs."""
     # the model writes an empty ratio for a component it never recorded
     ratios = [float(r[header.index("peak_ratio")]) for r in body
               if r[header.index("peak_ratio")].strip()] if "peak_ratio" in header else []
-    out = [fmt(max(ratios)) if ratios else "", str(sum(1 for x in ratios if x > 1.0)) if ratios else ""]
+    # full precision: a ratio just above 1 must not print as 1 (DS1 is a ratio above 1)
+    out = [exact(max(ratios)) if ratios else "", str(sum(1 for x in ratios if x > 1.0)) if ratios else ""]
     for which, count in (("failures", lambda rows: str(len(rows))),
                          ("breaks", lambda rows: "%d %d" % (len(set(r[1] for r in rows)), len(rows))),
                          ("tower_failures", lambda rows: str(len(set(r[1] for r in rows))))):
@@ -1405,8 +1427,10 @@ def main(argv=None, gate=None):
         ensemble = Ensemble(plan)
         os.makedirs(out, exist_ok=True)
         written = ensemble.write(out)
-        print("%d members in %s (%d directories written now); the base wind is %s m/s towards %s degrees%s" % (
-            len(ensemble.members), out, written, fmt(ensemble.base_speed), fmt(ensemble.base_direction),
+        print("%d members%s in %s (%d directories written now); the base wind is %s m/s towards %s degrees%s" % (
+            len(ensemble.members),
+            " and %d spin-up(s)" % len(ensemble.spinups) if getattr(ensemble, "spinups", None) else "",
+            out, written, fmt(ensemble.base_speed), fmt(ensemble.base_direction),
             "" if ensemble.mode == "prescribed" else " at %s m in %s" % (fmt(ensemble.reference_height),
                                                                         ensemble.reference_file)))
         for note in ensemble.notes():

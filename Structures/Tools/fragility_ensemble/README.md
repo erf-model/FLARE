@@ -73,6 +73,9 @@ not `Inflow`, `Outflow`, `SlipWall`, `NoSlipWall`, `Symmetry` or periodic, or wr
 diagnostics outside the run directory is refused with the input's name. Other inputs that hold a
 wind speed (`conductors.asce74_wind`, the event gust's inputs) are not scaled. The driver reads
 one `key = value` per line; a `FILE` include is looked for beside the file that names it.
+`conductors.failure_stop` other than false, in the base deck, the plan's `inputs` or a stripe's
+inputs, is refused: it aborts a member at the first capacity exceeded, and the members with
+damage would drop out of every table.
 
 ### Shared spin-up
 
@@ -96,8 +99,11 @@ checkpoint `Header` is there. A spin-up that ends with return code 0 but without
 (its `stop_time` ended it before step n) is marked failed. When a spin-up fails, its members are
 marked failed without a run, with the detail `not run: its spin-up spinup/<name> failed (...)`,
 where the brackets hold the return code or the missing-checkpoint message; giving `run` again
-removes the spin-up's old checkpoint and tries it again. The manifest lists the spin-ups
-(`spinups`) and each member's (`spinup`).
+removes the spin-up's old checkpoint and tries it again. ERF also writes a checkpoint at step 0
+of a run that is not a restart; the driver removes it once the spin-up is done, since no member
+uses it. The manifest lists the spin-ups (`spinups`, each with its `checkpoint` and the removed
+`initial_checkpoint`) and each member's (`spinup`). `--dry-run` prints the number of spin-ups
+with the number of members.
 
 ## How to run
 
@@ -166,7 +172,7 @@ In `output_dir`:
 
   | Column | Value |
   | --- | --- |
-  | `max_peak_ratio` | the largest `peak_ratio` of its demand table |
+  | `max_peak_ratio` | the largest `peak_ratio` of its demand table, written in full (`1.0000000000004`, not rounded to 1) |
   | `components_exceeded` | the number of components with `peak_ratio` > 1 |
   | `failures_log`, `breaks_log`, `tower_log` | `yes` when the run wrote that log, `no` when it did not |
   | `failures` | rows of `failures.dat` |

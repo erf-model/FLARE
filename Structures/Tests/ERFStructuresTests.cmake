@@ -998,8 +998,10 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_MPI AND ERF_ENABLE_FCOMPARE AND NOT WIN3
     resolve_test_exe("" "${ERF_TEST_EXE}" _cs_exe)
     set(_cs_dir ${CMAKE_CURRENT_BINARY_DIR}/test_files/CascadeStripes_DamageStates)
     file(MAKE_DIRECTORY ${_cs_dir})
+    string(REPLACE ";" " " _cs_pre "${MPIEXEC_PREFLAGS}")
+    # the outputs (two spin-ups' checkpoints and four members) are removed after a pass and kept after a failure
     add_test(NAME CascadeStripes_DamageStates
-             COMMAND sh -c "rm -rf ensemble fit && \"${Python3_EXECUTABLE}\" -I ${PROJECT_SOURCE_DIR}/Structures/Exec/CascadeStripes/run_case.py --exe ${_cs_exe} --out . --mpiexec ${MPIEXEC_EXECUTABLE} --ranks 1 --no-load-gate --check"
+             COMMAND sh -c "rm -rf ensemble fit && \"${Python3_EXECUTABLE}\" -I \"${PROJECT_SOURCE_DIR}/Structures/Exec/CascadeStripes/run_case.py\" --exe \"${_cs_exe}\" --out . --mpiexec \"${MPIEXEC_EXECUTABLE}\" \"--mpiexec-args=${_cs_pre}\" --ranks 1 --no-load-gate --check && rm -rf ensemble fit plan.json fit_plan.json"
              WORKING_DIRECTORY ${_cs_dir})
     set_tests_properties(CascadeStripes_DamageStates PROPERTIES
         LABELS "regression;conductors;failure;fragility" TIMEOUT 1200 PROCESSORS 1

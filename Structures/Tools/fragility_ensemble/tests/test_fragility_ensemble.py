@@ -511,6 +511,29 @@ class Refused(Case):
         with_deck(text + "conductors.prescribed_velocity = 0. 5. 0.\n",
                   "reference_height is not used with conductors.prescribed_velocity", reference_height=10)
 
+    def test_failure_stop_is_refused(self):
+        # failure_stop aborts a member at the first capacity exceeded: the damaged members would drop out
+        self.refuse("base_inflow", "inputs: conductors.failure_stop must be false in an ensemble",
+                    inputs={"conductors.failure_stop": True})
+        d = self.stage("base_inflow")
+        deck = os.path.join(d, "span.i")
+        with open(deck, "a") as f:
+            f.write("conductors.failure_stop = 1\n")
+        code, _, err = call(["run", "--plan", os.path.join(d, "plan.json"), "--dry-run"])
+        self.assertEqual(code, 2, err)
+        self.assertIn("base_deck: conductors.failure_stop must be false in an ensemble", err)
+        # the base deck is checked on its own, whatever the plan's inputs give
+        code, out, err = call(["run", "--plan", self.edit_plan(d, inputs={"conductors.failure_stop": False}),
+                               "--dry-run"])
+        self.assertEqual(code, 2, err)
+        self.assertIn("base_deck: conductors.failure_stop must be false", err)
+        # false, the ensemble's setting, is accepted in both
+        text = read(deck).replace("conductors.failure_stop = 1\n", "conductors.failure_stop = false\n")
+        with open(deck, "w") as f:
+            f.write(text)
+        code, out, err = call(["run", "--plan", os.path.join(d, "plan.json"), "--dry-run"])
+        self.assertEqual((code, err), (0, ""), out)
+
     def test_a_run_needs_an_executable(self):
         d = self.stage("base_prescribed")
         plan = os.path.join(d, "plan.json")
@@ -783,6 +806,8 @@ if "erf.structures.model" not in deck:
         sys.exit(5)
     if any(k.startswith("conductors.") for k in deck) or "amr.restart" in deck:
         sys.exit(6)
+    os.makedirs("chk00000", exist_ok=True)     # ERF's checkpoint at step 0 of a run that is not a restart
+    open(os.path.join("chk00000", "Header"), "w").close()
     chk = "chk%05d" % int(deck["max_step"])
     os.makedirs(chk, exist_ok=True)
     open(os.path.join(chk, "Header"), "w").close()
@@ -941,6 +966,11 @@ class Spinup(Case):
         self.assertEqual([self.runs(d, "spinup/" + g) for g in ("u001_s10_d0", "u002_s20_d0")], [1, 2])
         self.assertEqual([self.runs(d, "members/" + m) for m in members], [2, 1, 1, 1])
         self.assertIn("collected 4 of 4 members", out)
+        # each spin-up keeps the checkpoint its members restart from and not ERF's step-0 one
+        for g in ("u001_s10_d0", "u002_s20_d0"):
+            spin = os.path.join(d, "out", "spinup", g)
+            self.assertTrue(os.path.isfile(os.path.join(spin, "chk00004", "Header")), g)
+            self.assertFalse(os.path.exists(os.path.join(spin, "chk00000")), g)
 
         # the failure logs, gathered with the key columns, and each member's damage summary
         self.assertEqual(read(os.path.join(d, "out", "breaks_all.csv")),
@@ -977,6 +1007,9 @@ class Spinup(Case):
         logs = {"failures": [], "breaks": None, "tower_failures": None}
         self.assertEqual(fe.damage_row(header, body, logs), ["1.2", "1", "yes", "0", "no", "", "", "no", ""])
         self.assertEqual(fe.damage_row(header, [["hardware", "S1_end_a", ""]], logs)[:2], ["", ""])
+        # a ratio just above 1 is written so that it reads back above 1 (DS1), as components_exceeded counts it
+        self.assertEqual(fe.damage_row(header, [["conductor", "S1", "1.0000000000004"]], logs)[:2],
+                         ["1.0000000000004", "1"])
 
     def test_a_finished_spin_up_whose_checkpoint_is_gone_runs_again(self):
         d, argv = self.stage_run()

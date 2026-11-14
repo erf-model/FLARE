@@ -2,7 +2,7 @@
 """Two wind stripes through the fragility ensemble driver with the line failures on, and the damage
 states DS1-DS4 from the fragility fit.
 
-    python3 run_case.py --exe path/to/flare --out case_dir [--mpiexec mpiexec] [--ranks 1]
+    python3 run_case.py --exe path/to/flare --out case_dir [--mpiexec mpiexec] [--mpiexec-args=...] [--ranks 1]
                         [--uplift 20000] [--load-start 6 | --no-load-gate] [--check]
 
 The lines are Tests/test_files/Conductors_RandomGusts (two lines over hills, three lattice towers,
@@ -119,7 +119,8 @@ def deck_value(path, key):
 def check(out, uplift):
     bad = []
     ens = os.path.join(out, "ensemble")
-    manifest = json.load(open(os.path.join(ens, "manifest.json"), encoding="utf-8"))
+    with open(os.path.join(ens, "manifest.json"), encoding="utf-8") as f:
+        manifest = json.load(f)
     members = manifest["members"]
 
     # 1. restart from the spin-up, lines made at the restart
@@ -128,7 +129,8 @@ def check(out, uplift):
         d = os.path.join(ens, m["directory"])
         want = "../../spinup/%s/chk%05d" % (m["spinup"], SPINUP_STEPS)
         per_spinup[m["spinup"]] = per_spinup.get(m["spinup"], 0) + 1
-        log = open(os.path.join(d, "run.log"), encoding="utf-8", errors="replace").read()
+        with open(os.path.join(d, "run.log"), encoding="utf-8", errors="replace") as f:
+            log = f.read()
         if "Restart from native checkpoint " + want not in log:
             bad.append("%s did not restart from %s" % (m["member"], want))
         # a new member directory always starts its logs at the restart, so the logs alone cannot show
@@ -149,9 +151,14 @@ def check(out, uplift):
     # 2 and 3. outcomes per stripe
     for r in rows(os.path.join(ens, "damage_table_all.csv")):
         name, stripe = r["member"], float(r["stripe"])
-        ratio, released, lost = float(r["max_peak_ratio"]), int(r["lines_released"]), int(r["towers_lost"])
+        try:
+            ratio, released, lost = float(r["max_peak_ratio"]), int(r["lines_released"]), int(r["towers_lost"])
+        except ValueError:
+            bad.append("%s: the damage table has no peak ratio, release count or tower count (%s, %s, %s)"
+                       % (name, r["max_peak_ratio"], r["lines_released"], r["towers_lost"]))
+            continue
         if stripe == SPEEDS[0]:
-            if ratio >= 1.0 or released or lost:
+            if ratio > 1.0 or released or lost:
                 bad.append("%s (10 m/s): peak ratio %g, %d line(s) released, %d tower(s) lost; expected none"
                            % (name, ratio, released, lost))
             continue
@@ -186,6 +193,8 @@ def main():
     ap.add_argument("--exe", required=True, help="the ERF (flare) executable built with ERF_ENABLE_STRUCTURES")
     ap.add_argument("--out", required=True, help="directory for the plans, the members and the fit")
     ap.add_argument("--mpiexec", default="mpiexec", help="the MPI launcher; '' runs the executable directly")
+    ap.add_argument("--mpiexec-args", default="", help="further launcher arguments in one string, passed to the "
+                                                       "driver: --mpiexec-args='--oversubscribe'")
     ap.add_argument("--ranks", type=int, default=1, help="MPI ranks of each run (default 1)")
     ap.add_argument("--uplift", type=float, default=20000.0,
                     help="the towers' synthetic footing uplift allowable, N (default 20000)")
@@ -205,7 +214,7 @@ def main():
     write_json(os.path.join(out, "plan.json"), driver_plan(a.uplift))
     write_json(os.path.join(out, "fit_plan.json"), fit_plan())
     cmd = [sys.executable, "-I", "-u", DRIVER, "run", "--plan", os.path.join(out, "plan.json"), "--exe", a.exe,
-           "--mpiexec", a.mpiexec, "--ranks", str(a.ranks), "--load-start", str(a.load_start)]
+           "--mpiexec", a.mpiexec, "--mpiexec-args=" + a.mpiexec_args, "--ranks", str(a.ranks), "--load-start", str(a.load_start)]
     if a.no_load_gate:
         cmd.append("--no-load-gate")
     rc = subprocess.call(cmd)

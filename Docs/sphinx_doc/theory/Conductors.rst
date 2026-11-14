@@ -1907,7 +1907,9 @@ keeps the model's peak demands, first exceedances, intensity record and
 failure logs from the checkpoint; without them the lines are made afresh at
 the restart time, so every member's records start on the spun-up flow. A
 spin-up runs once, before its members; when it fails, or ends without its
-checkpoint, its members are marked failed without a run.
+checkpoint, its members are marked failed without a run. ERF also writes a
+checkpoint at step 0 of a run that is not a restart; the script removes it
+once the spin-up has finished, since no member uses it.
 
 **Gathering.** After the runs (or with ``collect``) the script writes
 ``demand_table_all.csv`` and ``intensity_all.csv``: the rows of every
@@ -1959,9 +1961,10 @@ counts of failures, released lines, releases and lost towers.
   that does not keep them as its descendants, are not paused
   (``--no-load-gate``).
 * At most 100 000 members.
-* A run that stops by design at a first failure (``conductors.failure_stop``)
-  returns an error code and is reported as failed; ensembles run with
-  ``failure_stop`` off.
+* ``conductors.failure_stop = true`` in the base deck or the plan's inputs is
+  refused: it aborts a member at the first capacity exceeded, the member
+  would be reported as failed, and the members with damage would drop out
+  of every table.
 * Large-eddy members are not covered: their inflow needs a precursor or a
   perturbation method that has not been checked against one.
 
@@ -2161,9 +2164,21 @@ times (1000 by default). It reports the standard deviation of the two
 estimates and, which the paper does not propose, their central interval of
 probability ``confidence`` (0.9). Each curve has its own random sequence,
 made from ``seed`` and the curve's name, so a curve's spread does not depend
-on the other curves. Simulated sets without a fit are left out, the number
-used is reported, and a note is printed when it is below 90 %: the spread
-then describes only the sets that could be fitted.
+on the other curves. A simulated set whose outcomes separate (Eq.
+:eq:`frag-likelihood` has no maximum) has its likelihood's supremum as
+:math:`\beta \to 0`, with no single :math:`\theta`: it counts as
+:math:`\beta = 0` in the interval of :math:`\beta` and is left out of the
+interval of :math:`\theta`. Sets with no exceedance or with every member
+exceeding are left out of both. The standard deviations are over the sets
+that fitted. The numbers of sets that fitted and that separated are
+reported (``resamples_used``, ``resamples_separated``), and a note is
+printed when fewer than 90 % fitted: :math:`\theta`'s interval and both
+standard deviations then describe only those sets. With few members per
+stripe most simulated sets can separate; :math:`\beta`'s lower bound is
+then 0. The bounds are themselves estimated from the simulated sets, with
+a sampling error of about the standard deviation over the square root of
+``resamples_used``: two curves with the same outcomes and different names
+can show bounds that differ by that much.
 
 The spread says how well this number of members at these wind speeds
 determines the curve if the curve is right; it holds no model error. It is
@@ -2186,15 +2201,21 @@ towers, member :math:`i` reaches
    \mathrm{DS4}: T_i \ge N.
 
 **What the level is.** The states are cumulative:
-:math:`P(\mathrm{DS}k \mid V)` is the probability of reaching level
-:math:`k` or higher, which nests the counts. The member's level is the
+:math:`P(\mathrm{DS}k \mid S)` is the probability of reaching level
+:math:`k` or higher at the nominal stripe :math:`S` (m/s), which nests the
+counts. The member's level is the
 highest of the four states it reaches, read from every record its run wrote
 (a log not written is a state not reached), and its outcome is 1 for every
 listed state up to that level and 0 above it, so a state's curve does not
 depend on which other states are listed. A member that reaches a state
 without a lower one is named in a note. The damage table must hold the same
 members, stripes, directions and seeds as the demand table. A lost tower releases its spans, so DS3 implies DS2 in the runs.
-The curves are fitted against the nominal stripe with the likelihood above.
+The curves are fitted against the nominal stripe with Eq.
+:eq:`frag-likelihood`, :math:`x_i = S_i`. The tool also reads the driver's
+``members_status.csv`` beside the damage table and names, in a note, every
+member that is not in the tables (a run that failed or did not run): the
+states are fitted without them, and a run that aborted in a cascade would be
+missing from the states it reached.
 
 **Why N has no default.** :math:`N`, the number of lost towers that makes a
 cascade, is the plan's ``cascade_towers``, an integer in [2, 100 000]. No
@@ -2249,7 +2270,9 @@ probability at that mean wind.
 * Damage states are fitted one by one and are not forced to keep their
   order. Two lognormal curves with different :math:`\beta` always cross at
   some wind, often outside the stripes; inside the stripes' range they can
-  cross when the members are few.
+  cross when the members are few. The tool prints a note when two listed
+  states next to each other, both fitted, cross inside the stripes, or when
+  the higher state's median lies below the lower one's.
 
 **Tests.** ``FragilityFit_Published`` reproduces numbers printed in Baker
 (2015): with a true :math:`\theta = 1` and :math:`\beta = 0.4`, 40

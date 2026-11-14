@@ -206,6 +206,40 @@ class ByHand(unittest.TestCase):
         self.assertEqual(ff.quantile([1.0, 2.0, 3.0, 4.0, 5.0], 0.05), 1.2)
         self.assertEqual(ff.quantile([1.0, 2.0, 3.0, 4.0, 5.0], 0.5), 3.0)
 
+    def test_separated_sets_count_as_beta_zero(self):
+        # 5 stripes of 3 with 1, 2, 3, 3, 3 exceeding (the PowerLines DS1 counts, 13 to 17 m/s): most simulated
+        # sets separate. Their likelihood's supremum is at beta -> 0, so they count as beta = 0 in beta's interval
+        # and the lower bound is 0; left out, the bound would sit at the fitted beta itself
+        data = [(x, 1.0 if k < n else 0.0) for x, n in zip((13.0, 14.0, 15.0, 16.0, 17.0), (1, 2, 3, 3, 3))
+                for k in range(3)]
+        f = ff.fit(data)
+        self.assertEqual(f["status"], "fitted")
+        s = ff.reestimate(data, f["theta"], f["beta"], 1000, 0.9, random.Random(3))
+        self.assertGreater(s["resamples_separated"], 300)
+        self.assertLessEqual(s["resamples_used"] + s["resamples_separated"], 1000)
+        self.assertEqual(s["beta_low"], 0.0)
+        self.assertGreater(s["beta_high"], f["beta"])
+        self.assertGreater(s["theta_high"], s["theta_low"])
+        # no separated set: the interval is over the fitted sets alone, as before
+        wide = [(x, 0.0) for x in (0.6, 1.0, 1.5) for _ in range(40)]
+        t = ff.reestimate(wide, 1.0, 0.4, 200, 0.9, random.Random(7))
+        self.assertEqual(t["resamples_separated"], 0)
+        self.assertGreater(t["beta_low"], 0.2)
+
+    def test_crossing_damage_state_curves_are_named(self):
+        # DS3 (14.028, 0.0913) and DS4 (14.480, 0.0501) over stripes 13 to 17 cross where
+        # ln x = (b3 ln t4 - b4 ln t3) / (b3 - b4) = (0.0913 ln 14.480 - 0.0501 ln 14.028) / 0.0412 = 2.71134, x = 15.049
+        notes = ff.crossing_notes({"all": [("DS3", 14.028, 0.0913, 13.0, 17.0), ("DS4", 14.480, 0.0501, 13.0, 17.0)]})
+        self.assertEqual(len(notes), 1)
+        self.assertIn("DS3 and DS4 (direction all): the curves cross at 15.049", notes[0])
+        # the PowerLines fits cross at 11.25 m/s, below the stripes: no note
+        self.assertEqual(ff.crossing_notes({"all": [("DS3", 13.43696145, 0.05893949262, 13.0, 17.0),
+                                                    ("DS4", 13.74233833, 0.06638969011, 13.0, 17.0)]}), [])
+        # a higher state's median below a lower one's is always named
+        notes = ff.crossing_notes({"0": [("DS2", 20.0, 0.1, 10.0, 30.0), ("DS3", 19.0, 0.1, 10.0, 30.0)]})
+        self.assertEqual(len(notes), 1)
+        self.assertIn("DS3 (direction 0): its median 19 lies below DS2's median 20", notes[0])
+
     def test_tails_and_close_intensities(self):
         # ln Phi far in the tail, against the series -t^2/2 - ln(-t) - ln(2 pi)/2 + ln(1 - 1/t^2 + 3/t^4) worked
         # here at t = -40: -800 - 3.688879454 - 0.918938533 - 0.000624024 = -804.608442011
@@ -506,6 +540,26 @@ class DamageStates(Case):
             self.assertEqual(curves["DS1"][col], curves["network"][col], col)
         self.assertIn("NOTE DS4 is 2 or more towers lost (cascade_towers, the user's choice)", out)
         self.assertNotIn("reach a damage state without", out)
+
+    def test_members_the_driver_did_not_collect_are_named(self):
+        status = os.path.join(self.tmp, "members_status.csv")
+        header = "member,stripe,nominal_direction,seed,status,returncode,demand_rows,intensity_rows,detail\n"
+        rows = "".join("%s,20,0,1,complete,0,2,1,\n" % member_name(i) for i in range(12))
+        with open(status, "w") as f:
+            f.write(header + rows + "m013_s40_d0_seed5,40,0,5,failed,1,,,amrex::Abort line S1 left the domain\n")
+        code, out, err = self.call(self.damage_plan())
+        self.assertEqual((code, err), (0, ""), out)
+        self.assertIn("NOTE damage_states: 1 of 13 member(s) of the ensemble are not in the tables "
+                      "(m013_s40_d0_seed5 (failed))", out)
+        with open(status, "w") as f:
+            f.write(header + rows)
+        code, out, _ = self.call(self.damage_plan())
+        self.assertEqual(code, 0)
+        self.assertNotIn("not in the tables", out)
+        self.assertNotIn("members_status.csv", out)
+        os.remove(status)
+        code, out, _ = self.call(self.damage_plan())
+        self.assertIn("NOTE damage_states: no members_status.csv beside", out)
 
     def test_a_cascade_threshold_moves_members_out_of_ds4(self):
         # with cascade_towers = 3 only the 40 m/s member with three towers lost is in DS4

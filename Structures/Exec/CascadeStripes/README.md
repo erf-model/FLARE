@@ -29,7 +29,7 @@ lines over hills, three lattice towers, random gusts (`conductors.gust_type = ra
 scales the deck's inflow to 10 and 25 m/s at 30 m. Each member runs 5 steps of spin-up and 10 steps
 with the lines (0.9 s steps).
 
-## Capacities
+### Capacities
 
 Every capacity is 1e9 N except the towers' footing uplift, which is a **synthetic** allowable of
 20 kN (`--uplift`). It is a value chosen for the test between the two stripes' demands, not a
@@ -63,7 +63,8 @@ python3 run_case.py --exe path/to/flare --out cascade --check
 The driver waits for the machine's 1-minute load to fall below 6 before each run (`--load-start`,
 or `--no-load-gate` to run at once). The six runs (two spin-ups, four members) take 1 to 2 s each
 on one rank; the CTest takes about 8 s. `--out` must not already hold `ensemble` or `fit`: the driver skips
-members that finished, so an earlier run would be reused at another allowable.
+members that finished, so an earlier run would be reused at another allowable. `--mpiexec` and
+`--mpiexec-args` (for example `--mpiexec-args="--oversubscribe"`) are passed to the driver.
 
 ## Expected results
 
@@ -110,4 +111,6 @@ conductor model's message at the restart.
 
 `CascadeStripes_DamageStates` (labels `regression`, `conductors`, `failure`, `fragility`) runs the
 case with `--no-load-gate --check` on one rank per run and passes when the case prints
-`CascadeStripes: all checks hold`.
+`CascadeStripes: all checks hold`. It passes CMake's `MPIEXEC_PREFLAGS` through
+`--mpiexec-args`. The outputs (the two spin-ups' checkpoints, the four members, the fit and the two
+plans) are removed after a pass and kept after a failure.

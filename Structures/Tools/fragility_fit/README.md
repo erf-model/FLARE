@@ -109,7 +109,13 @@ outcomes at the capacities of the runs' decks, so `capacity` applies only to the
 group curves, and the tool says so. Each state is fitted on its own and the curves are not
 forced to keep their order: two lognormal curves with different dispersions always cross at some
 wind, often outside the stripes, and inside the stripes' range they can cross when the members
-are few.
+are few. The tool prints a note when two listed states next to each other, both fitted, cross
+inside the stripes, or when the higher state's median lies below the lower one's.
+
+The tool reads the driver's `members_status.csv` beside the damage table and names, in a note,
+every member that is not in the tables (a run that failed or did not run). The states are fitted
+without them, and a run that aborted in a cascade would be missing from the states it reached, so
+rerun them or account for them. Without the file the tool notes that it could not check.
 
 ## How to run
 
@@ -132,7 +138,16 @@ In `output_dir`:
   curve was fitted against), `members`, `exceedances`
   (the sum of the outcomes), `status`, `theta` (m/s), `beta`, the interval `theta_low`,
   `theta_high`, `beta_low`, `beta_high`, the standard deviations `theta_sd`, `beta_sd`,
-  `resamples_used`, `bracket_low`, `bracket_high` and `log_likelihood`.
+  `resamples_used`, `bracket_low`, `bracket_high`, `log_likelihood` and `resamples_separated`.
+
+The spread comes from sets simulated from the fitted curve. A simulated set that separates has
+its likelihood's supremum at beta -> 0 with no single theta, so it counts as beta = 0 in
+`beta_low` and `beta_high` and is left out of theta's interval; sets with no exceedance or all
+exceeding are left out of both. `theta_sd` and `beta_sd` are over the sets that fitted
+(`resamples_used`); `resamples_separated` counts the separated ones. With few members per stripe
+most sets can separate and `beta_low` is then 0. The bounds carry a sampling error of about the
+standard deviation over the square root of `resamples_used`, so two curves with the same outcomes
+can show bounds that differ by that much.
 - `fragility_points.csv`: one row per curve and stripe, for a plot: `members`, `mean_intensity`,
   `exceedances`, `fraction` and the `fitted` probability at the mean intensity.
 
