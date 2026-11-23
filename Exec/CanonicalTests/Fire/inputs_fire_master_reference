@@ -965,6 +965,12 @@ erf.fire.spotting.terminal_velocity = 0.5
 # Typical: 10 to 50
 erf.fire.spotting.n_traj_steps = 20
 
+# Wind the brands drift on: "profile" (default) = the reference wind scaled by
+# the neutral log profile of wind_sample_z0 to the brand's height; "frozen" =
+# u, v of the frozen GUST field (erf.fire.frozen_wind.file, required) at the
+# brand's height above the ground. The fall stays at terminal_velocity.
+erf.fire.spotting.drift_wind = "profile"
+
 # Ignition disk radius at landing [m]
 # Area where a landed firebrand can ignite new fire
 erf.fire.spotting.spot_radius = 15.0

@@ -24,53 +24,6 @@ namespace {
     std::abort(); // amrex::Abort is not declared noreturn
 }
 
-/**
- * The wind of one GUST column at a target height: the column sampler of
- * ERF_FireWindExtract.cpp (column_wind_at_height) on cell-centred u, v
- * (components 0, 1 of a) with the cell-centre heights in component 2 and
- * levels kz0..kz1. A target above the highest centre takes that centre's
- * wind; the caller has already refused it.
- */
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void frozen_column_wind (const Array4<const Real>& a, int ia, int ja, int kz0, int kz1,
-                         Real z_target, Real z_ground, bool below_first_log, Real z0_log,
-                         Real& u_out, Real& v_out) noexcept
-{
-    int k_lo;
-    Real below_scale = Real(1.0);
-    if (z_target <= a(ia, ja, kz0, 2)) {
-        k_lo = kz0;
-        if (below_first_log) {
-            constexpr Real z_tiny = Real(1.0e-30);
-            const Real z0 = std::abs(z0_log) + z_tiny;
-            const Real z1 = amrex::max(a(ia, ja, kz0, 2) - z_ground, z0 * Real(1.000001));
-            const Real zt = amrex::max(amrex::min(z_target - z_ground, z1), z0);
-            below_scale = std::log(zt / z0) / std::log(z1 / z0);
-        }
-    } else if (z_target >= a(ia, ja, kz1, 2)) {
-        k_lo = kz1 - 1;
-    } else {
-        int lo = kz0;
-        int hi = kz1;
-        while (hi - lo > 1) {
-            const int mid = (lo + hi) / 2;
-            if (a(ia, ja, mid, 2) <= z_target) { lo = mid; } else { hi = mid; }
-        }
-        k_lo = lo;
-    }
-    k_lo = amrex::max(kz0, amrex::min(k_lo, kz1 - 1));
-    const int k_hi = k_lo + 1;
-
-    const Real z_lo = a(ia, ja, k_lo, 2);
-    const Real z_hi = a(ia, ja, k_hi, 2);
-    Real alpha = Real(0.0);
-    if (z_hi > z_lo) {
-        alpha = amrex::max(Real(0.0), amrex::min(Real(1.0), (z_target - z_lo) / (z_hi - z_lo)));
-    }
-    u_out = below_scale * (a(ia, ja, k_lo, 0) + alpha * (a(ia, ja, k_hi, 0) - a(ia, ja, k_lo, 0)));
-    v_out = below_scale * (a(ia, ja, k_lo, 1) + alpha * (a(ia, ja, k_hi, 1) - a(ia, ja, k_lo, 1)));
-}
-
 /// The first word of <dir>/Header, read on the I/O rank and broadcast
 std::string header_magic (const std::string& dir)
 {
@@ -319,8 +272,18 @@ void FrozenWind::read_checkpoint (const std::string& dir)
     build_columns(u, v, w, z, z_nd);
 }
 
+void FrozenWind::define_from_fields (const Geometry& geom, const std::string& label,
+                                     const MultiFab& u, const MultiFab& v, const MultiFab& w,
+                                     const MultiFab& z, const MultiFab& z_nd, int max_box)
+{
+    m_file   = label;
+    m_format = "fields";
+    m_geom   = geom;
+    build_columns(u, v, w, z, z_nd, max_box);
+}
+
 void FrozenWind::build_columns (const MultiFab& u, const MultiFab& v, const MultiFab& w,
-                                const MultiFab& z, const MultiFab& z_nd)
+                                const MultiFab& z, const MultiFab& z_nd, int max_box)
 {
     const Box& dom = m_geom.Domain();
     const int nz = dom.length(2);
@@ -328,7 +291,8 @@ void FrozenWind::build_columns (const MultiFab& u, const MultiFab& v, const Mult
         frozen_abort(m_file, "the mesh needs at least two cells in z");
     }
     BoxArray ba(dom);
-    ba.maxSize(IntVect(AMREX_D_DECL(32, 32, nz)));   // full-height columns, never split in z
+    AMREX_ALWAYS_ASSERT(max_box >= 1);
+    ba.maxSize(IntVect(AMREX_D_DECL(max_box, max_box, nz)));   // full-height columns, never split in z
     const DistributionMapping dm(ba);
 
     m_cc.define(ba, dm, NCOMP, 0);
@@ -422,6 +386,11 @@ void FrozenWind::sample_reference_wind (MultiFab& wind_ref,
         const auto ez  = extract_z.array(mfi);
         const Array4<Real> gr = want_ground ? ground->array(mfi) : Array4<Real>{};
         const Array4<const Real> zc = per_cell ? z_ref_cell->const_array(mfi) : Array4<const Real>{};
+        FrozenColumnsView cols;
+        cols.a = a;
+        cols.gilo = gilo; cols.gihi = gihi; cols.gjlo = gjlo; cols.gjhi = gjhi;
+        cols.kz0 = kz0; cols.kz1 = kz1;
+        cols.gx0 = gx0; cols.gy0 = gy0; cols.gdx = gdx; cols.gdy = gdy;
 
         reduce_op.eval(bx, reduce_data,
             [=] AMREX_GPU_DEVICE (int i, int j, int k) -> GpuTuple<Real>
@@ -437,47 +406,9 @@ void FrozenWind::sample_reference_wind (MultiFab& wind_ref,
                 const Real x = fx0 + (Real(i - fi0) + Real(0.5)) * fdx;
                 const Real y = fy0 + (Real(j - fj0) + Real(0.5)) * fdy;
 
-                int  ia[4] = {0, 0, 0, 0};
-                int  ja[4] = {0, 0, 0, 0};
-                Real wt[4] = {Real(0.0), Real(0.0), Real(0.0), Real(0.0)};
-                int  ncol  = 1;
-                if (bilinear) {
-                    const Real gx = (x - gx0) / gdx - Real(0.5);
-                    const Real gy = (y - gy0) / gdy - Real(0.5);
-                    const int i0 = static_cast<int>(std::floor(gx));
-                    const int j0 = static_cast<int>(std::floor(gy));
-                    const Real wx = gx - Real(i0);
-                    const Real wy = gy - Real(j0);
-                    for (int c = 0; c < 4; ++c) {
-                        const int di = (c & 1);
-                        const int dj = ((c >> 1) & 1);
-                        ia[c] = amrex::max(gilo, amrex::min(gilo + i0 + di, gihi));
-                        ja[c] = amrex::max(gjlo, amrex::min(gjlo + j0 + dj, gjhi));
-                        wt[c] = (di ? wx : (Real(1.0) - wx)) * (dj ? wy : (Real(1.0) - wy));
-                    }
-                    ncol = 4;
-                } else {
-                    ia[0] = amrex::max(gilo, amrex::min(gilo + static_cast<int>(std::floor((x - gx0) / gdx)), gihi));
-                    ja[0] = amrex::max(gjlo, amrex::min(gjlo + static_cast<int>(std::floor((y - gy0) / gdy)), gjhi));
-                    wt[0] = Real(1.0);
-                    ncol = 1;
-                }
-
-                Real u_sum = Real(0.0), v_sum = Real(0.0), z_sum = Real(0.0), g_sum = Real(0.0);
-                Real excess = std::numeric_limits<Real>::lowest();
-                for (int c = 0; c < ncol; ++c) {
-                    const Real zg = a(ia[c], ja[c], kz0, 3);
-                    const Real z_target = zg + z_at;
-                    if (wt[c] > Real(0.0)) {   // a column with no weight cannot stop the run
-                        excess = amrex::max(excess, z_target - a(ia[c], ja[c], kz1, 2));
-                    }
-                    Real uc, vc;
-                    frozen_column_wind(a, ia[c], ja[c], kz0, kz1, z_target, zg, below_first_log, z0_log, uc, vc);
-                    u_sum += wt[c] * uc;
-                    v_sum += wt[c] * vc;
-                    z_sum += wt[c] * z_target;
-                    g_sum += wt[c] * zg;
-                }
+                Real u_sum, v_sum, z_sum, g_sum, excess;
+                frozen_point_wind(cols, x, y, z_at, bilinear, below_first_log, z0_log,
+                                  u_sum, v_sum, z_sum, g_sum, excess);
                 fw(i, j, k, 0) = scale * u_sum;
                 fw(i, j, k, 1) = scale * v_sum;
                 ez(i, j, k)    = z_sum;
@@ -494,4 +425,60 @@ void FrozenWind::sample_reference_wind (MultiFab& wind_ref,
            << " lower it by more than that (GUST's top centre is lowest above high ground)";
         frozen_abort(m_file, os.str());
     }
+}
+
+void FrozenWind::gather_columns (FrozenWindHost& h, const Geometry& fire_geom) const
+{
+    AMREX_ALWAYS_ASSERT(defined());
+    const Box& gdom = m_geom.Domain();
+    const int gilo = gdom.smallEnd(0), gihi = gdom.bigEnd(0);
+    const int gjlo = gdom.smallEnd(1), gjhi = gdom.bigEnd(1);
+    const Real gx0 = m_geom.ProbLo(0), gy0 = m_geom.ProbLo(1);
+    const Real gdx = m_geom.CellSize(0), gdy = m_geom.CellSize(1);
+
+    // The columns the fire region reads, with the margin of sample_reference_wind
+    const Real xlo = fire_geom.ProbLo(0), xhi = fire_geom.ProbHi(0);
+    const Real ylo = fire_geom.ProbLo(1), yhi = fire_geom.ProbHi(1);
+    const int ilo = amrex::max(gilo, gilo + static_cast<int>(std::floor((xlo - gx0) / gdx - Real(0.5))) - 1);
+    const int ihi = amrex::min(gihi, gilo + static_cast<int>(std::floor((xhi - gx0) / gdx - Real(0.5))) + 2);
+    const int jlo = amrex::max(gjlo, gjlo + static_cast<int>(std::floor((ylo - gy0) / gdy - Real(0.5))) - 1);
+    const int jhi = amrex::min(gjhi, gjlo + static_cast<int>(std::floor((yhi - gy0) / gdy - Real(0.5))) + 2);
+    const Box region(IntVect(AMREX_D_DECL(ilo, jlo, gdom.smallEnd(2))),
+                     IntVect(AMREX_D_DECL(ihi, jhi, gdom.bigEnd(2))));
+    AMREX_ALWAYS_ASSERT(region.ok() && gdom.contains(region));
+
+    const Long npts = region.numPts();
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(4 * npts <= Long(std::numeric_limits<int>::max()),
+                                     "erf.fire.spotting.drift_wind = frozen: the GUST columns under the fire region are too many to copy to every rank");
+    h.data.assign(static_cast<std::size_t>(4 * npts), Real(0.0));
+    const Dim3 hi = amrex::ubound(region);
+    const Dim3 hi1{hi.x + 1, hi.y + 1, hi.z + 1};   // Array4's end is one past the last cell
+    Array4<Real> out(h.data.data(), amrex::lbound(region), hi1, 4);
+    for (MFIter mfi(m_cc); mfi.isValid(); ++mfi) {
+        const Box bx = mfi.validbox() & region;   // every cell has one owner: m_cc has no ghosts
+        if (!bx.ok()) { continue; }
+#ifdef AMREX_USE_GPU
+        FArrayBox host(bx, NCOMP, The_Pinned_Arena());
+        host.copy<RunOn::Device>(m_cc[mfi], bx, 0, bx, 0, NCOMP);
+        Gpu::streamSynchronize();
+        const auto in = host.const_array();
+#else
+        const auto in = m_cc.const_array(mfi);
+#endif
+        LoopOnCpu(bx, [&] (int i, int j, int k) {
+            out(i, j, k, 0) = in(i, j, k, U);
+            out(i, j, k, 1) = in(i, j, k, V);
+            out(i, j, k, 2) = in(i, j, k, Z);
+            out(i, j, k, 3) = in(i, j, k, ZG);
+        });
+    }
+    ParallelDescriptor::ReduceRealSum(h.data.data(), static_cast<int>(h.data.size()));
+
+    FrozenColumnsView& c = h.view;
+    c.a = Array4<const Real>(h.data.data(), amrex::lbound(region), hi1, 4);
+    c.gilo = gilo; c.gihi = gihi;   // GUST's bounds: the index origin and the edge clamp
+    c.gjlo = gjlo; c.gjhi = gjhi;
+    c.kz0  = gdom.smallEnd(2); c.kz1  = gdom.bigEnd(2);
+    c.gx0  = m_geom.ProbLo(0); c.gy0  = m_geom.ProbLo(1);
+    c.gdx  = m_geom.CellSize(0); c.gdy = m_geom.CellSize(1);
 }

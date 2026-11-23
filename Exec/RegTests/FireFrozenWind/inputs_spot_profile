@@ -1,0 +1,4 @@
+# inputs_spot3d with the default drift: the reference wind scaled to the
+# brand's height with the neutral log profile (erf.fire.spotting.drift_wind = profile)
+FILE = inputs_spot3d
+erf.fire.spotting.drift_wind = profile

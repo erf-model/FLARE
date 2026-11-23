@@ -1015,8 +1015,7 @@ K-profile amplitude of burning columns, and leaves the PBLH alone:
 with :math:`kbfs_{MOST} = -u_* \theta_*`, :math:`h` the corrected PBLH and :math:`w_*` the Pass 4
 scale. Columns without fire keep :math:`w_*`, and HGAMT/HGAMQ always use the unboosted :math:`w_*`.
 A column counts as burning when its fire heat flux exceeds ``erf.mrf_fire_q_threshold``
-(default 50 W/m\ :sup:`2`), and the thermal excess the fire adds is capped at
-``erf.mrf_fire_t_excess_cap`` (default 50 K). Both keys accept the ``_lev<N>`` per-level form.
+(default 50 W/m\ :sup:`2`). Both keys accept the ``_lev<N>`` per-level form.
 The passes cover a halo of columns around every tile, so the fire flux carries ghost columns holding
 the neighbouring box's value (the edge column's outside a non-periodic face); until 2026-09-15 it had
 none and the option read outside the array, which builds with assertions stopped in the first step.

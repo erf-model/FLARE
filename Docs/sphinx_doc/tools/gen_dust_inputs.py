@@ -213,8 +213,6 @@ p("erf.pbl_mrf_fire_thermal_excess", "Add the fire surface heat flux to the "
   "MRF convective velocity scale w* of burning columns", "Boolean", "false")
 p("erf.mrf_fire_q_threshold", "Fire heat flux above which a column counts as "
   "burning for that boost [W/m²]", "Real >= 0", "50.0")
-p("erf.mrf_fire_t_excess_cap", "Cap on the thermal excess the fire adds [K]",
-  "Real > 0", "50.0")
 
 grp("Output and diagnostics",
     "Every CSV is written by rank 0 and appended each step; a run without "

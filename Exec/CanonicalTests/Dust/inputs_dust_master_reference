@@ -345,9 +345,6 @@ erf.pbl_mrf_fire_thermal_excess = false
 # [W/m²] [Real >= 0]
 erf.mrf_fire_q_threshold = 50.0
 
-# Cap on the thermal excess the fire adds [K] [Real > 0]
-erf.mrf_fire_t_excess_cap = 50.0
-
 # ---------------------------------------------------------------------------
 # Output and diagnostics
 # ---------------------------------------------------------------------------

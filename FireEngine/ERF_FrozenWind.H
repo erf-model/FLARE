@@ -32,11 +32,171 @@
  * each GUST column is the mean of its four k = 0 nodes.
  */
 
+#include <AMReX_Array4.H>
 #include <AMReX_Geometry.H>
+#include <AMReX_GpuQualifiers.H>
 #include <AMReX_MultiFab.H>
 #include <AMReX_REAL.H>
 
+#include <cmath>
+#include <limits>
 #include <string>
+#include <type_traits>
+#include <vector>
+
+/**
+ * @brief The GUST columns as the samplers read them: u, v, the cell-centre
+ *        height z and the column ground (components 0-3 of a) on GUST's index
+ *        space, with its horizontal origin and cell sizes.
+ *
+ * Trivially copyable: captured by value in device kernels, or pointing to a
+ * host copy (FrozenWindHost) for the host trajectories of ember spotting.
+ */
+struct FrozenColumnsView
+{
+    amrex::Array4<const amrex::Real> a;
+    int gilo = 0, gihi = 0, gjlo = 0, gjhi = 0, kz0 = 0, kz1 = 0;
+    amrex::Real gx0 = 0.0, gy0 = 0.0, gdx = 1.0, gdy = 1.0;
+};
+
+/**
+ * The wind of one GUST column at a target height: the column sampler of
+ * ERF_FireWindExtract.cpp (column_wind_at_height) on cell-centred u, v
+ * (components 0, 1 of a) with the cell-centre heights in component 2 and
+ * levels kz0..kz1. A target above the highest centre takes that centre's
+ * wind; the caller decides whether that is allowed.
+ */
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+void frozen_column_wind (const amrex::Array4<const amrex::Real>& a, int ia, int ja, int kz0, int kz1,
+                         amrex::Real z_target, amrex::Real z_ground, bool below_first_log,
+                         amrex::Real z0_log, amrex::Real& u_out, amrex::Real& v_out) noexcept
+{
+    using amrex::Real;
+    int k_lo;
+    Real below_scale = Real(1.0);
+    if (z_target <= a(ia, ja, kz0, 2)) {
+        k_lo = kz0;
+        if (below_first_log) {
+            constexpr Real z_tiny = Real(1.0e-30);
+            const Real z0 = std::abs(z0_log) + z_tiny;
+            const Real z1 = amrex::max(a(ia, ja, kz0, 2) - z_ground, z0 * Real(1.000001));
+            const Real zt = amrex::max(amrex::min(z_target - z_ground, z1), z0);
+            below_scale = std::log(zt / z0) / std::log(z1 / z0);
+        }
+    } else if (z_target >= a(ia, ja, kz1, 2)) {
+        k_lo = kz1 - 1;
+    } else {
+        int lo = kz0;
+        int hi = kz1;
+        while (hi - lo > 1) {
+            const int mid = (lo + hi) / 2;
+            if (a(ia, ja, mid, 2) <= z_target) { lo = mid; } else { hi = mid; }
+        }
+        k_lo = lo;
+    }
+    k_lo = amrex::max(kz0, amrex::min(k_lo, kz1 - 1));
+    const int k_hi = k_lo + 1;
+
+    const Real z_lo = a(ia, ja, k_lo, 2);
+    const Real z_hi = a(ia, ja, k_hi, 2);
+    Real alpha = Real(0.0);
+    if (z_hi > z_lo) {
+        alpha = amrex::max(Real(0.0), amrex::min(Real(1.0), (z_target - z_lo) / (z_hi - z_lo)));
+    }
+    u_out = below_scale * (a(ia, ja, k_lo, 0) + alpha * (a(ia, ja, k_hi, 0) - a(ia, ja, k_lo, 0)));
+    v_out = below_scale * (a(ia, ja, k_lo, 1) + alpha * (a(ia, ja, k_hi, 1) - a(ia, ja, k_lo, 1)));
+}
+
+/**
+ * The frozen wind at a point (x, y) and a height h above the ground: each
+ * GUST column is sampled at its own ground + h (frozen_column_wind), and the
+ * four columns around (x, y) are blended bilinearly (indices clamped to the
+ * GUST domain), or, with bilinear = false, the column holding (x, y) is used.
+ *
+ * @param[out] u, v     Wind [m/s]
+ * @param[out] z_sum    Sampling height (column ground + h), weighted as the wind [m]
+ * @param[out] g_sum    Column ground, weighted as the wind [m]
+ * @param[out] excess   Largest (ground + h - highest centre) over the columns with weight [m];
+ *                      > 0 when h lies above the top centre of such a column
+ */
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+void frozen_point_wind (const FrozenColumnsView& c, amrex::Real x, amrex::Real y, amrex::Real h,
+                        bool bilinear, bool below_first_log, amrex::Real z0_log,
+                        amrex::Real& u, amrex::Real& v, amrex::Real& z_sum, amrex::Real& g_sum,
+                        amrex::Real& excess) noexcept
+{
+    using amrex::Real;
+    int  ia[4] = {0, 0, 0, 0};
+    int  ja[4] = {0, 0, 0, 0};
+    Real wt[4] = {Real(0.0), Real(0.0), Real(0.0), Real(0.0)};
+    int  ncol  = 1;
+    if (bilinear) {
+        const Real gx = (x - c.gx0) / c.gdx - Real(0.5);
+        const Real gy = (y - c.gy0) / c.gdy - Real(0.5);
+        const int i0 = static_cast<int>(std::floor(gx));
+        const int j0 = static_cast<int>(std::floor(gy));
+        const Real wx = gx - Real(i0);
+        const Real wy = gy - Real(j0);
+        for (int n = 0; n < 4; ++n) {
+            const int di = (n & 1);
+            const int dj = ((n >> 1) & 1);
+            ia[n] = amrex::max(c.gilo, amrex::min(c.gilo + i0 + di, c.gihi));
+            ja[n] = amrex::max(c.gjlo, amrex::min(c.gjlo + j0 + dj, c.gjhi));
+            wt[n] = (di ? wx : (Real(1.0) - wx)) * (dj ? wy : (Real(1.0) - wy));
+        }
+        ncol = 4;
+    } else {
+        ia[0] = amrex::max(c.gilo, amrex::min(c.gilo + static_cast<int>(std::floor((x - c.gx0) / c.gdx)), c.gihi));
+        ja[0] = amrex::max(c.gjlo, amrex::min(c.gjlo + static_cast<int>(std::floor((y - c.gy0) / c.gdy)), c.gjhi));
+        wt[0] = Real(1.0);
+        ncol = 1;
+    }
+
+    u = v = z_sum = g_sum = Real(0.0);
+    excess = std::numeric_limits<Real>::lowest();
+    for (int n = 0; n < ncol; ++n) {
+        const Real zg = c.a(ia[n], ja[n], c.kz0, 3);
+        const Real z_target = zg + h;
+        if (wt[n] > Real(0.0)) {   // a column with no weight cannot stop the run
+            excess = amrex::max(excess, z_target - c.a(ia[n], ja[n], c.kz1, 2));
+        }
+        Real uc, vc;
+        frozen_column_wind(c.a, ia[n], ja[n], c.kz0, c.kz1, z_target, zg, below_first_log, z0_log, uc, vc);
+        u     += wt[n] * uc;
+        v     += wt[n] * vc;
+        z_sum += wt[n] * z_target;
+        g_sum += wt[n] * zg;
+    }
+}
+
+/// A host copy of the GUST columns (u, v, z, ground), the same on every rank
+struct FrozenWindHost
+{
+    std::vector<amrex::Real> data;
+    FrozenColumnsView        view;   ///< points into data
+    FrozenWindHost () = default;
+    FrozenWindHost (const FrozenWindHost&) = delete;             // view points into data
+    FrozenWindHost& operator= (const FrozenWindHost&) = delete;
+};
+
+/**
+ * @brief How ember spotting reads the frozen wind (erf.fire.spotting.drift_wind = frozen)
+ *
+ * The brand drifts on u, v of the 3D field at its own height above the
+ * ground, sampled as the reference wind is (the same column interpolation,
+ * horizontal blend and rule below the first cell centre).
+ */
+struct FrozenDrift
+{
+    FrozenColumnsView cols;
+    bool              bilinear        = true;    ///< erf.fire.wind_interp = 1
+    bool              below_first_log = false;   ///< erf.fire.wind_below_first_cell = log
+    amrex::Real       z0_log          = 0.1;     ///< erf.fire.wind_sample_z0 [m]
+};
+
+// FrozenColumnsView and FrozenDrift are passed by value into device code
+static_assert(std::is_trivially_copyable_v<FrozenColumnsView>, "FrozenColumnsView must be trivially copyable");
+static_assert(std::is_trivially_copyable_v<FrozenDrift>, "FrozenDrift must be trivially copyable");
 
 class FrozenWind
 {
@@ -110,6 +270,33 @@ public:
                                 amrex::Real z0_log,
                                 bool below_first_log) const;
 
+    /**
+     * @brief Copy the columns (u, v, z, ground) under the fire region to the
+     *        host of every rank, for the host trajectories of ember spotting
+     *
+     * The columns a point of the fire region reads, with a cell of margin (as
+     * sample_reference_wind takes them), clipped to GUST's domain: a brand
+     * stops when it leaves the fire region, so it reads no other column. The
+     * view keeps GUST's own index bounds, so the edge columns are clamped as
+     * in sample_reference_wind. 4 n_x n_y n_z reals of that region on every
+     * rank (256 x 256 x 64 columns take 128 MiB in double precision).
+     *
+     * @param[out] h          The host copy and its view (h.view points into h.data)
+     * @param[in]  fire_geom  Geometry of the fire grid
+     */
+    void gather_columns (FrozenWindHost& h, const amrex::Geometry& fire_geom) const;
+
+    /**
+     * @brief Define the field from cell-centred u, v, w, z and the node
+     *        heights on GUST's geometry, as read() does from a file
+     *
+     * For tests: max_box sets the x, y size of the column boxes (read() uses 32).
+     */
+    void define_from_fields (const amrex::Geometry& geom, const std::string& label,
+                             const amrex::MultiFab& u, const amrex::MultiFab& v,
+                             const amrex::MultiFab& w, const amrex::MultiFab& z,
+                             const amrex::MultiFab& z_nd, int max_box = 32);
+
     // Public because they launch device lambdas (CUDA forbids extended
     // lambdas in private or protected member functions); called by read().
     void read_plotfile (const std::string& dir);
@@ -118,7 +305,7 @@ public:
     /// columns (m_cc) and fill the column ground
     void build_columns (const amrex::MultiFab& u, const amrex::MultiFab& v,
                         const amrex::MultiFab& w, const amrex::MultiFab& z,
-                        const amrex::MultiFab& z_nd);
+                        const amrex::MultiFab& z_nd, int max_box = 32);
 
 private:
     std::string     m_file;

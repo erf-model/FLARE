@@ -7,6 +7,10 @@ start-up, from a GUST-CFD plotfile or checkpoint and holds it for the whole run.
 The fire's own state (front, fuel, moisture) still changes in time. ERF still
 advances the atmosphere, but the fire does not read its wind.
 
+It also checks `erf.fire.spotting.drift_wind = frozen`: ember brands drift on
+u and v of the frozen 3-D GUST field at their height above the ground, instead
+of on the reference wind scaled by a log profile (`profile`, the default).
+
 The case is a grass fire next to a 40 m Gaussian hill. GUST ran steady RANS over
 the hill once (`inputs_gust_hill`), and its plotfile and checkpoint are kept here
 (`gust_hill_plt`, `gust_hill_chk`). They can serve as a reference for other
@@ -37,10 +41,15 @@ frozen-wind setups.
 | `inputs_chk` | Frozen wind from `gust_hill_chk`; must give the same reference wind as `inputs_plt` |
 | `inputs_nearest_log` | Variant: nearest column, 2 m above the ground (below every first cell centre), log profile below it |
 | `inputs_sample_ht` | Variant: checkpoint wind sampled at 20 m and brought to 6.1 m with a log profile (z0 = 0.1 m, GUST's) |
+| `inputs_spot3d` | Ember spotting with `drift_wind = frozen`: every front cell launches a brand every step (fixed seed) |
+| `inputs_spot_profile` | The same run with `drift_wind = profile` (the default drift) |
+| `inputs_spot_nearest_log` | `inputs_spot3d` with `wind_interp = nearest` and `wind_below_first_cell = log`: the brands drift in the nearest GUST column, with the log profile below its lowest cell centre |
 | `inputs_empty_abort` | An empty `erf.fire.frozen_wind.file` (abort test) |
 | `input_sounding` | Uniform 5 m/s towards -y, theta 300 K |
 | `check_frozen_wind.py` | Samples `gust_hill_plt` independently of FLARE and compares the fire plotfiles |
 | `run_variants.sh` | Runs the two variant decks and checks each with `check_frozen_wind.py` and its options |
+| `check_spot3d.py` | Replays the flight of every brand launched at step 20 and compares its landing distance with `fire_spot_max_dist` |
+| `run_spot3d.sh` | Runs the three spotting decks and checks each with `check_spot3d.py` |
 | `run_restart.sh`, `compare_restart.py` | Restart from step 10 and compare with a straight run |
 
 ## Data and acknowledgements
@@ -56,7 +65,15 @@ dataset is used: the terrain is analytic.
 ```bash
 mpirun -np 2 /path/to/flare inputs_plt max_step=20
 python3 check_frozen_wind.py
+mpirun -np 2 /path/to/flare inputs_spot3d max_step=20
+python3 check_spot3d.py --drift frozen
+mpirun -np 2 /path/to/flare inputs_spot_profile max_step=20
+python3 check_spot3d.py --drift profile
+mpirun -np 2 /path/to/flare inputs_spot_nearest_log max_step=20
+python3 check_spot3d.py --drift frozen --interp nearest --below log
 ```
+
+`run_spot3d.sh /path/to/flare` runs the three spotting pairs.
 
 `check_frozen_wind.py` needs `erf_plotfile.py` (from `Submodules/ERF/Exec/Tools`)
 next to it. CTest copies it there.
@@ -102,7 +119,7 @@ read the same terrain file on the same mesh). This is information only: the
 fire keeps ERF's terrain for slope, and the reference wind is sampled above
 GUST's ground, so `fire_extract_z` is GUST's ground + height.
 
-The check was shown to fail on two mutants:
+The check was shown to fail on four mutants:
 
 - sampling each column at 6.1 m above z = 0 instead of above its ground
   (height off by 38.6 m);
@@ -113,6 +130,48 @@ The check was shown to fail on two mutants:
 - the nearest column shifted by half a GUST cell (wind off by 0.46 m/s,
   height by 6.2 m).
 
+### Ember spotting
+
+`check_spot3d.py` replays, in Python, the flight of the brand each source cell
+launched at step 20:
+
+- the brand starts `fire_lofting_height` above the ground at the source cell
+  centre and falls at the terminal velocity (2.5 m/s) in 20 forward-Euler
+  steps, sized from the fall down to the lowest ground of the domain;
+- `frozen`: each step it moves with u, v of the GUST field at its height h
+  above the ground. Each of the four GUST columns around it is sampled at its
+  own ground + h, linearly between cell centres, and the columns are weighted
+  bilinearly (`inputs_spot_nearest_log`: the column holding the brand, and
+  below its lowest centre that centre's wind times
+  ln(h'/z0)/ln(h1/z0), h' and h1 the heights above the column's ground);
+- `profile`: it moves with `fire_wind_ref` times ln(h/z0)/ln(6.1/z0), with z0 =
+  0.1 m;
+- it lands at or below the ground under it, and the distance is capped at
+  200 m (fuel model 1). The terminal velocity of 2.5 m/s keeps every landing
+  short of that cap, so the drift sets every distance.
+
+| Check | `inputs_spot3d` (frozen) | `inputs_spot_profile` (profile) | `inputs_spot_nearest_log` (frozen) |
+|-------|--------------------------|---------------------------------|------------------------------------|
+| Source cells at step 20 | 726 | 752 | 719 |
+| Longest landing | 151.1 m | 132.5 m | 144.6 m |
+| `fire_spot_max_dist` vs the replay | 2.6e-13 m (tol 1e-6) | 2.1e-13 m (tol 1e-6) | 2.1e-13 m (tol 1e-6) |
+| The other drift's replay differs by up to | 25.3 m | 25.3 m | 23.2 m |
+| The bilinear, clamped replay differs by up to | | | 4.5 m (671 samples below a lowest centre) |
+
+The brands fly to about 47 m, below the highest GUST cell centres, so no
+brand is counted above them here. The unit test
+`FrozenDrift.AboveTheTopTheBrandTakesTheTopWind` covers that case: it checks
+the landing and that every brand is counted. The unit tests also pin the shear
+closed form and the gather of the GUST columns under the fire region
+(`FrozenDrift.GatherCopiesTheColumnsUnderTheFireRegion`, on 8 x 8 column
+boxes).
+
+Each check fails when it is run on the other deck's output (landing off by
+25.3 m), so it detects a drift that ignores `drift_wind`. The
+`inputs_spot_nearest_log` replay fails by 3.3 m when FLARE drifts bilinearly
+there, and by 4.5 m when it drops the log profile, so it detects a drift that
+ignores `wind_interp` or `wind_below_first_cell`.
+
 ## CTest
 
 | Test | What it checks |
@@ -120,6 +179,7 @@ The check was shown to fail on two mutants:
 | `FireFrozenWind_plt` | Reference wind and sampling height from the plotfile against the independent sampling; frozen in time (2 ranks) |
 | `FireFrozenWind_chk` | The same from the checkpoint (2 ranks) |
 | `FireFrozenWind_variants` | Nearest column with the log profile below the first centre, and the 20 m resampling from the checkpoint, against the independent sampling (2 ranks) |
+| `FireFrozenWind_spot3d` | Ember landings with `drift_wind = frozen` and `profile`, and frozen with the nearest column and the log profile, against the replayed flights (2 ranks) |
 | `FireFrozenWind_restart` | The restart re-reads the file; step 20 equals the straight run bit for bit (2 ranks) |
 | `FireFrozenWind_prescribed_abort` | `prescribed_wind = true` with a frozen file stops the run |
 | `FireFrozenWind_no_header_abort` | A path that is not a GUST directory stops the run |
@@ -127,7 +187,9 @@ The check was shown to fail on two mutants:
 | `FireFrozenWind_above_top_abort` | `wind_ref_ht = 340` m stops the run: above the highest cell centre of the hill columns (330.6 m above their ground), below that of the flat columns (365.9 m) |
 | `FireFrozenWind_empty_abort` | An empty file name stops the run (leave the key unset to turn it off) |
 | `FireFrozenWind_open_columns_abort` | `structures.wind_open_columns` with a frozen file stops the run |
+| `FireFrozenWind_spot_no_file_abort` | `spotting.drift_wind = frozen` without a frozen file stops the run |
+| `FireFrozenWind_spot_drift_value_abort` | A `spotting.drift_wind` value other than `profile` or `frozen` stops the run |
 
-`FireFrozenWind_plt`, `_chk` and `_variants` run in double-precision builds
+`FireFrozenWind_plt`, `_chk`, `_variants` and `_spot3d` run in double-precision builds
 only: they compare to 1e-9, and `gust_hill_chk` holds 8-byte reals, which a
 single-precision build refuses (use the plotfile there).
