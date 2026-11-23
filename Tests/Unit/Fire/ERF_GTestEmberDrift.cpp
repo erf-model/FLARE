@@ -282,3 +282,48 @@ TEST(EmberDrift, BurningStructureUsesTheStandInFit)
     EXPECT_NEAR(max_height(r.data), case_height(1), 1.0e-6 * case_height(1));
     EXPECT_GT(case_height(13), 1.05 * case_height(1)) << "the two fits differ, so the test can tell them apart";
 }
+
+TEST(EmberDrift, PerCellRoughnessReplacesTheScalar)
+{
+    // erf.fire.wind_sample_z0_source = surface_layer: the drift and the 10 m
+    // wind of the lofting take the roughness per cell. A uniform field of 0.5 m
+    // with the scalar argument left at 0.1 m must give the landings and lofting
+    // heights of the scalar 0.5 m, and differ from those of the scalar 0.1 m.
+    // 8 m/s, so the 10 m wind of the lofting is above the fit's 5 m/s floor
+    // and depends on z0; brands that fall at 4 m/s stay inside the domain
+    SpotCase f(25, 10), s(25, 10), r(25, 10);
+    for (SpotCase* c : {&f, &s, &r}) { c->wind.setVal(8.0_rt, 0, 1); }
+    FireParams::SpottingParams sp = f.params();
+    sp.terminal_velocity = 4.0;
+    MultiFab z0c(f.ba, f.dm, 1, 0);
+    z0c.setVal(0.5_rt);
+    compute_albini_spotting(f.phi, f.data, f.wind, f.intensity, f.geom, sp, 3,
+                            nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0,
+                            false, nullptr, nullptr, nullptr, true, nullptr, nullptr,
+                            nullptr, nullptr, &z0c);
+    compute_albini_spotting(s.phi, s.data, s.wind, s.intensity, s.geom, sp, 3,
+                            nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, 0.5_rt);
+    compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 3,
+                            nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0);
+    MultiFab pf = f.gathered(), ps = s.gathered(), pr = r.gathered();
+    Real d_same = 0.0, d_scalar = 0.0;
+    for (MFIter mfi(pf); mfi.isValid(); ++mfi) {
+        auto a = pf.const_array(mfi);
+        auto b = ps.const_array(mfi);
+        auto c = pr.const_array(mfi);
+        for (int j = 0; j < NY; ++j)
+            for (int i = 0; i < NX; ++i) {
+                d_same   = amrex::max(d_same,   std::abs(a(i, j, 0) - b(i, j, 0)));
+                d_scalar = amrex::max(d_scalar, std::abs(a(i, j, 0) - c(i, j, 0)));
+            }
+    }
+    EXPECT_EQ(d_same, 0.0_rt) << "a uniform 0.5 m field lands brands where the scalar 0.5 m does";
+    EXPECT_GT(d_scalar, 0.0_rt) << "and not where the scalar 0.1 m does";
+    EXPECT_NE(f.data.max(0), r.data.max(0)) << "the lofting height reads the 10 m wind";
+    MultiFab dd(f.ba, f.dm, f.data.nComp(), 0);
+    MultiFab::Copy(dd, f.data, 0, 0, dd.nComp(), 0);
+    MultiFab::Subtract(dd, s.data, 0, 0, dd.nComp(), 0);
+    for (int n = 0; n < dd.nComp(); ++n) {
+        EXPECT_EQ(dd.norm0(n), 0.0_rt) << "spotting data component " << n << " as with the scalar 0.5 m";
+    }
+}

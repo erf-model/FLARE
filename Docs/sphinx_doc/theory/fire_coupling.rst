@@ -104,8 +104,9 @@ face-staggered velocities are averaged to cell centres and interpolated
 linearly in height between the two cell centres that bracket the target.
 A target below the first cell centre takes the lowest centre's wind scaled
 by the neutral log profile :math:`\ln(z/z_0) / \ln(z_1/z_0)` of
-:cpp:`erf.fire.wind_sample_z0` (default 0.1 m), :math:`z_1` the centre's
-height above ground, with :cpp:`erf.fire.wind_below_first_cell = "log"`;
+:cpp:`erf.fire.wind_sample_z0` (default 0.1 m; each column's own :math:`z_0`
+with :cpp:`erf.fire.wind_sample_z0_source = "surface_layer"`), :math:`z_1` the
+centre's height above ground, with :cpp:`erf.fire.wind_below_first_cell = "log"`;
 the default ``"clamp"`` takes the centre's wind unchanged (a 6.1 m target
 under a 10 m first centre reads the 10 m wind, 12 % high at :math:`z_0` =
 0.1 m), kept as the default because 112 fire decks sample below their first
@@ -136,6 +137,45 @@ whose four columns are all closed keeps the plain weights; it is inside a
 footprint and masked anyway. Off by default; needs
 :cpp:`erf.fire.structures.enable` and has no effect with ``"nearest"``.
 
+**Roughness per column.** By default every log profile applied to the sampled
+wind uses the one roughness :cpp:`erf.fire.wind_sample_z0`. With
+:cpp:`erf.fire.wind_sample_z0_source = "surface_layer"` it uses instead the
+roughness of each atmospheric column in ERF's surface layer
+(:cpp:`erf.most.z0`, the map of :cpp:`erf.most.roughness_file_name`, or the
+value the surface layer computes: Charnock and the other sea roughness forms,
+and the roughness recovered with ``bulk_coeff`` or land-surface fluxes), the
+same :math:`z_0` the atmosphere's surface stress is computed with. The
+profiles stay neutral, with no displacement height:
+
+- the wind below the first cell centre and the two-height resampling use each
+  sampled column's own :math:`z_0`, and with ``"bilinear"`` the factor is
+  applied to each column before the four are blended;
+- the conversions of the reference wind to 20 ft (WAF) and to 10 m (FBP,
+  Cheney-Gould, Cruz) use the :math:`z_0` of the column holding the fire cell;
+- the ember drift lifts the reference wind to each brand's height with the
+  :math:`z_0` interpolated at the brand, and the 10 m wind of the lofting
+  height uses the source cell's.
+
+With ``"bilinear"``, a fire cell within one atmospheric cell of a change in
+roughness blends four columns brought to the reference height each with its own
+:math:`z_0`, and its 10 m and 20 ft conversions then use the :math:`z_0` of the
+column holding it. Across a step from 0.03 to 0.5 m this gives a 10 m wind
+4-6 % lower than blending the four columns' own 10 m winds would; ``"nearest"``
+has no such strip. FBP, Cheney-Gould, Cruz and the wind adjustment factor take
+an open wind: converted with a forest :math:`z_0` the 10 m and 20 ft winds are
+near-canopy winds instead.
+
+The field is copied from the surface layer at start-up and again every step, so
+a run restarted from a checkpoint samples the same :math:`z_0` as a straight
+run. Each value must be positive and at most
+:math:`\min(z_\mathrm{ref}, 6.096\ \mathrm{m})/e`, the bound
+:cpp:`erf.fire.wind_sample_z0` meets (with or without the wind adjustment
+factor), or the run stops. It needs ``zlo.type = surface_layer`` on a planar or
+terrain-fitted mesh (with EB terrain the roughness is 3D), does not apply to a
+frozen or prescribed wind, and stops a deck where no log profile is applied
+(no two-height sampling, ``"clamp"`` below the first centre, a 10 m reference
+wind, no wind adjustment factor and no spotting).
+
 **Adjustment to the flame zone.** ``fire_wind_eff`` is the reference wind
 multiplied by the wind adjustment factor and modified by the terrain
 corrections:
@@ -146,7 +186,8 @@ corrections:
   bed depth (the only form since November 2026: the linear ``"behaviorplus"``
   form had no published source). The factor takes the 20 ft (6.1 m) open wind;
   a reference wind sampled at another :cpp:`erf.fire.wind_ref_ht` is first
-  brought to 20 ft with the neutral log profile of :cpp:`erf.fire.wind_sample_z0`.
+  brought to 20 ft with the neutral log profile of :cpp:`erf.fire.wind_sample_z0`
+  (or of the column :math:`z_0`, see *Roughness per column*).
   Andrews (2012) defines the factor on the wind 20 ft above the top of the
   vegetation; the reference wind here is 20 ft above the ground, so for a deep
   bed the midflame wind is a few percent low (1 % for a 1 ft bed, 9 % for a

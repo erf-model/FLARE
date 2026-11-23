@@ -906,6 +906,16 @@ private:
     std::unique_ptr<amrex::MultiFab>         m_open_frac_atm;         // [0-1]
     std::unique_ptr<amrex::MultiFab>         m_roof_h_atm;            // [m]
 
+    // Roughness per atmospheric column (erf.fire.wind_sample_z0_source =
+    // surface_layer): a copy of the surface layer's z_0 of the fire grid's
+    // level on the k = 0 slabs, one ghost cell, for the shared wind sampler;
+    // and on the fire grid, each cell's column value, for the 10 m and 20 ft
+    // conversions. Refreshed every step where the sea roughness varies.
+    const SurfaceLayer*                      m_surface_layer = nullptr;
+    amrex::Geometry                          m_geom_atm;
+    std::unique_ptr<amrex::MultiFab>         m_z0_atm;                // [m]
+    std::unique_ptr<amrex::MultiFab>         m_z0_fire;               // [m]
+
     std::unique_ptr<amrex::MultiFab>         fire_latent_flux;        // latent heat flux on fire grid [W/m²]
 
     // Precomputed Rothermel coefficients
@@ -1100,6 +1110,13 @@ public:
     /// slot of its fuel code in m_d_fcwh), for the shared wind sampler; called
     /// once by initialize(). Public for the nvcc rule above.
     void fill_per_fuel_wind_height();
+
+    /// Copy the surface layer's roughness of the fire grid's level into
+    /// m_z0_atm (k = 0 slabs, ghosts filled) and m_z0_fire (each fire cell's
+    /// column), and abort unless every value is positive and e times it does
+    /// not exceed the lower of the reference-wind height and 6.096 m, the
+    /// bound erf.fire.wind_sample_z0 meets. Public for the nvcc rule above.
+    void refresh_column_z0();
 
     /// Fill m_open_frac_atm and m_roof_h_atm, on the k = 0 slabs ba_atm_2d of
     /// the fire grid's level, from the mask and structure height.

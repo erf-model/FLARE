@@ -391,6 +391,10 @@ struct LaunchCell {
  *                                 highest cell centre (0 without drift3d)
  * @param[out]    n_aloft_out      If not nullptr: the brands of this step dropped because they
  *                                 were still aloft after the last step (0 unless drift3d->vertical)
+ * @param[in]     z0_cell          If not nullptr: the roughness per fire cell [m] the reference
+ *                                 wind was brought down with (erf.fire.wind_sample_z0_source =
+ *                                 surface_layer), used in place of z0: the source cell's for the
+ *                                 10 m wind, the value interpolated at the brand for its drift
  */
 inline void
 compute_albini_spotting(amrex::MultiFab&                  phi,
@@ -416,7 +420,8 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
                         const amrex::MultiFab*            extra_launch_intensity = nullptr,
                         const FrozenDrift*                drift3d = nullptr,
                         int*                              n_above_top_out = nullptr,
-                        int*                              n_aloft_out = nullptr)
+                        int*                              n_aloft_out = nullptr,
+                        const amrex::MultiFab*            z0_cell = nullptr)
 {
     using namespace amrex;
     if (n_above_top_out) { *n_above_top_out = 0; }
@@ -567,6 +572,12 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
     albini_detail::gather_field(h_u, wind_ref, 0, nx);
     albini_detail::gather_field(h_v, wind_ref, 1, nx);
     if (terrain_z) { albini_detail::gather_field(h_terrain, *terrain_z, 0, nx); }
+    // the roughness per cell, when the reference wind was brought down with it
+    std::vector<Real> h_z0;
+    if (z0_cell) {
+        h_z0.resize(ncells);
+        albini_detail::gather_field(h_z0, *z0_cell, 0, nx);
+    }
     const Real z_ground_min = *std::min_element(h_terrain.begin(), h_terrain.end());
 
     // RNG: fixed seed when sp.random_seed > 0, otherwise time+step based.
@@ -607,8 +618,9 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         // INT-309: the thermal strength takes the mean 10 m wind, brought
         // from the reference height on the same log profile as the drift.
         const std::size_t sidx = static_cast<std::size_t>(sj) * nx + si;
+        const Real z0_src = z0_cell ? h_z0[sidx] : z0;
         const Real U10 = std::sqrt(h_u[sidx] * h_u[sidx] + h_v[sidx] * h_v[sidx])
-                       * albini_wind_profile_factor(Real(10.0), z_ref, z0);
+                       * albini_wind_profile_factor(Real(10.0), z_ref, z0_src);
         Real A_th = 0.0, B_th = 0.0;
         albini_thermal_fit(front_cells[fc].model, A_th, B_th);
         const Real H_z = albini_lofting_height(I_B, U10, A_th, B_th, sp.I_B_min);
@@ -669,7 +681,10 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
                 py += v3 * dt_traj;
                 z_w += w3 * dt_traj;
             } else {
-                const Real f = albini_wind_profile_factor(z_brand - z_ground_here, z_ref, z0);
+                const Real z0_here = z0_cell ? albini_interp_scalar(h_z0, nx, ny, dx[0], dx[1],
+                                                                    prob_lo[0], prob_lo[1], px, py)
+                                             : z0;
+                const Real f = albini_wind_profile_factor(z_brand - z_ground_here, z_ref, z0_here);
                 px += f * u_w * dt_traj;
                 py += f * v_w * dt_traj;
             }

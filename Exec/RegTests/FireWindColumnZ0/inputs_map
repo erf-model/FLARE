@@ -1,0 +1,8 @@
+# FireWindColumnZ0 with a roughness map: z0 = 0.03 m over the western half
+# (x < 160 m) and 0.5 m over the eastern half, read by the surface layer from
+# roughness_halves.txt (written by check_firewindcolumnz0.py write_map). The
+# atmosphere differs from inputs_base but is the same for both roughness
+# sources of the fire layer.
+FILE = inputs_base
+
+erf.most.roughness_file_name = "roughness_halves.txt"

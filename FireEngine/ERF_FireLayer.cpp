@@ -154,7 +154,6 @@ void FireLayer::initialize(const ERF& erf,
                            const SurfaceLayer* surface_layer_ptr,
                            const MultiFab* z_phys_nd_atm)
 {
-    amrex::ignore_unused(surface_layer_ptr);
     const FireParams& fire_params = m_params;
     m_lev    = lev;
     m_fg     = fg;
@@ -262,6 +261,20 @@ void FireLayer::initialize(const ERF& erf,
     const DistributionMapping& dm_atm = erf.DistributionMap(lev);
     BoxArray ba_atm_2d = ba_atm;
     ba_atm_2d.coarsen(IntVect(1, 1, erf.Geom(lev).Domain().length(2)));
+    // The roughness of each atmospheric column, from the surface layer
+    // (erf.fire.wind_sample_z0_source = surface_layer)
+    if (m_params.wind_z0_from_surface_layer) {
+        // ERF::InitData_post stops a fire engine run without a surface layer first
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(surface_layer_ptr != nullptr,
+            "[FIRE] erf.fire.wind_sample_z0_source = surface_layer needs a surface layer at the"
+            " bottom boundary (zlo.type = surface_layer)");
+        m_surface_layer = surface_layer_ptr;
+        m_geom_atm = erf.Geom(lev);
+        // one ghost column for the bilinear stencil, none in z (the seam's layout)
+        m_z0_atm  = std::make_unique<MultiFab>(ba_atm_2d, dm_atm, 1, IntVect(1, 1, 0));
+        m_z0_fire = std::make_unique<MultiFab>(m_fg.ba, m_fg.dm, 1, 0);
+        refresh_column_z0();
+    }
     // The surface precipitation accumulation the rain per column is measured from
     // (erf.fire.precip_source = atmosphere): zero at a fresh start, as the scheme's
     // accumulators are; a restart restores it from the checkpoint.
@@ -906,6 +919,12 @@ void FireLayer::advance(const FireForcing& forcing)
         fire_wind_ref->setVal(m_params.prescribed_wind_x, 0, 1, 0);
         fire_wind_ref->setVal(m_params.prescribed_wind_y, 1, 1, 0);
     } else {
+        // The surface layer rewrites its roughness in time over water
+        // (Charnock, Donelan, waves), with bulk_coeff fluxes and with land-
+        // surface fluxes (Compute_roughness), and a restart restores the value
+        // at the checkpoint: copy it every step, so a restarted run and a
+        // straight run sample the same z0
+        if (m_z0_atm) { refresh_column_z0(); }
         const bool wind_open = m_params.structures.wind_open_columns && m_open_frac_atm && m_roof_h_atm;
         // The per-fuel wind height of every fire cell, when the fuel varies per
         // cell (filled once by initialize(): the fuel map is static)
@@ -918,7 +937,8 @@ void FireLayer::advance(const FireForcing& forcing)
                                           wind_open ? m_open_frac_atm.get() : nullptr,
                                           wind_open ? m_roof_h_atm.get() : nullptr,
                                           m_params.wind_sample_ht, m_params.wind_sample_z0,
-                                          m_params.wind_below_first_log);
+                                          m_params.wind_below_first_log,
+                                          m_z0_atm ? m_z0_atm.get() : nullptr);
     }
     // the reference wind as extracted this step, before any correction
     if (m_farsite_winds) {
@@ -927,11 +947,15 @@ void FireLayer::advance(const FireForcing& forcing)
         m_farsite_winds->maybe_write(*fire_wind_ref, t_wind, m_step);
     }
     if (m_params.fire_debug) {
-        if (m_params.wind_sample_ht > 0.0) {
+        if (m_params.wind_sample_ht > 0.0 && !m_z0_atm) {
             amrex::Print() << "[FIRE DEBUG] Wind sampled at " << m_params.wind_sample_ht
                            << " m above ground, log-law factor to " << z_wind << " m: "
                            << std::log(z_wind / m_params.wind_sample_z0)
                               / std::log(m_params.wind_sample_ht / m_params.wind_sample_z0) << std::endl;
+        }
+        if (m_z0_atm) {
+            amrex::Print() << "[FIRE DEBUG] Column roughness from the surface layer: min="
+                           << m_z0_atm->min(0) << " m  max=" << m_z0_atm->max(0) << " m" << std::endl;
         }
         amrex::Print() << "[FIRE DEBUG] Wind extraction completed. Max reference wind: "
                        << fire_wind_ref->max(0) << " m/s" << std::endl;
@@ -945,10 +969,24 @@ void FireLayer::advance(const FireForcing& forcing)
     // FBP, Cheney et al. (1998) and Cruz et al. (2005) are fitted to the 10 m open
     // wind. Until November 2026 they read the reference wind (6.1 m by default) as
     // that wind, 11 % low over z0 = 0.1 m; the neutral log profile of
-    // wind_sample_z0 now brings it to 10 m (a no-op at wind_ref_ht = 10).
+    // wind_sample_z0 now brings it to 10 m (a no-op at wind_ref_ht = 10). With
+    // wind_sample_z0_source = surface_layer the roughness is that of the
+    // atmospheric column holding the cell.
     MultiFab::Copy(*fire_wind_ref_10m, *fire_wind_ref, 0, 0, 2, 0);
     if (std::abs(z_wind - 10.0_rt) > 1.0e-6_rt) {
-        fire_wind_ref_10m->mult(neutral_wind_height_factor(10.0_rt, z_wind, m_params.wind_sample_z0), 0, 2, 0);
+        if (m_z0_fire) {
+            for (MFIter mfi(*fire_wind_ref_10m, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                auto       w10 = fire_wind_ref_10m->array(mfi);
+                auto const z0c = m_z0_fire->const_array(mfi);
+                ParallelFor(mfi.tilebox(), [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+                    const Real f = neutral_wind_height_factor(10.0_rt, z_wind, z0c(i, j, k));
+                    w10(i, j, k, 0) *= f;
+                    w10(i, j, k, 1) *= f;
+                });
+            }
+        } else {
+            fire_wind_ref_10m->mult(neutral_wind_height_factor(10.0_rt, z_wind, m_params.wind_sample_z0), 0, 2, 0);
+        }
     }
 
     if (m_params.use_waf) {
@@ -1630,7 +1668,9 @@ void FireLayer::advance(const FireForcing& forcing)
                 fire_ember_landings.get(),
                 /*phi_normalized=*/ m_params.propagation_method != "levelset",
                 m_struct_ign ? m_struct_ign->launch_intensity() : nullptr,
-                m_frozen_drift.get());
+                m_frozen_drift.get(),
+                nullptr, nullptr,
+                m_z0_fire ? m_z0_fire.get() : nullptr);   // the column z0 (wind_sample_z0_source)
 
             // A spot landing lowers phi below zero directly, outside the
             // substep loop that stamps arrival time, so spot-ignited cells kept
@@ -1849,14 +1889,30 @@ void FireLayer::apply_waf_to_wind()
     // 10 for FBP or Cheney-Gould in a hybrid) is first brought to 20 ft with the
     // neutral log profile; until November 2026 it was used as the 20 ft wind
     // (12 % high at 10 m over z0 = 0.1 m). 6.1 m counts as 20 ft.
+    // With wind_sample_z0_source = surface_layer the profile takes the
+    // roughness of the atmospheric column holding the cell.
     const Real z_wind = m_params.sampled_wind_ht();
-    const Real to_20ft = (std::abs(z_wind - 6.096_rt) > 0.01_rt)
+    const bool convert_20ft = (std::abs(z_wind - 6.096_rt) > 0.01_rt);
+    const Real to_20ft = convert_20ft
                        ? neutral_wind_height_factor(6.096_rt, z_wind, m_params.wind_sample_z0)
                        : 1.0_rt;
+    const bool z0_cols = convert_20ft && m_z0_fire;
 
     if (!m_has_spatial_fuel || !fire_fuel_model) {
         const Real waf = compute_waf_unsheltered(m_fuel_bed_depth_ft);
-        fire_wind_eff->mult(to_20ft * waf, 0, 2, 0);
+        if (!z0_cols) {
+            fire_wind_eff->mult(to_20ft * waf, 0, 2, 0);
+            return;
+        }
+        for (MFIter mfi(*fire_wind_eff, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            auto       wind_arr = fire_wind_eff->array(mfi);
+            auto const z0c      = m_z0_fire->const_array(mfi);
+            ParallelFor(mfi.tilebox(), [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+                const Real f = neutral_wind_height_factor(6.096_rt, z_wind, z0c(i, j, k)) * waf;
+                wind_arr(i, j, k, 0) *= f;
+                wind_arr(i, j, k, 1) *= f;
+            });
+        }
         return;
     }
 
@@ -1869,6 +1925,8 @@ void FireLayer::apply_waf_to_wind()
         const Box& bx = mfi.validbox();
         auto       wind_arr = fire_wind_eff->array(mfi);
         auto const code_arr = fire_fuel_model->const_array(mfi);
+        Array4<const Real> z0c;
+        if (z0_cols) { z0c = m_z0_fire->const_array(mfi); }
 
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
             const int fuel_code = static_cast<int>(code_arr(i, j, k) + 0.5_rt);
@@ -1877,7 +1935,9 @@ void FireLayer::apply_waf_to_wind()
             // delta is the bed depth in feet, which is what the formula takes;
             // compute_waf_unsheltered floors it, so a zero-depth entry cannot
             // divide by zero here.
-            const Real waf_cell = to_20ft * compute_waf_unsheltered(fp_cell.delta);
+            const Real to_20ft_cell = z0_cols ? neutral_wind_height_factor(6.096_rt, z_wind, z0c(i, j, k))
+                                              : to_20ft;
+            const Real waf_cell = to_20ft_cell * compute_waf_unsheltered(fp_cell.delta);
             wind_arr(i, j, k, 0) *= waf_cell;
             wind_arr(i, j, k, 1) *= waf_cell;
         });
@@ -2452,6 +2512,44 @@ amrex::Real FireLayer::smoke_heat_per_kg() const
         h = fp.heat_content * 2326.0_rt;    // BTU/lb to J/kg
     }
     return h * m_f_dry_prev;
+}
+
+void FireLayer::refresh_column_z0()
+{
+    const MultiFab* z0 = m_surface_layer->get_z0(m_lev);
+    const int k_slab = m_z0_atm->boxArray()[0].smallEnd(2);
+    for (int n = 0; n < z0->size(); ++n) {
+        const Box& b = z0->boxArray()[n];
+        if (b.length(2) != 1 || b.smallEnd(2) != k_slab) {
+            amrex::Abort("[FIRE] erf.fire.wind_sample_z0_source = surface_layer needs the surface layer's"
+                         " roughness on the k = 0 slabs (planar or terrain-fitted mesh); with EB terrain"
+                         " it is 3D: use erf.fire.wind_sample_z0_source = scalar");
+        }
+    }
+    // Every valid cell of the k = 0 slabs is a valid cell of z_0 (the same
+    // boxes collapsed to the surface); zero first, so a gap fails the check
+    m_z0_atm->setVal(0.0_rt);
+    m_z0_atm->ParallelCopy(*z0, 0, 0, 1, 0, 0, m_geom_atm.periodicity());
+    fire_fill_boundary(*m_z0_atm, m_geom_atm);
+    fill_fire_from_atm_k0(*m_z0_fire, *m_z0_atm, m_fg);
+
+    // The bound erf.fire.wind_sample_z0 meets: positive, and e z0 no higher
+    // than the reference-wind height or the 6.096 m of the WAF (applied with
+    // or without the WAF, as for the scalar), so every log in a denominator
+    // is at least 1 and each factor at most 1 + ln(10 m / reference height).
+    // One reduction for both bounds (valid cells only)
+    Real z0_ext[2] = {-m_z0_atm->min(0, 0, true), m_z0_atm->max(0, 0, true)};
+    ParallelDescriptor::ReduceRealMax(z0_ext, 2);
+    const Real z0_min = -z0_ext[0];
+    const Real z0_max =  z0_ext[1];
+    const Real z_low  = amrex::min(m_params.sampled_wind_ht(), 6.096_rt);
+    if (!(z0_min > 0.0_rt) || !(z0_max * std::exp(1.0_rt) <= z_low)) {
+        amrex::Abort("[FIRE] erf.fire.wind_sample_z0_source = surface_layer: the surface layer's roughness"
+                     " (erf.most.z0, erf.most.roughness_file_name) on the fire grid's level spans "
+                     + std::to_string(z0_min) + " to " + std::to_string(z0_max) + " m; every value must be"
+                     " positive and at most " + std::to_string(z_low / std::exp(1.0_rt)) + " m (the lower"
+                     " of the reference-wind height and 6.096 m, divided by e)");
+    }
 }
 
 void FireLayer::build_open_fraction(const amrex::Geometry& geom_atm,

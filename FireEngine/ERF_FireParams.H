@@ -70,7 +70,15 @@ struct FireParams
     //   U(z_ref) = U(z_sample) ln(z_ref / z0) / ln(z_sample / z0).
     // 0 (default) samples at the target height as before.
     amrex::Real       wind_sample_ht      = 0.0;         ///< Height [m] above ground to sample the wind; 0 = at the target height
-    amrex::Real       wind_sample_z0      = 0.1;         ///< Roughness length [m] of every neutral log profile the fire layer uses: the two-height resampling, the wind below the lowest cell centre, and the ember drift
+    amrex::Real       wind_sample_z0      = 0.1;         ///< Roughness length [m] of every neutral log profile the fire layer uses: the two-height resampling, the wind below the lowest cell centre, and the ember drift (unused with wind_sample_z0_source = surface_layer)
+    // Where the roughness of the log profiles applied to the sampled wind comes
+    // from: "scalar" (default) is wind_sample_z0 everywhere; "surface_layer" is
+    // the roughness of each atmospheric column in ERF's surface layer (erf.most.z0,
+    // the map of erf.most.roughness_file_name, or the value it computes), used
+    // by the two-height resampling, the wind below the lowest cell centre, the
+    // 10 m and 20 ft conversions and the ember drift. Not with a frozen or
+    // prescribed wind, nor where no log profile is applied.
+    bool              wind_z0_from_surface_layer = false; ///< erf.fire.wind_sample_z0_source = "scalar" | "surface_layer"
     // A target height below the lowest cell centre (a first cell thicker than
     // twice wind_ref_ht): "clamp" (default) takes the lowest centre's wind as
     // it is, the behaviour every deck sampling below its first centre carries
@@ -973,6 +981,22 @@ struct FireParams
        positive("wind_ref_ht", wind_ref_ht);
        pp.query("wind_sample_ht", wind_sample_ht);
        pp.query("wind_sample_z0", wind_sample_z0);
+       {
+           std::string zs = wind_z0_from_surface_layer ? "surface_layer" : "scalar";
+           pp.query("wind_sample_z0_source", zs);
+           one_of("wind_sample_z0_source", zs, {"scalar", "surface_layer"});
+           wind_z0_from_surface_layer = (zs == "surface_layer");
+           // a frozen GUST wind was computed over GUST's roughness, not this
+           // run's surface layer; a prescribed wind samples no column
+           if (wind_z0_from_surface_layer && !frozen_wind_file.empty()) {
+               fail("erf.fire.wind_sample_z0_source = surface_layer does not apply to a frozen wind"
+                    " (erf.fire.frozen_wind.file), whose profiles keep erf.fire.wind_sample_z0");
+           }
+           if (wind_z0_from_surface_layer && prescribed_wind) {
+               fail("erf.fire.wind_sample_z0_source = surface_layer does not apply to"
+                    " erf.fire.prescribed_wind = true, which samples no atmospheric column");
+           }
+       }
        // Per-fuel wind height: the log-law target is then the per-fuel fcwh
        // (6.096 m for every tabulated fuel, ERF_FuelWindHeight.H), not wind_ref_ht
        pp.query("use_per_fuel_wind_ht", use_per_fuel_wind_ht);
@@ -1326,6 +1350,16 @@ struct FireParams
        pp.query("spotting.fuel_system",         sp.fuel_system);
        pp.query("spotting.thermal_fuel_model",  sp.thermal_fuel_model);
        pp.query("spotting.drift_wind",          sp.drift_wind);
+       // wind_sample_z0_source = surface_layer changes nothing when no log
+       // profile is applied: no two-height resampling, no wind below the first
+       // centre, a reference wind already at 10 m (no 10 m conversion) and no
+       // WAF (no 20 ft conversion), and no ember drift
+       if (wind_z0_from_surface_layer && !(wind_sample_ht > 0.0) && !wind_below_first_log
+           && std::abs(sampled_wind_ht() - 10.0) <= 1.0e-6 && !use_waf && !sp.enable) {
+           fail("erf.fire.wind_sample_z0_source = surface_layer has no effect here: no log profile is applied"
+                " to the wind (erf.fire.wind_sample_ht = 0, wind_below_first_cell = clamp, a 10 m reference"
+                " wind, use_waf = false, no spotting); remove it or use the default \"scalar\"");
+       }
        if (sp.enable) {
            one_of("spotting.drift_wind", sp.drift_wind, {"profile", "frozen", "frozen_uvw"});
            if (sp.frozen_drift() && frozen_wind_file.empty()) {

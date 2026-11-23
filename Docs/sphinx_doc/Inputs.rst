@@ -6644,6 +6644,8 @@ Wind
 |                                                | adjustment factor; at any other height the wind is brought |                                |                        |
 |                                                | to 20 ft for the WAF, and to 10 m for FBP, Cheney-Gould    |                                |                        |
 |                                                | and Cruz, with the neutral log profile of wind_sample_z0   |                                |                        |
+|                                                | (or of each column's surface-layer z0 with                 |                                |                        |
+|                                                | wind_sample_z0_source = surface_layer)                     |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.prescribed_wind**                   | Bypass atmospheric wind interpolation with a constant      | Boolean                        | false                  |
 |                                                | reference wind, for controlled idealized-wind test cases;  |                                |                        |
@@ -6690,13 +6692,31 @@ Wind
 | **erf.fire.wind_sample_z0**                    | Roughness length [m] of every log profile the fire reads:  | 0 < Real <= min(reference wind | 0.1                    |
 |                                                | the two-height resampling, the wind below the first cell   | height, 6.096 m) / e (2.24 m   |                        |
 |                                                | centre, the ember drift, and the reference wind brought to | at most)                       |                        |
-|                                                | 20 ft (WAF) and to 10 m (FBP, Cheney-Gould, Cruz)          |                                |                        |
+|                                                | 20 ft (WAF) and to 10 m (FBP, Cheney-Gould, Cruz). With    |                                |                        |
+|                                                | wind_sample_z0_source = surface_layer the surface layer's  |                                |                        |
+|                                                | z0 of each column replaces it in all of these              |                                |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.wind_sample_z0_source**             | Roughness of the neutral log profiles (no displacement     | "scalar", "surface_layer"      | "scalar"               |
+|                                                | height) applied to the sampled wind: "scalar" =            | (surface_layer: each value 0 < |                        |
+|                                                | wind_sample_z0 everywhere; "surface_layer" = each          | z0 <= min(reference wind       |                        |
+|                                                | atmospheric column's roughness in ERF's surface layer      | height, 6.096 m) / e, with or  |                        |
+|                                                | (erf.most.z0, erf.most.roughness_file_name, or the z0 the  | without the WAF; needs         |                        |
+|                                                | surface layer computes: Charnock and other sea roughness,  | zlo.type = surface_layer, no   |                        |
+|                                                | bulk_coeff and land-surface fluxes), copied every step,    | EB terrain, no frozen or       |                        |
+|                                                | for the two-height resampling, the wind below the first    | prescribed wind, and at least  |                        |
+|                                                | cell centre, the 20 ft and 10 m conversions and the ember  | one log profile applied, or    |                        |
+|                                                | drift. The 10 m wind is read only by FBP, Cheney-Gould and | the run aborts)                |                        |
+|                                                | Cruz. With "bilinear" the 10 m and 20 ft conversions take  |                                |                        |
+|                                                | the fire cell's own column z0 after the blend (see the     |                                |                        |
+|                                                | theory page). These models take an open wind: a forest z0  |                                |                        |
+|                                                | gives a near-canopy wind instead                           |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_below_first_cell**             | Wind at a target below the first cell centre: "clamp"      | "clamp", "log"                 | "clamp"                |
 |                                                | takes the centre's wind unchanged; "log" scales it by the  |                                |                        |
-|                                                | neutral log profile of wind_sample_z0 (recommended for a   |                                |                        |
-|                                                | first cell above wind_ref_ht; 12 % lower under a 20 m      |                                |                        |
-|                                                | first cell)                                                |                                |                        |
+|                                                | neutral log profile of wind_sample_z0 (or of each column's |                                |                        |
+|                                                | surface-layer z0 with wind_sample_z0_source =              |                                |                        |
+|                                                | surface_layer; recommended for a first cell above          |                                |                        |
+|                                                | wind_ref_ht; 12 % lower under a 20 m first cell)           |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_interp**                       | Horizontal mapping of atmospheric columns onto fire cells, | "bilinear", "nearest"          | "bilinear"             |
@@ -6707,11 +6727,12 @@ Wind
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.waf_formula**                       | Wind adjustment factor formula, from the fuel bed depth:   | "andrews"                      | "andrews"              |
 |                                                | the domain model's on a uniform fuel, each cell's own      |                                |                        |
-|                                                | wherever a spatial fuel map is read. The factor takes      |                                |                        |
-|                                                | the 20 ft wind; a wind_ref_ht other than 6.1 m is first    |                                |                        |
+|                                                | wherever a spatial fuel map is read. The factor takes the  |                                |                        |
+|                                                | 20 ft wind; a wind_ref_ht other than 6.1 m is first        |                                |                        |
 |                                                | brought to 20 ft with the neutral log profile of           |                                |                        |
-|                                                | wind_sample_z0. "behaviorplus" was removed in November     |                                |                        |
-|                                                | 2026 (no published source)                                 |                                |                        |
+|                                                | wind_sample_z0 (or of the column z0 with                   |                                |                        |
+|                                                | wind_sample_z0_source = surface_layer). "behaviorplus" was |                                |                        |
+|                                                | removed in November 2026 (no published source)             |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.use_wind_limit**                    | Bound the midflame wind by Rothermel's (1972, eq. 87)      | Boolean                        | true                   |
 |                                                | limit U <= 0.9 I_R (Rothermel and BEHAVE kernels); false:  |                                |                        |
@@ -6829,9 +6850,10 @@ Rate of spread
 | **erf.fire.cheney_gould.curing_curve**         | Curing coefficient: Cruz et al. (2015) or Cheney et al.    | "cruz2015",                    | "cruz2015"             |
 |                                                | (1998)                                                     | "cheney1998"                   |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.cheney_gould.wind_source**          | Wind the 1998 model reads: the reference wind brought to   | "reference",                   | "reference"            |
-|                                                | 10 m with the neutral log profile of wind_sample_z0        | "midflame"                     |                        |
-|                                                | (the model's U10), or the WAF-reduced midflame wind        |                                |                        |
+| **erf.fire.cheney_gould.wind_source**          | Wind the 1998 model reads: the reference wind brought to   | "reference", "midflame"        | "reference"            |
+|                                                | 10 m with the neutral log profile of wind_sample_z0 or of  |                                |                        |
+|                                                | the column z0 (wind_sample_z0_source) (the model's U10),   |                                |                        |
+|                                                | or the WAF-reduced midflame wind                           |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.fbp.fuel_type**                     | Canadian FBP fuel type (ros_model = fbp)                   | C1-C7, D1, M1-M4, S1-S3,       | "C2"                   |
 |                                                |                                                            | O1A, O1B                       |                        |
@@ -6849,8 +6871,9 @@ Rate of spread
 | **erf.fire.fbp.use_slope**                     | Slope through the system's equivalent wind                 | Boolean                        | true                   |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.fbp.wind_source**                   | The reference wind brought to 10 m with the neutral log    | "reference", "midflame"        | "reference"            |
-|                                                | profile of wind_sample_z0 (the system's 10 m open wind),   |                                |                        |
-|                                                | or the midflame wind after the Wind Adjustment Factor      |                                |                        |
+|                                                | profile of wind_sample_z0 or of the column z0              |                                |                        |
+|                                                | (wind_sample_z0_source) (the system's 10 m open wind), or  |                                |                        |
+|                                                | the midflame wind after the Wind Adjustment Factor         |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.behave.dynamic_transfer_lo**        | BEHAVE live herbaceous moisture [fraction] at and below    | Real < dynamic_transfer_hi     | 0.30                   |
 |                                                | which the whole live herbaceous load transfers to dead,    |                                |                        |
@@ -7278,7 +7301,8 @@ Crown fire
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.crown.wind_10m_kmh**                | Fixed 10 m wind for the crown rate [km/h]; 0 takes the     | Real >= 0                      | 0.0                    |
 |                                                | reference wind brought to 10 m with the neutral log        |                                |                        |
-|                                                | profile of wind_sample_z0                                  |                                |                        |
+|                                                | profile of wind_sample_z0 or of the column z0              |                                |                        |
+|                                                | (wind_sample_z0_source)                                    |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.crown.ros_model**                   | Active crown rate-of-spread model                          | "cruz", "rothermel1991",       | "cruz"                 |
 |                                                |                                                            | "van_wagner_proxy"             |                        |
