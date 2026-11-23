@@ -111,7 +111,15 @@ same random draws on every rank whatever the decomposition:
    apply to the drift. Above the highest cell centre the brand takes that
    centre's wind; such brands are counted and reported at each spotting
    step, and the run goes on. The lofting height still uses the reference
-   wind, and with :cpp:`frozen` the fall stays at the terminal velocity: the
+   wind brought to 10 m (step 3). With a frozen wind that reference wind is
+   GUST's own wind at each fire cell, so the terrain speed-up is already in
+   it; only the step from the reference height to 10 m follows the
+   log profile rather than GUST's profile. In the ``FireFrozenWind`` hill
+   case GUST's 10 m wind differs from the log-scaled one by -2 % to +8 %;
+   with the 5 m/s floor of the fit the lofting height would change by less
+   than 2 %, in 54 of the 1024 GUST columns. With a 10 m reference height
+   there is no log step. With
+   :cpp:`frozen` the fall stays at the terminal velocity: the
    vertical wind :math:`w` is not used. Over terrain :math:`w` can be a
    sizeable fraction of :math:`v_t` (up to 0.6 m/s in the ``FireFrozenWind``
    hill case), so the flight time on a windward slope can differ from the
