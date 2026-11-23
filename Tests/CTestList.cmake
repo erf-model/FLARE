@@ -216,7 +216,7 @@ function(add_test_fire TEST_NAME SUITE_DIR INPUT_FILE NSTEPS)
     # rerun in the same directory starts from a clean slate
     set(test_command sh -c "cd ${CURRENT_TEST_BINARY_DIR} && rm -rf plt_fire_* plt_dust_* fire_stats* dust_diag* && ${MPI_COMMANDS} ${TEST_EXE} ${CURRENT_TEST_BINARY_DIR}/${INPUT_FILE} ${RUNTIME_OPTIONS} > ${test_log} 2>&1 && test -f ${CURRENT_TEST_BINARY_DIR}/${PLTFILE}/Header")
 
-    add_test(${TEST_NAME} ${test_command})
+    add_test(NAME ${TEST_NAME} COMMAND ${test_command})
     set_tests_properties(${TEST_NAME}
         PROPERTIES
         TIMEOUT 1800
@@ -265,7 +265,7 @@ function(add_test_fire_check TEST_NAME SUITE_DIR INPUT_FILE NSTEPS CHECK_SCRIPT)
     # dust and fire CSVs are appended to (a restart keeps its earlier leg)
     set(test_command sh -c "cd ${CURRENT_TEST_BINARY_DIR} && rm -rf plt_fire_* plt_dust_* dust_diag* fire_stats* CHECK_FAILED && ${MPI_COMMANDS} ${TEST_EXE} ${CURRENT_TEST_BINARY_DIR}/${INPUT_FILE} ${RUNTIME_OPTIONS} > ${test_log} 2>&1 || ( tail -n 60 ${test_log} && false ) && ( ${ERF_RANS_PYTHON} ${CURRENT_TEST_BINARY_DIR}/${CHECK_SCRIPT} > ${check_log} 2>&1 || touch ${CURRENT_TEST_BINARY_DIR}/CHECK_FAILED ) && cat ${check_log} && test ! -f ${CURRENT_TEST_BINARY_DIR}/CHECK_FAILED")
 
-    add_test(${TEST_NAME} ${test_command})
+    add_test(NAME ${TEST_NAME} COMMAND ${test_command})
     set_tests_properties(${TEST_NAME}
         PROPERTIES
         TIMEOUT 1800
@@ -308,7 +308,7 @@ function(add_test_fire_script TEST_NAME SUITE_DIR SCRIPT)
     # the script removes its own earlier output before running
     set(test_command sh -c "cd ${CURRENT_TEST_BINARY_DIR} && MPIRUN='${MPI_COMMANDS}' PYTHON=${ERF_RANS_PYTHON} FCOMPARE=${FCOMPARE_EXE} sh ${CURRENT_TEST_BINARY_DIR}/${SCRIPT} ${TEST_EXE} > ${test_log} 2>&1 || ( cat ${test_log} && false ) && cat ${test_log}")
 
-    add_test(${TEST_NAME} ${test_command})
+    add_test(NAME ${TEST_NAME} COMMAND ${test_command})
     set_tests_properties(${TEST_NAME}
         PROPERTIES
         TIMEOUT 1800
@@ -334,7 +334,7 @@ function(add_test_fire_restart_abort TEST_NAME SUITE_DIR INPUT_FILE WRITE_NRANKS
     set(write_log "${CURRENT_TEST_BINARY_DIR}/write.log")
     set(common "erf.plot_int_1=-1 erf.plot_int_2=-1 erf.fire.plot_int=-1 amrex.call_addr2line=0")
     set(test_command sh -c "rm -rf ${CURRENT_TEST_BINARY_DIR}/chk_abort* && ${MPI_WRITE} ${TEST_EXE} ${CURRENT_TEST_BINARY_DIR}/${INPUT_FILE} max_step=1 erf.check_int=1 erf.check_file=chk_abort ${common} > ${write_log} 2>&1 && ${MPI_RESTART} ${TEST_EXE} ${CURRENT_TEST_BINARY_DIR}/${INPUT_FILE} max_step=2 erf.restart=chk_abort00001 erf.check_int=-1 ${common} ${RESTART_OPTIONS} 2>&1 | tee ${test_log}")
-    add_test(${TEST_NAME} ${test_command})
+    add_test(NAME ${TEST_NAME} COMMAND ${test_command})
     set_tests_properties(${TEST_NAME}
         PROPERTIES
         TIMEOUT 600
@@ -367,7 +367,7 @@ function(add_test_fire_fuel_map_rows TEST_NAME SUITE_DIR INPUT_FILE X SOUTH_MIN 
     resolve_test_exe("" "${ERF_TEST_EXE}" TEST_EXE)
     string(REPLACE "amrex_fcompare" "amrex_fextract" FEXTRACT_EXE "${FCOMPARE_EXE}")
 
-    add_test(${TEST_NAME} ${CMAKE_COMMAND}
+    add_test(NAME ${TEST_NAME} COMMAND ${CMAKE_COMMAND}
         -DMPIEXEC=${MPIEXEC_EXECUTABLE}
         -DMPIEXEC_NUMPROC_FLAG=${MPIEXEC_NUMPROC_FLAG}
         -DMPIEXEC_PREFLAGS=${MPIEXEC_PREFLAGS}
@@ -1055,7 +1055,7 @@ function(add_test_rans_dt TEST_NAME CLOSURE)
     # ctest output so a failure shows every rung.
     set(test_command sh -c "rm -f ${CURRENT_TEST_BINARY_DIR}/SWEEP_FAILED && ( ${ERF_RANS_PYTHON} ${CURRENT_TEST_BINARY_DIR}/sweep_dt.py --exe ${TEST_EXE} --closure ${CLOSURE} --mpi-cmd \"${MPI_COMMANDS}\" --workdir ${CURRENT_TEST_BINARY_DIR}/dt_runs > ${test_log} 2>&1 || touch ${CURRENT_TEST_BINARY_DIR}/SWEEP_FAILED ) && cat ${test_log} && test ! -f ${CURRENT_TEST_BINARY_DIR}/SWEEP_FAILED")
 
-    add_test(${TEST_NAME} ${test_command})
+    add_test(NAME ${TEST_NAME} COMMAND ${test_command})
     set_tests_properties(${TEST_NAME}
         PROPERTIES
         TIMEOUT 3600
