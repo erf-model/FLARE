@@ -1,0 +1,7 @@
+# Variant: the nearest GUST column, sampled 2 m above its ground, below every
+# first cell centre (2.26 to 2.5 m), with the log profile below it
+FILE = inputs_base
+erf.fire.frozen_wind.file = gust_hill_plt
+erf.fire.wind_interp = "nearest"
+erf.fire.wind_ref_ht = 2.0
+erf.fire.wind_below_first_cell = "log"

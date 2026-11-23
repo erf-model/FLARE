@@ -1,0 +1,6 @@
+# Variant: the checkpoint's wind sampled 20 m above the ground and brought
+# down to 6.1 m with a log profile of roughness 0.1 m (GUST's surface z0)
+FILE = inputs_base
+erf.fire.frozen_wind.file = gust_hill_chk
+erf.fire.wind_sample_ht = 20.0
+erf.fire.wind_sample_z0 = 0.1

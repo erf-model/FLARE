@@ -1,0 +1,69 @@
+# FireFrozenWind: a grass fire over a 40 m Gaussian hill, spread by the steady
+# wind of a GUST-CFD run (gust_hill_plt or gust_hill_chk, made by run_gust.sh
+# from inputs_gust_hill) read once and frozen (erf.fire.frozen_wind.file).
+# The atmosphere starts from a uniform 5 m/s wind towards -y, which is not
+# GUST's wind, so a fire that reads the atmosphere instead of the frozen field
+# shows it. One-way coupling: the fire does not feed back on the atmosphere.
+
+geometry.prob_lo = 0.0 0.0 0.0
+geometry.prob_hi = 1280.0 1280.0 400.0
+amr.n_cell = 32 32 16
+geometry.is_periodic = 1 1 0
+amr.max_level = 0
+amr.max_grid_size = 16      # box lengths must divide by grid_ratio
+amr.max_grid_size_z = 16    # fire module forbids z-decomposition
+
+# The same terrain file as GUST's (make_hill_terrain.py)
+erf.terrain_type      = StaticFittedMesh
+erf.terrain_file_name = "terrain_gaussian_hill.txt"
+
+zlo.type = "surface_layer"
+zhi.type = "SlipWall"
+erf.most.z0 = 0.1
+erf.most.surf_temp = 300.0
+erf.most.surf_heating_rate = 0.0
+
+erf.molec_diff_type = "None"
+erf.les_type = "Smagorinsky"
+erf.Cs = 0.1
+erf.use_gravity = true
+erf.use_coriolis = false
+erf.theta_ref = 300.0
+
+erf.init_type = "input_sounding"
+erf.input_sounding_file = "input_sounding"
+erf.sounding_type = Ideal
+
+erf.fixed_dt = 0.5
+erf.substepping_cfl = 0.5
+max_step = 100000
+stop_time = 10.0
+
+erf.v = 0
+amr.v = 0
+erf.sum_interval = -1
+erf.check_int = -1
+erf.plot_int_1 = -1
+erf.fire.plot_int = 10               # steps 10 and 20 are what the check reads
+
+erf.fire.enable = true
+erf.fire.grid_ratio = 4              # 10 m fire cells
+erf.fire.propagation_method = "levelset"
+erf.fire.directional_ros = true
+erf.fire.fuel_model_id = 1           # short grass, uniform
+erf.fire.moisture_1hr = 0.06
+erf.fire.moisture_10hr = 0.06
+erf.fire.moisture_100hr = 0.06
+erf.fire.moisture_dynamic = false
+erf.fire.ignition_x = 400.0          # upwind of the hill (GUST's wind blows towards +x)
+erf.fire.ignition_y = 640.0
+erf.fire.ignition_r = 30.0
+erf.fire.wind_ref_ht = 6.1           # between GUST's first two cell centres (2.5 m and 8 m)
+erf.fire.wind_interp = "bilinear"
+erf.fire.use_waf = false             # the check compares the reference wind itself
+erf.fire.use_wind_limit = true
+erf.fire.use_terrain_wind = false    # GUST resolves the hill
+erf.fire.ros_model = "rothermel"
+erf.fire.write_fire_stats_csv = false
+erf.fire.coupling_type = "lagged"
+erf.fire.fire_atm_feedback = 0.0     # one-way

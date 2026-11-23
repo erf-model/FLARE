@@ -693,6 +693,34 @@ add_test_fire_abort(FireFarsiteWinds_key_without_interval_abort FireFarsiteWinds
     "erf.fire.farsite_winds.units needs erf.fire.farsite_winds.interval > 0" "")
 add_test_fire_abort(FireFarsiteWinds_coarsen_abort FireFarsiteWinds inputs_atmosphere
     "erf.fire.farsite_winds.coarsen = 7 must divide the fire grid, 60 x 20 cells" "erf.fire.farsite_winds.coarsen=7")
+
+# FireFrozenWind: the reference wind read once from a GUST-CFD plotfile or
+# checkpoint over a Gaussian hill (erf.fire.frozen_wind.file) and held frozen.
+# The check samples the GUST plotfile independently; the restart re-reads it.
+# The checks compare to 1e-9 and the checkpoint holds 8-byte reals: double builds only.
+if(NOT ERF_PRECISION STREQUAL "SINGLE")
+    add_test_fire_check(FireFrozenWind_plt FireFrozenWind inputs_plt 20 check_frozen_wind.py NRANKS 2)
+    add_test_fire_check(FireFrozenWind_chk FireFrozenWind inputs_chk 20 check_frozen_wind.py NRANKS 2)
+    if(NOT WIN32)
+        add_test_fire_script(FireFrozenWind_variants FireFrozenWind run_variants.sh NRANKS 2)
+    endif()
+endif()
+if(NOT WIN32)
+    add_test_fire_script(FireFrozenWind_restart FireFrozenWind run_restart.sh NRANKS 2)
+endif()
+add_test_fire_abort(FireFrozenWind_prescribed_abort FireFrozenWind inputs_plt
+    "erf.fire.frozen_wind.file and erf.fire.prescribed_wind = true both set the reference wind" "erf.fire.prescribed_wind=true")
+add_test_fire_abort(FireFrozenWind_no_header_abort FireFrozenWind inputs_plt
+    "erf.fire.frozen_wind.file = input_sounding: no Header file" "erf.fire.frozen_wind.file=input_sounding")
+add_test_fire_abort(FireFrozenWind_coverage_abort FireFrozenWind inputs_plt
+    "the GUST mesh spans x = 0 to 1280 m but the fire region spans 0 to 1300 m" "geometry.prob_hi=1300.0 1280.0 400.0")
+add_test_fire_abort(FireFrozenWind_above_top_abort FireFrozenWind inputs_plt
+    "lies [0-9.]+ m above the highest cell centre of a GUST column" "erf.fire.wind_ref_ht=340")
+add_test_fire_abort(FireFrozenWind_empty_abort FireFrozenWind inputs_empty_abort
+    "erf.fire.frozen_wind.file must name a GUST plotfile or checkpoint directory, got an empty string" "max_step=1")
+add_test_fire_abort(FireFrozenWind_open_columns_abort FireFrozenWind inputs_plt
+    "erf.fire.structures.wind_open_columns weights the atmosphere's columns and has no effect with erf.fire.frozen_wind.file"
+    "erf.fire.structures.enable=true erf.fire.structures.file=input_sounding erf.fire.structures.wind_open_columns=true")
 # every file of the list is read: a second file that does not exist stops the run
 add_test_fire_abort(FireMergingFronts_missing_file_abort FireMergingFronts inputs_missing_file
     "Cannot open polygon vertex file: parallel_missing.csv" "")

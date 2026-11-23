@@ -45,6 +45,12 @@ struct FireParams
     bool              prescribed_wind     = false;       ///< Bypass atmospheric wind interpolation
     amrex::Real       prescribed_wind_x   = 0.0;         ///< Constant reference wind at wind_ref_ht, x [m/s]; exact everywhere only with use_waf=false and use_terrain_wind=false (WAF and the FARSITE terrain corrections still apply downstream otherwise), and FBP, Cheney-Gould and Cruz read it brought to 10 m
     amrex::Real       prescribed_wind_y   = 0.0;         ///< Constant reference wind, y [m/s]; see prescribed_wind_x
+    // Frozen wind (erf.fire.frozen_wind.file): a GUST-CFD plotfile or
+    // checkpoint directory read once at start-up (ERF_FrozenWind.H); the
+    // reference wind is sampled from it with the same height inputs as the
+    // atmosphere's wind and held for the whole run. Unset = off; an empty
+    // string aborts.
+    std::string       frozen_wind_file    = "";          ///< GUST plotfile or checkpoint directory; unset = sample the atmosphere's wind
     // Phase 13A: Per-fuel wind height
     bool              use_per_fuel_wind_ht = false; ///< Use per-fuel fcwh table for wind height
     bool              use_waf             = true;        ///< Apply Wind Adjustment Factor
@@ -943,6 +949,15 @@ struct FireParams
        pp.query("prescribed_wind", prescribed_wind);
        pp.query("prescribed_wind_x", prescribed_wind_x);
        pp.query("prescribed_wind_y", prescribed_wind_y);
+       if (pp.contains("frozen_wind.file")) {
+           pp.get("frozen_wind.file", frozen_wind_file);
+           if (frozen_wind_file.empty()) {
+               fail("erf.fire.frozen_wind.file must name a GUST plotfile or checkpoint directory, got an empty string");
+           }
+           if (prescribed_wind) {
+               fail("erf.fire.frozen_wind.file and erf.fire.prescribed_wind = true both set the reference wind: choose one");
+           }
+       }
        fraction("moisture_1hr", moisture_1hr);
        fraction("moisture_10hr", moisture_10hr);
        fraction("moisture_100hr", moisture_100hr);
@@ -1819,6 +1834,12 @@ struct FireParams
        }
        if (structures.wind_open_columns && !structures.enable) {
            amrex::Abort("erf.fire.structures.wind_open_columns needs erf.fire.structures.enable");
+       }
+       // the open-column weights describe ERF's building columns, which a
+       // frozen GUST field does not sample
+       if (structures.wind_open_columns && !frozen_wind_file.empty()) {
+           amrex::Abort("erf.fire.structures.wind_open_columns weights the atmosphere's columns and has no effect"
+                        " with erf.fire.frozen_wind.file: remove one of the two");
        }
        if (exposure.enable) {
            if (!structures.enable) {

@@ -6655,6 +6655,28 @@ Wind
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.prescribed_wind_y**                 | Constant reference wind, y, when prescribed_wind [m/s]     | Real                           | 0.0                    |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.frozen_wind.file**                  | GUST-CFD plotfile or checkpoint directory read once at     | Directory with a GUST          | ""                     |
+|                                                | start-up; the reference wind is sampled from it with the   | "Header", or unset             |                        |
+|                                                | wind_ref_ht, per-fuel, wind_sample_ht, wind_sample_z0,     |                                |                        |
+|                                                | wind_interp and wind_below_first_cell inputs and held for  |                                |                        |
+|                                                | the whole run; ERF's wind is not read. Heights are above   |                                |                        |
+|                                                | GUST's ground (the mean of each column's four k = 0        |                                |                        |
+|                                                | nodes), so fire_extract_z is GUST's ground + height; the   |                                |                        |
+|                                                | fire keeps ERF's terrain for slope. For the log options    |                                |                        |
+|                                                | set wind_sample_z0 to GUST's surface z0. use_waf,          |                                |                        |
+|                                                | use_terrain_wind and the 10 m scaling still act on it      |                                |                        |
+|                                                | (GUST resolves terrain: use_terrain_wind counts it         |                                |                        |
+|                                                | twice). Fire dust u* inside the perimeter uses it;         |                                |                        |
+|                                                | feedback heats ERF but the fire does not see the           |                                |                        |
+|                                                | response. GUST's x, y are the fire grid's; edge columns    |                                |                        |
+|                                                | are clamped, not wrapped. Aborts if GUST's domain does     |                                |                        |
+|                                                | not cover the fire region, the height is above GUST's top  |                                |                        |
+|                                                | cell centre, the plotfile has more than one level or a     |                                |                        |
+|                                                | checkpoint's real size differs from the build; not with    |                                |                        |
+|                                                | prescribed_wind or structures.wind_open_columns            |                                |                        |
+|                                                | (Exec/RegTests/FireFrozenWind). Unset = off; an empty      |                                |                        |
+|                                                | string aborts                                              |                                |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.use_per_fuel_wind_ht**              | Sample the wind at the per-fuel fcwh height (6.096 m for   | Boolean                        | false                  |
 |                                                | every fuel) instead of wind_ref_ht, with or without a      |                                |                        |
 |                                                | fuel map; every reader of the wind's height follows it     |                                |                        |

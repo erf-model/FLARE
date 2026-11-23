@@ -517,6 +517,48 @@ void FireLayer::initialize(const ERF& erf,
     // the fuel map (read above) does not change during the run
     if (m_use_per_fuel_wind_ht && fire_fuel_model) { fill_per_fuel_wind_height(); }
 
+    // Frozen wind: read the GUST field and sample the reference wind once,
+    // with the same height inputs as the atmospheric sampler in advance()
+    if (!m_params.frozen_wind_file.empty()) {
+        m_frozen_wind = std::make_unique<FrozenWind>();
+        m_frozen_wind->read(m_params.frozen_wind_file);
+        m_frozen_wind_ref   = std::make_unique<MultiFab>(m_fg.ba, m_fg.dm, 2, 0);
+        m_frozen_extract_z  = std::make_unique<MultiFab>(m_fg.ba, m_fg.dm, 1, 0);
+        MultiFab gust_ground(m_fg.ba, m_fg.dm, 1, 0);
+        const bool per_fuel_ht = m_use_per_fuel_wind_ht && fire_fuel_model;
+        m_frozen_wind->sample_reference_wind(*m_frozen_wind_ref, *m_frozen_extract_z, &gust_ground,
+                                             m_fg.geom, m_params.sampled_wind_ht(),
+                                             per_fuel_ht ? m_wind_ht_cell.get() : nullptr,
+                                             m_params.wind_interp,
+                                             m_params.wind_sample_ht, m_params.wind_sample_z0,
+                                             m_params.wind_below_first_log);
+        // GUST's ground against the atmosphere's, like with like: the ground of
+        // the GUST column holding each fire cell centre against fire_surface_z,
+        // ERF's column ground (information only: the fire keeps the
+        // atmosphere's terrain for slope and heights)
+        {
+            MultiFab w_tmp(m_fg.ba, m_fg.dm, 2, 0), z_tmp(m_fg.ba, m_fg.dm, 1, 0);
+            m_frozen_wind->sample_reference_wind(w_tmp, z_tmp, &gust_ground, m_fg.geom,
+                                                 m_params.sampled_wind_ht(),
+                                                 per_fuel_ht ? m_wind_ht_cell.get() : nullptr,
+                                                 /*wind_interp=*/0, m_params.wind_sample_ht,
+                                                 m_params.wind_sample_z0, m_params.wind_below_first_log);
+        }
+        MultiFab::Subtract(gust_ground, *fire_surface_z, 0, 0, 1, 0);
+        const Real dground = gust_ground.norminf(0, 0);
+        amrex::Print() << "[FIRE] Frozen wind: reference wind on the fire grid u in ["
+                       << m_frozen_wind_ref->min(0) << ", " << m_frozen_wind_ref->max(0) << "], v in ["
+                       << m_frozen_wind_ref->min(1) << ", " << m_frozen_wind_ref->max(1)
+                       << "] m/s; largest |GUST ground - ERF ground| (column under each fire cell) = " << dground << " m\n";
+        if (m_params.use_terrain_wind) {
+            amrex::Print() << "[FIRE] Frozen wind: note: erf.fire.use_terrain_wind = true scales the frozen wind,"
+                              " which already holds GUST's terrain effect\n";
+        }
+        // so that step-0 output and diagnostics before the first advance() see it
+        MultiFab::Copy(*fire_wind_ref, *m_frozen_wind_ref, 0, 0, 2, 0);
+        MultiFab::Copy(*fire_wind_extract_z, *m_frozen_extract_z, 0, 0, 1, 0);
+    }
+
     // Phase 13B: Pre-compute alternative ROS model coefficients.
     {
         FuelModelParams fp_ros = uniform_fuel_params();
@@ -839,7 +881,11 @@ void FireLayer::advance(const FireForcing& forcing)
 
     // the height the reference wind is sampled at, shared by the extraction and its debug line
     const Real z_wind = m_params.sampled_wind_ht();
-    if (m_params.prescribed_wind) {
+    if (m_frozen_wind) {
+        // the frozen GUST wind, sampled once by initialize()
+        MultiFab::Copy(*fire_wind_ref, *m_frozen_wind_ref, 0, 0, 2, 0);
+        MultiFab::Copy(*fire_wind_extract_z, *m_frozen_extract_z, 0, 0, 1, 0);
+    } else if (m_params.prescribed_wind) {
         fire_wind_ref->setVal(m_params.prescribed_wind_x, 0, 1, 0);
         fire_wind_ref->setVal(m_params.prescribed_wind_y, 1, 1, 0);
     } else {
