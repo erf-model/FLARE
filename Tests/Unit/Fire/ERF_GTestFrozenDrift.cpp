@@ -410,7 +410,7 @@ TEST(FrozenDrift, VerticalWindChangesTheFallClosedForm)
     const Real dt = H / (V_T * N_TRAJ);
     // W = 0, an updraft of half v_t, a downdraft of v_t, an updraft of 0.85 v_t
     // (134 steps, past N = 20 but within 10 N)
-    for (Real W : {0.0, 0.5 * V_T, -V_T, 0.85 * V_T}) {
+    for (Real W : {0.0_rt, 0.5_rt * V_T, -V_T, 0.85_rt * V_T}) {
         const int  n = steps_to_land(W);
         const Real D = U_DRIFT * n * dt;
         SpotCase r(NX, NY);
@@ -430,7 +430,7 @@ TEST(FrozenDrift, BrandsStillAloftAreDroppedAndCounted)
 {
     // W = 0.95 v_t needs 400 steps (> 10 N = 200); W = v_t never lands. With
     // u = 0 the brands stay over their source, so none leaves the fire grid.
-    for (Real W : {0.95 * V_T, V_T}) {
+    for (Real W : {0.95_rt * V_T, V_T}) {
         EXPECT_TRUE(W >= V_T || steps_to_land(W) > albini_aloft_step_factor * N_TRAJ);
         SpotCase r(NX, NY);
         FrozenWindHost h;
