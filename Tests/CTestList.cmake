@@ -705,7 +705,8 @@ if(NOT ERF_PRECISION STREQUAL "SINGLE")
         add_test_fire_script(FireFrozenWind_variants FireFrozenWind run_variants.sh NRANKS 2)
         # ember drift in the frozen 3-D wind, on the reference-wind profile, and
         # frozen with the nearest column and the log profile below the first
-        # centre, each replayed by check_spot3d.py to 1e-6 m
+        # centre, and frozen with w (frozen_uvw), each replayed by
+        # check_spot3d.py to 1e-6 m
         add_test_fire_script(FireFrozenWind_spot3d FireFrozenWind run_spot3d.sh NRANKS 2)
     endif()
 endif()
@@ -729,7 +730,10 @@ add_test_fire_abort(FireFrozenWind_spot_no_file_abort FireFrozenWind inputs_base
     "erf.fire.spotting.drift_wind = frozen needs the frozen GUST wind: set erf.fire.frozen_wind.file"
     "erf.fire.spotting.enable=true erf.fire.spotting.drift_wind=frozen")
 add_test_fire_abort(FireFrozenWind_spot_drift_value_abort FireFrozenWind inputs_spot3d
-    "erf.fire.spotting.drift_wind = .gust. is not one of .profile., .frozen." "erf.fire.spotting.drift_wind=gust")
+    "erf.fire.spotting.drift_wind = .gust. is not one of .profile., .frozen., .frozen_uvw." "erf.fire.spotting.drift_wind=gust")
+add_test_fire_abort(FireFrozenWind_spot_uvw_no_file_abort FireFrozenWind inputs_base
+    "erf.fire.spotting.drift_wind = frozen_uvw needs the frozen GUST wind: set erf.fire.frozen_wind.file"
+    "erf.fire.spotting.enable=true erf.fire.spotting.drift_wind=frozen_uvw")
 # every file of the list is read: a second file that does not exist stops the run
 add_test_fire_abort(FireMergingFronts_missing_file_abort FireMergingFronts inputs_missing_file
     "Cannot open polygon vertex file: parallel_missing.csv" "")

@@ -1,0 +1,3 @@
+# Variant of inputs_spot3d: the brands also move with GUST's vertical wind w
+FILE = inputs_spot3d
+erf.fire.spotting.drift_wind = "frozen_uvw"

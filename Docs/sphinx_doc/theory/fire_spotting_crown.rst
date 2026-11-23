@@ -111,10 +111,50 @@ same random draws on every rank whatever the decomposition:
    apply to the drift. Above the highest cell centre the brand takes that
    centre's wind; such brands are counted and reported at each spotting
    step, and the run goes on. The lofting height still uses the reference
-   wind, and the fall stays at the terminal velocity: the vertical wind
-   :math:`w` is not used. Over terrain :math:`w` can be of the order of
-   :math:`v_t` (up to 0.6 m/s in the ``FireFrozenWind`` hill case), so the
-   flight time on a windward slope can differ from the one computed here.
+   wind, and with :cpp:`frozen` the fall stays at the terminal velocity: the
+   vertical wind :math:`w` is not used. Over terrain :math:`w` can be a
+   sizeable fraction of :math:`v_t` (up to 0.6 m/s in the ``FireFrozenWind``
+   hill case), so the flight time on a windward slope can differ from the
+   one computed here; :cpp:`frozen_uvw`, below, includes :math:`w`.
+
+   With :cpp:`erf.fire.spotting.drift_wind = frozen_uvw` the brand also
+   moves with GUST's vertical wind :math:`w`, sampled as :math:`u, v` (below
+   the first cell centre it is clamped or scaled with them, so the wind
+   keeps its direction there), and its height changes by
+   :math:`(w - v_t)\,\Delta t` per sub-step. :math:`\Delta t` stays the step of
+   the :math:`v_t` fall, so in an updraft the brand needs more sub-steps: it
+   steps on until it lands, up to :math:`10 N`, and a brand still aloft then
+   is dropped, counted and reported. In uniform :math:`u = U`, :math:`w = W
+   < v_t` on flat ground it lands after
+
+   .. math::
+
+      n = \left\lceil \frac{N v_t}{v_t - W} \right\rceil
+
+   sub-steps, at :math:`D = U\,n\,\Delta t`, :math:`\Delta t = H / (v_t N)`;
+   the unit tests ``FrozenDrift.*`` pin this value. The brand lands at the
+   end of the sub-step in which it reaches the ground (as with ``frozen``
+   and ``profile``), so :math:`D` exceeds the exact :math:`U H / (v_t - W)` by
+   less than one sub-step. With :math:`W \ge 0.9\,v_t` it needs more than
+   :math:`10 N` sub-steps and is dropped.
+
+   The share of :math:`w` in the height change is summed apart from the
+   :math:`v_t` fall. When :math:`w` has moved the brand, it lands within
+   :math:`10^{-3}\,v_t \Delta t` above the ground, so the round-off of the
+   sub-steps cannot add one; this can land it one sub-step before the
+   :math:`n` above when :math:`N v_t / (v_t - W)` lies within
+   :math:`10^{-3}\,v_t/(v_t - W)` above an integer. A brand that :math:`w`
+   has not lifted overall lands after :math:`N` sub-steps at the latest, as
+   with ``frozen``. With :math:`w = 0` it therefore lands every brand where
+   ``frozen`` does, bit for bit, in double and single precision.
+
+   With the default :cpp:`erf.fire.wind_below_first_cell = clamp`, :math:`w`
+   below the first cell centre keeps that centre's value down to the
+   ground. On a steep windward slope where that value is close to or above
+   :math:`v_t` a brand low over the ground can hover there and be dropped
+   instead of landing; with :cpp:`log`, :math:`w` falls to zero at the
+   ground with :math:`u` and :math:`v`.
+
    In a wind :math:`u = a\,h` on flat ground, with every sub-step between
    the first and the highest cell centres, the scheme lands a brand lofted
    to :math:`H` at

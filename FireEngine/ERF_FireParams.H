@@ -315,8 +315,11 @@ struct FireParams
         // The wind the brands drift on. "profile" (default): the reference
         // wind scaled to the brand's height with the neutral log profile.
         // "frozen": u, v of the frozen GUST field (erf.fire.frozen_wind.file)
-        // at the brand's height above the ground.
+        // at the brand's height above the ground. "frozen_uvw": the same, and
+        // the brand also rises or falls with the field's vertical wind w.
         std::string       drift_wind          = "profile";
+        /// the brands drift in the frozen GUST field (drift_wind = frozen or frozen_uvw)
+        bool frozen_drift () const { return drift_wind == "frozen" || drift_wind == "frozen_uvw"; }
     } spotting;
 
     // Phase 9: Crown fire initiation parameters.
@@ -1324,9 +1327,10 @@ struct FireParams
        pp.query("spotting.thermal_fuel_model",  sp.thermal_fuel_model);
        pp.query("spotting.drift_wind",          sp.drift_wind);
        if (sp.enable) {
-           one_of("spotting.drift_wind", sp.drift_wind, {"profile", "frozen"});
-           if (sp.drift_wind == "frozen" && frozen_wind_file.empty()) {
-               fail("erf.fire.spotting.drift_wind = frozen needs the frozen GUST wind: set erf.fire.frozen_wind.file");
+           one_of("spotting.drift_wind", sp.drift_wind, {"profile", "frozen", "frozen_uvw"});
+           if (sp.frozen_drift() && frozen_wind_file.empty()) {
+               fail("erf.fire.spotting.drift_wind = " + sp.drift_wind
+                    + " needs the frozen GUST wind: set erf.fire.frozen_wind.file");
            }
            if (sp.thermal_fuel_model != 0) {
                const int m = sp.thermal_fuel_model;   // albini_thermal_fit's table
