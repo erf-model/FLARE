@@ -6692,6 +6692,15 @@ Wind
 |                                                | centre, the ember drift, and the reference wind brought to | at most)                       |                        |
 |                                                | 20 ft (WAF) and to 10 m (FBP, Cheney-Gould, Cruz)          |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.wind_sample_z0_source**             | Roughness of the log profiles applied to the sampled wind: | "scalar", "surface_layer"      | "scalar"               |
+|                                                | "scalar" = wind_sample_z0 everywhere; "surface_layer" =    | (surface_layer: each value     |                        |
+|                                                | each atmospheric column's roughness in ERF's surface layer | 0 < z0 <= min(reference wind   |                        |
+|                                                | (erf.most.z0, erf.most.roughness_file_name) for the        | height, 6.096 m) / e; needs    |                        |
+|                                                | two-height resampling, the wind below the first cell       | zlo.type = surface_layer, no   |                        |
+|                                                | centre and the 20 ft and 10 m conversions, refreshed each  | EB terrain, no frozen or       |                        |
+|                                                | step over a time-varying sea roughness. The ember drift    | prescribed wind)               |                        |
+|                                                | keeps wind_sample_z0                                       |                                |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_below_first_cell**             | Wind at a target below the first cell centre: "clamp"      | "clamp", "log"                 | "clamp"                |
 |                                                | takes the centre's wind unchanged; "log" scales it by the  |                                |                        |
 |                                                | neutral log profile of wind_sample_z0 (recommended for a   |                                |                        |

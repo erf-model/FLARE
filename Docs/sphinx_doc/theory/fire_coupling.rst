@@ -136,6 +136,27 @@ whose four columns are all closed keeps the plain weights; it is inside a
 footprint and masked anyway. Off by default; needs
 :cpp:`erf.fire.structures.enable` and has no effect with ``"nearest"``.
 
+**Roughness per column.** By default every log profile applied to the sampled
+wind uses the one roughness :cpp:`erf.fire.wind_sample_z0`. With
+:cpp:`erf.fire.wind_sample_z0_source = "surface_layer"` it uses instead the
+roughness of each atmospheric column in ERF's surface layer
+(:cpp:`erf.most.z0`, or the map of :cpp:`erf.most.roughness_file_name`), the
+same :math:`z_0` the atmosphere's surface stress is computed with:
+
+- the wind below the first cell centre and the two-height resampling use each
+  sampled column's own :math:`z_0`, and with ``"bilinear"`` the factor is
+  applied to each column before the four are blended;
+- the conversions of the reference wind to 20 ft (WAF) and to 10 m (FBP,
+  Cheney-Gould, Cruz) use the :math:`z_0` of the column holding the fire cell.
+
+The field is copied from the surface layer at start-up, and every step where
+the sea roughness varies in time. Each value must be positive and at most
+:math:`\min(z_\mathrm{ref}, 6.096\ \mathrm{m})/e`, the bound
+:cpp:`erf.fire.wind_sample_z0` meets, or the run stops. It needs
+``zlo.type = surface_layer`` on a planar or terrain-fitted mesh (with EB
+terrain the roughness is 3D), and does not apply to a frozen or prescribed
+wind. The ember drift keeps :cpp:`erf.fire.wind_sample_z0`.
+
 **Adjustment to the flame zone.** ``fire_wind_eff`` is the reference wind
 multiplied by the wind adjustment factor and modified by the terrain
 corrections:

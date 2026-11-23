@@ -179,6 +179,9 @@ inline std::vector<FireModelLine> fire_model_summary (const FireParams& fp)
     } else if (fp.spotting.enable && !fp.spotting.frozen_drift()) {
         add("Ember-drift roughness [m]", "wind_sample_z0", real_str(fp.wind_sample_z0));
     }
+    if (fp.wind_z0_from_surface_layer) {
+        add("  roughness of the wind profiles", "wind_sample_z0_source", "surface_layer (per column)");
+    }
     add("Wind adjustment factor", "use_waf", on_off(fp.use_waf));
     if (fp.use_waf) { add("  WAF formula", "waf_formula", fp.waf_formula); }
     add("Terrain wind factors", "use_terrain_wind", on_off(fp.use_terrain_wind));
