@@ -2,7 +2,7 @@
 """Checks on the FireWindColumnZ0 regression test.
 
     python3 check_firewindcolumnz0.py write_map
-    python3 check_firewindcolumnz0.py [parity] [sample] [ft20] [m10]
+    python3 check_firewindcolumnz0.py [parity] [sample] [ft20] [m10] [fmap] [bil] [restart]
 
 run_wind_column_z0.sh writes, for each variant v, run_<v>.log and
 plt_fire_<v>_00004. Every pair of variants shares one atmosphere (one-way
@@ -13,7 +13,9 @@ the two fire fields at a cell is a closed form of the cell's roughness z0c:
 With F(z_to, z_from, z0) = ln(z_to / z0) / ln(z_from / z0):
 
 write_map  writes roughness_halves.txt, the (x, y, z0) node triples that
-           erf.most.roughness_file_name reads, i fastest, for the 64 x 32 grid.
+           erf.most.roughness_file_name reads, i fastest, for the 64 x 32 grid,
+           and fuel_stripes.asc, a fire-grid fuel map of Anderson 1 and 3 in
+           stripes 16 fire cells wide along x.
 parity     inputs_base (z0 = 0.1 m everywhere) with both sources: every field
            the check reads is identical, bit for bit.
 sample     inputs_map, the wind sampled at 20 m and brought to 6.1 m:
@@ -32,7 +34,18 @@ m10        inputs_map with erf.fire.ros_model = cheney_gould, whose rate reads
            (Cheney, Gould and Catchpole 1998), so
            fire_ros (surface_layer) / fire_ros (scalar)
              = R(U10 with z0c) / R(U10 with 0.1 m)       to 1e-10,
-           each U10 taken from its own run's fire_wind_ref.
+           each U10 taken from its own run's fire_wind_ref. With
+           moisture_dynamic = false the rate reads
+           erf.fire.cheney_gould.moisture (default 10 %).
+fmap       ft20 on the fuel map: the 20 ft factor of the spatial-fuel branch.
+bil        inputs_map, wind_interp = bilinear, no two-height sampling, the
+           2 m reference wind below the 2.5 m first centre, wind_below_first_cell
+           = log: fire_wind_ref (surface_layer) / fire_wind_ref (scalar)
+             = F(2, 2.5, z0c) / F(2, 2.5, 0.1)    to 1e-12,
+           over the cells whose four stencil columns share one z0 (not in
+           atmospheric columns 0, 31, 32 or 63, next to the two seams).
+restart    bulk_coeff fluxes (z0 recovered every step): the restart from step
+           2 gives the straight run's step-4 fire fields, bit for bit.
 
 Standard library only (erf_plotfile.py is copied beside it by CTest).
 """
@@ -67,6 +80,13 @@ def write_map():
         for j in range(NY + 1):
             for i in range(NX + 1):
                 f.write(f"{i * DX:.1f} {j * DX:.1f} {column_z0(i)}\n")
+    nfx, nfy = NX * GRID_RATIO, NY * GRID_RATIO
+    with open("fuel_stripes.asc", "w") as f:
+        f.write(f"ncols {nfx}\nnrows {nfy}\nxllcorner 0.0\nyllcorner 0.0\n"
+                f"cellsize {DX / GRID_RATIO}\nNODATA_value -9999\n")
+        row = " ".join("1" if (i // 16) % 2 == 0 else "3" for i in range(nfx))
+        for _ in range(nfy):
+            f.write(row + "\n")
 
 
 def plotfile(v):
@@ -107,19 +127,19 @@ def parity():
     check("parity uniform z0", ndiff == 0, f"{ndiff} values differ over {len(names)} fields")
 
 
-def ratio_check(name, a, b, expect, num, den, rtol):
+def ratio_check(name, a, b, expect, num, den, rtol, skip=lambda i: False):
     """max over cells of |num(b)/den(b) / (num(a)/den(a)) - expect| / expect"""
     worst, n, west, east = 0.0, 0, None, None
     for i, j in cells(a):
-        if abs(den(a, i, j)) < 0.5 or abs(den(b, i, j)) < 0.5 or abs(num(a, i, j)) < 0.5:
+        if skip(i) or abs(den(a, i, j)) < 0.5 or abs(den(b, i, j)) < 0.5 or abs(num(a, i, j)) < 0.5:
             continue
         r = (num(b, i, j) / den(b, i, j)) / (num(a, i, j) / den(a, i, j))
         e = expect(i)
         worst = max(worst, abs(r / e - 1.0))
         n += 1
-        if i == 0:
+        if i // GRID_RATIO < NX // 2:
             west = r
-        if i == len(a[next(iter(a))]) - 1:
+        else:
             east = r
     check(name, n > 1000 and worst <= rtol and west is not None and east is not None,
           f"{n} cells, max rel. error {worst:.2e} (tol {rtol:g}); west {west}, east {east}")
@@ -135,17 +155,41 @@ def sample():
     ratio_check("sampled wind, v", a, b, expect, lambda d, i, j: d["fire_wind_ref_v"][i][j], one, 1e-12)
 
 
-def ft20():
+def ft20(v="map10"):
     names = ["fire_wind_ref_u", "fire_wind_eff_u"]
-    a, b = pair("map10_sc", "map10_sl", names)
+    a, b = pair(f"{v}_sc", f"{v}_sl", names)
     if a is None:
         return
     expect_ref = lambda i: F(10.0, Z_SAMPLE, column_z0(i // GRID_RATIO)) / F(10.0, Z_SAMPLE, Z0_SCALAR)
     one = lambda d, i, j: 1.0
-    ratio_check("sampled wind to 10 m, u", a, b, expect_ref, lambda d, i, j: d["fire_wind_ref_u"][i][j], one, 1e-12)
+    ratio_check(f"{v}: sampled wind to 10 m, u", a, b, expect_ref, lambda d, i, j: d["fire_wind_ref_u"][i][j], one, 1e-12)
     expect = lambda i: F(6.096, 10.0, column_z0(i // GRID_RATIO)) / F(6.096, 10.0, Z0_SCALAR)
-    ratio_check("20 ft conversion, eff/ref", a, b, expect,
+    ratio_check(f"{v}: 20 ft conversion, eff/ref", a, b, expect,
                 lambda d, i, j: d["fire_wind_eff_u"][i][j], lambda d, i, j: d["fire_wind_ref_u"][i][j], 1e-12)
+
+
+def fmap():
+    ft20("fmap")
+
+
+def bil():
+    a, b = pair("bil_sc", "bil_sl", ["fire_wind_ref_u", "fire_wind_ref_v"])
+    if a is None:
+        return
+    expect = lambda i: F(2.0, 2.5, column_z0(i // GRID_RATIO)) / F(2.0, 2.5, Z0_SCALAR)
+    seam = lambda i: (i // GRID_RATIO) in (0, NX // 2 - 1, NX // 2, NX - 1)
+    one = lambda d, i, j: 1.0
+    ratio_check("bilinear below first, u", a, b, expect, lambda d, i, j: d["fire_wind_ref_u"][i][j], one, 1e-12, seam)
+    ratio_check("bilinear below first, v", a, b, expect, lambda d, i, j: d["fire_wind_ref_v"][i][j], one, 1e-12, seam)
+
+
+def restart():
+    names = ["fire_wind_ref_u", "fire_wind_ref_v", "fire_wind_eff_u", "fire_wind_eff_v", "fire_ros", "fire_phi"]
+    a, b = pair("rs_a", "rs_b", names)
+    if a is None:
+        return
+    ndiff = sum(1 for n in names for i, j in cells(a) if a[n][i][j] != b[n][i][j])
+    check("restart, bulk_coeff z0", ndiff == 0, f"{ndiff} values differ over {len(names)} fields")
 
 
 def cg98(u10):
@@ -174,10 +218,11 @@ def m10():
 
 
 if __name__ == "__main__":
-    which = sys.argv[1:] or ["parity", "sample", "ft20", "m10"]
+    which = sys.argv[1:] or ["parity", "sample", "ft20", "m10", "fmap", "bil", "restart"]
     if which == ["write_map"]:
         write_map()
         sys.exit(0)
     for w in which:
-        {"parity": parity, "sample": sample, "ft20": ft20, "m10": m10}[w]()
+        {"parity": parity, "sample": sample, "ft20": ft20, "m10": m10,
+         "fmap": fmap, "bil": bil, "restart": restart}[w]()
     sys.exit(0 if results and all(results) else 1)

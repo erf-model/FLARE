@@ -919,8 +919,12 @@ void FireLayer::advance(const FireForcing& forcing)
         fire_wind_ref->setVal(m_params.prescribed_wind_x, 0, 1, 0);
         fire_wind_ref->setVal(m_params.prescribed_wind_y, 1, 1, 0);
     } else {
-        // The surface layer's roughness changes in time over water (Charnock)
-        if (m_z0_atm && m_surface_layer->have_variable_sea_roughness()) { refresh_column_z0(); }
+        // The surface layer rewrites its roughness in time over water
+        // (Charnock, Donelan, waves), with bulk_coeff fluxes and with land-
+        // surface fluxes (Compute_roughness), and a restart restores the value
+        // at the checkpoint: copy it every step, so a restarted run and a
+        // straight run sample the same z0
+        if (m_z0_atm) { refresh_column_z0(); }
         const bool wind_open = m_params.structures.wind_open_columns && m_open_frac_atm && m_roof_h_atm;
         // The per-fuel wind height of every fire cell, when the fuel varies per
         // cell (filled once by initialize(): the fuel map is static)
@@ -1664,7 +1668,9 @@ void FireLayer::advance(const FireForcing& forcing)
                 fire_ember_landings.get(),
                 /*phi_normalized=*/ m_params.propagation_method != "levelset",
                 m_struct_ign ? m_struct_ign->launch_intensity() : nullptr,
-                m_frozen_drift.get());
+                m_frozen_drift.get(),
+                nullptr, nullptr,
+                m_z0_fire ? m_z0_fire.get() : nullptr);   // the column z0 (wind_sample_z0_source)
 
             // A spot landing lowers phi below zero directly, outside the
             // substep loop that stamps arrival time, so spot-ignited cells kept
@@ -2528,10 +2534,14 @@ void FireLayer::refresh_column_z0()
     fill_fire_from_atm_k0(*m_z0_fire, *m_z0_atm, m_fg);
 
     // The bound erf.fire.wind_sample_z0 meets: positive, and e z0 no higher
-    // than the reference-wind height or the 6.096 m of the WAF, so every
-    // conversion factor from the reference height stays at most 1.5
-    const Real z0_min = m_z0_atm->min(0);
-    const Real z0_max = m_z0_atm->max(0);
+    // than the reference-wind height or the 6.096 m of the WAF (applied with
+    // or without the WAF, as for the scalar), so every log in a denominator
+    // is at least 1 and each factor at most 1 + ln(10 m / reference height).
+    // One reduction for both bounds (valid cells only)
+    Real z0_ext[2] = {-m_z0_atm->min(0, 0, true), m_z0_atm->max(0, 0, true)};
+    ParallelDescriptor::ReduceRealMax(z0_ext, 2);
+    const Real z0_min = -z0_ext[0];
+    const Real z0_max =  z0_ext[1];
     const Real z_low  = amrex::min(m_params.sampled_wind_ht(), 6.096_rt);
     if (!(z0_min > 0.0_rt) || !(z0_max * std::exp(1.0_rt) <= z_low)) {
         amrex::Abort("[FIRE] erf.fire.wind_sample_z0_source = surface_layer: the surface layer's roughness"

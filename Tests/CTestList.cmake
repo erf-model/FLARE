@@ -629,12 +629,15 @@ endif()
 # the roughness of the fire layer's wind profiles from the surface layer per column
 # (erf.fire.wind_sample_z0_source = surface_layer) against the scalar: identical over a
 # uniform z0 equal to the scalar, and over a two-value roughness map the closed-form
-# per-cell ratio of the sampled wind, the 20 ft conversion and the 10 m wind (CG98 rate)
+# per-cell ratio of the sampled wind, the 20 ft conversion (uniform and mapped fuel),
+# the 10 m wind (CG98 rate) and the bilinear wind below the first centre; and restart
+# parity with bulk_coeff fluxes, whose z0 the surface layer recovers every step
 if(ERF_ENABLE_MPI AND NOT WIN32)
 add_test_fire_script(FireWindColumnZ0         FireWindColumnZ0      run_wind_column_z0.sh NRANKS 2)
 endif()
-# its start-up checks: an unknown source, a frozen or prescribed wind, and a
-# surface-layer roughness too large for the profiles (above 6.096 m / e)
+# its start-up checks: an unknown source, a frozen or prescribed wind, a
+# surface-layer roughness too large for the profiles (above 6.096 m / e), and a
+# deck where no log profile is applied (the key would have no effect)
 add_test_fire_abort(FireWindColumnZ0_value_abort      FireWindColumnZ0 inputs_base
     "erf.fire.wind_sample_z0_source = .column. is not one of" "erf.fire.wind_sample_z0_source=column")
 add_test_fire_abort(FireWindColumnZ0_frozen_abort     FireWindColumnZ0 inputs_base
@@ -643,6 +646,8 @@ add_test_fire_abort(FireWindColumnZ0_prescribed_abort FireWindColumnZ0 inputs_ba
     "does not apply to erf.fire.prescribed_wind = true" "erf.fire.wind_sample_z0_source=surface_layer erf.fire.prescribed_wind=true")
 add_test_fire_abort(FireWindColumnZ0_z0_range_abort   FireWindColumnZ0 inputs_base
     "every value must be positive and at most 2.24" "erf.fire.wind_sample_z0_source=surface_layer erf.most.z0=2.4")
+add_test_fire_abort(FireWindColumnZ0_no_effect_abort  FireWindColumnZ0 inputs_base
+    "surface_layer has no effect here" "erf.fire.wind_sample_z0_source=surface_layer erf.fire.wind_sample_ht=0 erf.fire.wind_ref_ht=10 erf.fire.use_waf=false")
 # where the rain that wets the dead fuel comes from (erf.fire.precip_source): the
 # atmosphere's rain per column wets the fuel under the raining columns only and the
 # fire-grid rate equals the change of the Kessler surface accumulation over the step,

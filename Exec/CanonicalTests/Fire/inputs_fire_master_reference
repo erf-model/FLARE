@@ -239,14 +239,15 @@ erf.fire.prescribed_wind_y = 0.0
 # that height directly
 erf.fire.wind_sample_ht = 0.0
 erf.fire.wind_sample_z0 = 0.1
-# Roughness of the log profiles applied to the sampled wind: "scalar" (default)
-# is wind_sample_z0 everywhere; "surface_layer" is each atmospheric column's
-# roughness in ERF's surface layer (erf.most.z0, erf.most.roughness_file_name), for
-# the two-height resampling, the wind below the first centre and the 20 ft and
-# 10 m conversions; needs zlo.type = surface_layer on a planar or
-# terrain-fitted mesh, and not with a frozen or prescribed wind. Each value must
-# be positive and at most min(reference-wind height, 6.096 m) / e. The ember
-# drift keeps wind_sample_z0
+# Roughness of the neutral log profiles applied to the sampled wind: "scalar"
+# (default) is wind_sample_z0 everywhere; "surface_layer" is each atmospheric
+# column's roughness in ERF's surface layer (erf.most.z0,
+# erf.most.roughness_file_name, or the z0 it computes), copied every step, for
+# the two-height resampling, the wind below the first centre, the 20 ft and
+# 10 m conversions and the ember drift; needs zlo.type = surface_layer on a
+# planar or terrain-fitted mesh, not with a frozen or prescribed wind, and
+# aborts where no log profile is applied. Each value must be positive and at
+# most min(reference-wind height, 6.096 m) / e
 erf.fire.wind_sample_z0_source = "scalar"
 
 # Wind at a target below the first atmospheric cell centre: "clamp" (default)

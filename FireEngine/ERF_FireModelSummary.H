@@ -174,13 +174,14 @@ inline std::vector<FireModelLine> fire_model_summary (const FireParams& fp)
     }
     // the roughness of the two-height resampling, the log wind below the first
     // cell and the ember drift
-    if (!fp.prescribed_wind && (fp.wind_sample_ht > 0.0 || fp.wind_below_first_log) ) {
+    // (with wind_sample_z0_source = surface_layer every one of them takes the
+    // column's roughness instead, and the scalar is unused)
+    if (fp.wind_z0_from_surface_layer) {
+        add("Roughness of the wind profiles", "wind_sample_z0_source", "surface_layer (per column)");
+    } else if (!fp.prescribed_wind && (fp.wind_sample_ht > 0.0 || fp.wind_below_first_log) ) {
         add("  log-profile roughness [m]", "wind_sample_z0", real_str(fp.wind_sample_z0));
     } else if (fp.spotting.enable && !fp.spotting.frozen_drift()) {
         add("Ember-drift roughness [m]", "wind_sample_z0", real_str(fp.wind_sample_z0));
-    }
-    if (fp.wind_z0_from_surface_layer) {
-        add("  roughness of the wind profiles", "wind_sample_z0_source", "surface_layer (per column)");
     }
     add("Wind adjustment factor", "use_waf", on_off(fp.use_waf));
     if (fp.use_waf) { add("  WAF formula", "waf_formula", fp.waf_formula); }

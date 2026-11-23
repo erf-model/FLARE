@@ -14,7 +14,7 @@ FLARE provides seven rate-of-spread models and a per-cell hybrid of two of them,
 
 Sub-phase A adds per-fuel wind extraction height following WRF-SFIRE :cpp:`fcwh` convention. This is controlled by the :cpp:`erf.fire.use_per_fuel_wind_ht` parameter and is backward-compatible with the global wind reference height approach.
 
-The wind can also be sampled above the flames and brought down to the target height, the second interpolation option of the Community Fire Behavior Model (Jiménez y Muñoz et al., 2026), meant to drive the fire with an ambient wind rather than one already accelerated by its own plume. With :cpp:`erf.fire.wind_sample_ht` :math:`= z_s > 0` every atmospheric column is sampled at :math:`z_s` above its own ground and the result is scaled with a neutral log profile of roughness :cpp:`erf.fire.wind_sample_z0` :math:`= z_0`,
+The wind can also be sampled above the flames and brought down to the target height, the second interpolation option of the Community Fire Behavior Model (Jiménez y Muñoz et al., 2026), meant to drive the fire with an ambient wind rather than one already accelerated by its own plume. With :cpp:`erf.fire.wind_sample_ht` :math:`= z_s > 0` every atmospheric column is sampled at :math:`z_s` above its own ground and the result is scaled with a neutral log profile of roughness :cpp:`erf.fire.wind_sample_z0` :math:`= z_0` (each column's surface-layer :math:`z_0` with :cpp:`erf.fire.wind_sample_z0_source = "surface_layer"`),
 
 .. math::
 
