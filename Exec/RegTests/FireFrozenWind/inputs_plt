@@ -1,0 +1,3 @@
+# The frozen wind from GUST's plotfile (cell-centred u, v, z and the node heights)
+erf.fire.frozen_wind.file = gust_hill_plt
+FILE = inputs_base

@@ -1,0 +1,57 @@
+# GUST-CFD (erf-model/gust-abl) deck that made gust_hill_plt and gust_hill_chk,
+# the frozen wind of the FireFrozenWind case. Steady RANS over the Gaussian
+# hill of make_hill_terrain.py (40 m high, s = 150 m) on 32 x 32 x 16 cells
+# over 1280 m x 1280 m x 400 m (dx = dy = 40 m; 5 m first layer, stretched to
+# the top), periodic, the surface layer (z0 = 0.1 m), a slip top, neutral
+# below a 300 m inversion, the geostrophic wind (10, 0) m/s at latitude 90.
+# Modelled on GUST's Tests/Canonical_RANS/Neutral_Hill_3D/inputs_steady_hill3d.
+# Run with run_gust.sh (needs the gust executable; not part of CTest).
+mesh.n_cell        = 32 32 16
+mesh.prob_lo       = 0. 0. 0.
+mesh.prob_hi       = 1280. 1280. 400.
+mesh.is_periodic   = 1 1 0
+mesh.max_grid_size = 16 16
+mesh.dz0           = 5.
+
+terrain.type      = erf_grid
+terrain.file      = terrain_gaussian_hill.txt
+terrain.smoothing = 0
+
+bc.zlo = surface_layer
+bc.zhi = slip_wall
+bc.surface_z0 = 0.1
+bc.theta_profile_z = 0. 300. 400.
+bc.theta_profile   = 300. 300. 303.
+bc.zhi_theta_grad  = 0.03
+bc.inflow_profile   = log_law
+bc.inflow_ustar     = 0.4
+bc.inflow_z0        = 0.1
+bc.inflow_direction = 0.
+bc.rayleigh_zdamp    = 300.
+bc.rayleigh_dampcoef = 0.2
+bc.rayleigh_fields   = w theta
+
+init.first_guess = profile
+
+forcing.coriolis        = 1
+forcing.coriolis_3d     = 0
+forcing.latitude        = 90.
+forcing.rotation_period = 125663.7061435917
+forcing.geostrophic     = 1
+forcing.ug              = 10.
+forcing.vg              = 0.
+
+turb.tke_floor = 1.e-6
+
+steady.stage                   = simplec
+steady.sweep                   = zjacobi
+steady.cfl0                    = 1.
+steady.cfl_max                 = 4.
+steady.zline_sweeps            = 16
+simplec.rotation_relax         = 1.
+steady.residual_ref_iterations = 100
+steady.residual_drop_orders    = 2
+steady.max_iterations          = 20000
+
+io.plot_file      = gust_hill_plt
+io.chk_file       = gust_hill_chk

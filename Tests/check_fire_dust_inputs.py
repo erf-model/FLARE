@@ -52,6 +52,9 @@ _root, EXTRA_DECKS = _parse_argv(sys.argv[1:])
 
 ROOT = os.path.abspath(_root) if _root else \
     os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# ERF's own sources (the dust registry, ERF.cpp, the fire coupling parameters),
+# in the ERF submodule since FLARE#28
+ERF_ROOT = os.path.join(ROOT, "Submodules", "ERF")
 
 def read(path):
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -126,23 +129,23 @@ def code_keys():
     for m in re.finditer(r'\bpp\.(?:query|queryarr)\s*\(\s*"([^"]+)"', s):
         keys.add("erf.dust." + m.group(1))
     # erf.dust.enable and erf.dust.model, read by ERF's dust coupling (Source/DustCoupling)
-    s_r = read(os.path.join(ROOT, "Source/DustCoupling/ERF_DustModelRegistry.cpp"))
+    s_r = read(os.path.join(ERF_ROOT, "Source/DustCoupling/ERF_DustModelRegistry.cpp"))
     for m in re.finditer(r'\bpp\.query\s*\(\s*"([^"]+)"', s_r):
         keys.add("erf.dust." + m.group(1))
     # the fire-dust coupling keys, read by FLARE's dust model (Dust/ERF_FlareDustModel.cpp)
     s_d = read(os.path.join(ROOT, "Dust/ERF_FlareDustModel.cpp"))
     for m in re.finditer(r'\bpp\.query\s*\(\s*"(fire_[A-Za-z0-9_]+)"', s_d):
         keys.add("erf." + m.group(1))
-    s = read(os.path.join(ROOT, "Source/ERF.cpp"))
+    s = read(os.path.join(ERF_ROOT, "Source/ERF.cpp"))
     # the coupling keys ERF reads itself (Source/FireCoupling, erf-model/ERF#4798)
-    s_c = read(os.path.join(ROOT, "Source/FireCoupling/ERF_FireCouplingParams.cpp"))
+    s_c = read(os.path.join(ERF_ROOT, "Source/FireCoupling/ERF_FireCouplingParams.cpp"))
     for m in re.finditer(r'\bpp\.(?:query|queryarr)\s*\(\s*"([^"]+)"', s_c):
         keys.add("erf.fire." + m.group(1))
     # the fire plotfile keys, read under erf.fire by ERF.cpp (as upstream ERF does)
     for m in re.finditer(r'\bpp_fire\.query\s*\(\s*"(plot_[A-Za-z0-9_]+)"', s):
         keys.add("erf.fire." + m.group(1))
     keys |= custom_fuel_keys()
-    s = read(os.path.join(ROOT, "Source/DataStructs/ERF_TurbStruct.H"))
+    s = read(os.path.join(ERF_ROOT, "Source/DataStructs/ERF_TurbStruct.H"))
     for m in re.finditer(r'query_one_or_per_level\s*\(\s*pp,\s*"([^"]+)"', s):
         k = "erf." + m.group(1)
         if in_family(k):

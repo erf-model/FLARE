@@ -1,0 +1,4 @@
+# The frozen wind from GUST's checkpoint (face velocities averaged to cell
+# centres, centre heights from the node heights): must equal inputs_plt
+erf.fire.frozen_wind.file = gust_hill_chk
+FILE = inputs_base

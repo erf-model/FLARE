@@ -222,6 +222,17 @@ erf.fire.prescribed_wind   = false
 erf.fire.prescribed_wind_x = 0.0
 erf.fire.prescribed_wind_y = 0.0
 
+# Frozen wind: a GUST-CFD plotfile or checkpoint directory read once at start-up.
+# The reference wind is sampled from it with the inputs above and below
+# (wind_ref_ht, per-fuel heights, wind_sample_ht, wind_interp,
+# wind_below_first_cell) and held for the whole run; ERF's wind is not read.
+# GUST's x, y are the fire grid's, and its domain must cover the fire region.
+# use_waf, use_terrain_wind and the 10 m scaling still act on it (GUST resolves
+# the terrain, so use_terrain_wind counts it twice). Not with prescribed_wind
+# or structures.wind_open_columns (Exec/RegTests/FireFrozenWind).
+# Unset = off; an empty string aborts.
+# erf.fire.frozen_wind.file = gust_hill_plt
+
 # Sample the wind at this height above ground (above the plume) and bring it
 # down to wind_ref_ht (6.096 m with use_per_fuel_wind_ht) with a log profile
 # of roughness wind_sample_z0 (CFBM second interpolation option); 0 samples at

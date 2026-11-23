@@ -162,6 +162,8 @@ inline std::vector<FireModelLine> fire_model_summary (const FireParams& fp)
 
     // ---- wind
     add("Prescribed wind", "prescribed_wind", on_off(fp.prescribed_wind));
+    add("Frozen wind file", "frozen_wind.file",
+        fp.frozen_wind_file.empty() ? std::string("none (the atmosphere's wind)") : fp.frozen_wind_file);
     if (!fp.prescribed_wind) {
         add("Wind interpolation", "wind_interp", fp.wind_interp == 0 ? "nearest" : "bilinear");
         add("Wind height [m]", fp.use_per_fuel_wind_ht ? "use_per_fuel_wind_ht" : "wind_ref_ht",

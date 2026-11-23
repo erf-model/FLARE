@@ -31,6 +31,7 @@
 #include <ERF_PolygonIgnition.H>
 #include <ERF_LevelSetEllipse.H>
 #include <ERF_FuelModels.H>
+#include <ERF_FrozenWind.H>
 #include <ERF_FbpModel.H>
 #include <ERF_FuelMoistureStick.H>
 #include <ERF_FirePrecip.H>
@@ -1006,6 +1007,13 @@ private:
     std::unique_ptr<StructureIgnition>       m_struct_ign;
     /// FARSITE/FlamMap gridded winds (erf.fire.farsite_winds.*); null when off
     std::unique_ptr<FarsiteWindWriter>       m_farsite_winds;
+    /// Frozen GUST wind (erf.fire.frozen_wind.file); null when off. The
+    /// reference wind and its sampling height are sampled from it once by
+    /// initialize() and copied into fire_wind_ref / fire_wind_extract_z every
+    /// step instead of sampling the atmosphere.
+    std::unique_ptr<FrozenWind>              m_frozen_wind;
+    std::unique_ptr<amrex::MultiFab>         m_frozen_wind_ref;
+    std::unique_ptr<amrex::MultiFab>         m_frozen_extract_z;
 
     /// Label the footprints of the structure heightmap and allocate the accumulators.
     void build_structure_ids();

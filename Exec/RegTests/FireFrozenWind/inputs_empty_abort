@@ -1,0 +1,4 @@
+# Abort test: an empty erf.fire.frozen_wind.file stops the run (leave the key
+# unset to sample the atmosphere's wind)
+FILE = inputs_base
+erf.fire.frozen_wind.file = ""
