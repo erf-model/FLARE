@@ -554,6 +554,20 @@ void FireLayer::initialize(const ERF& erf,
             amrex::Print() << "[FIRE] Frozen wind: note: erf.fire.use_terrain_wind = true scales the frozen wind,"
                               " which already holds GUST's terrain effect\n";
         }
+        // Ember spotting in the 3D field: the columns on the host of every
+        // rank, read with the reference wind's interpolation inputs
+        if (m_params.spotting.enable && m_params.spotting.drift_wind == "frozen") {
+            m_frozen_host = std::make_unique<FrozenWindHost>();
+            m_frozen_wind->gather_columns(*m_frozen_host, m_fg.geom);
+            m_frozen_drift = std::make_unique<FrozenDrift>();
+            m_frozen_drift->cols            = m_frozen_host->view;
+            m_frozen_drift->bilinear        = (m_params.wind_interp == 1);
+            m_frozen_drift->below_first_log = m_params.wind_below_first_log;
+            m_frozen_drift->z0_log          = m_params.wind_sample_z0;
+            amrex::Print() << "[FIRE] Frozen wind: ember spotting drifts in the 3D GUST field ("
+                           << static_cast<double>(m_frozen_host->data.size() * sizeof(Real)) / (1024.0 * 1024.0)
+                           << " MiB, the columns under the fire region, copied to every rank)\n";
+        }
         // so that step-0 output and diagnostics before the first advance() see it
         MultiFab::Copy(*fire_wind_ref, *m_frozen_wind_ref, 0, 0, 2, 0);
         MultiFab::Copy(*fire_wind_extract_z, *m_frozen_extract_z, 0, 0, 1, 0);
@@ -1585,8 +1599,9 @@ void FireLayer::advance(const FireForcing& forcing)
     // Phase 8: Albini ember spotting
     // Apply stochastic spotting at the specified interval (fire steps).
     // The brands launch with the cell's own Byram intensity (h w0 R of its
-    // fuel), drift on the reference-height wind scaled to their height, and
-    // land against the landing cell's own fuel.
+    // fuel), drift on the reference-height wind scaled to their height (or,
+    // with spotting.drift_wind = frozen, on the 3D GUST wind at their
+    // height), and land against the landing cell's own fuel.
     if (m_params.spotting.enable && fire_albini_data && fire_wind_ref) {
         if (m_step % m_params.spotting.spotting_interval == 0) {
             fire_albini_data->setVal(0.0_rt);
@@ -1611,7 +1626,8 @@ void FireLayer::advance(const FireForcing& forcing)
                 fire_nonburnable.get(),
                 fire_ember_landings.get(),
                 /*phi_normalized=*/ m_params.propagation_method != "levelset",
-                m_struct_ign ? m_struct_ign->launch_intensity() : nullptr);
+                m_struct_ign ? m_struct_ign->launch_intensity() : nullptr,
+                m_frozen_drift.get());
 
             // A spot landing lowers phi below zero directly, outside the
             // substep loop that stamps arrival time, so spot-ignited cells kept

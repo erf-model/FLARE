@@ -17,6 +17,7 @@
 #include <memory>
 
 #include <ERF_FireParams.H>
+#include <ERF_FrozenWind.H>
 #include <ERF_FireGrid.H>
 #include <ERF_FuelModels.H>
 #include <ERF_FireDiagnostics.H>
@@ -334,7 +335,12 @@ struct LaunchCell {
  *  4. Forward-Euler trajectory over n_traj_steps sub-steps, drifting on the
  *     reference-height wind scaled to the brand's height above ground with a
  *     neutral log profile of roughness z0 (albini_wind_profile_factor); the
- *     wind and terrain fields are gathered to every rank for it.
+ *     wind and terrain fields are gathered to every rank for it. With
+ *     drift3d (erf.fire.spotting.drift_wind = frozen) the brand drifts
+ *     instead on u, v of the frozen GUST field at its height above the
+ *     ground (frozen_point_wind); a brand above the highest GUST cell centre
+ *     takes that centre's wind, and such brands are counted and reported.
+ *     The fall stays at the terminal velocity in both cases.
  *  5. The landing distance is capped at the Scott/Albini maximum distance of
  *     the source cell's fuel.
  *  6. Catching probability filter P_catch.
@@ -369,6 +375,10 @@ struct LaunchCell {
  *                                 cells that launch brands although they are not burning fuel
  *                                 (the footprint cells of a burning structure); a cell with a
  *                                 positive value is a launch site with that intensity
+ * @param[in]     drift3d          Frozen GUST columns the brands drift in (spotting.drift_wind =
+ *                                 frozen); nullptr drifts on the log-scaled reference wind
+ * @param[out]    n_above_top_out  If not nullptr: the brands of this step that flew above GUST's
+ *                                 highest cell centre (0 without drift3d)
  */
 inline void
 compute_albini_spotting(amrex::MultiFab&                  phi,
@@ -391,9 +401,12 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
                         const amrex::MultiFab*            nonburnable = nullptr,
                         amrex::MultiFab*                  ember_landings = nullptr,
                         bool                              phi_normalized = true,
-                        const amrex::MultiFab*            extra_launch_intensity = nullptr)
+                        const amrex::MultiFab*            extra_launch_intensity = nullptr,
+                        const FrozenDrift*                drift3d = nullptr,
+                        int*                              n_above_top_out = nullptr)
 {
     using namespace amrex;
+    if (n_above_top_out) { *n_above_top_out = 0; }
 
     // GpuArray by value: CellSize()/ProbLo() hand back pointers into host
     // Geometry members, which the stamping kernel below cannot dereference.
@@ -560,6 +573,8 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         Real H_z;
     };
     std::vector<LandingSite> landings;
+    int  n_launched = 0, n_above_top = 0;   // drift3d: brands that flew above GUST's top centre
+    Real max_excess = 0.0;                  // and by how much at most [m]
 
     for (int fc = 0; fc < n_front; ++fc) {
         const int  si  = front_cells[fc].i;
@@ -597,6 +612,8 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         Real px = cx;
         Real py = cy;
         bool in_domain = true;
+        bool above_top = false;
+        ++n_launched;
 
         for (int ns = 0; ns < sp.n_traj_steps && in_domain; ++ns) {
             Real u_w = 0.0, v_w = 0.0;
@@ -606,9 +623,20 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
             if (!in_domain) { break; }
             const Real z_ground_here = albini_interp_scalar(h_terrain, nx, ny, dx[0], dx[1],
                                                             prob_lo[0], prob_lo[1], px, py);
-            const Real f = albini_wind_profile_factor(z_brand - z_ground_here, z_ref, z0);
-            px += f * u_w * dt_traj;
-            py += f * v_w * dt_traj;
+            if (drift3d) {
+                // u, v of the frozen field at the brand's height above the ground
+                Real u3, v3, z_s, g_s, excess;
+                frozen_point_wind(drift3d->cols, px, py, z_brand - z_ground_here,
+                                  drift3d->bilinear, drift3d->below_first_log, drift3d->z0_log,
+                                  u3, v3, z_s, g_s, excess);
+                if (excess > 0.0) { above_top = true; max_excess = std::max(max_excess, excess); }
+                px += u3 * dt_traj;
+                py += v3 * dt_traj;
+            } else {
+                const Real f = albini_wind_profile_factor(z_brand - z_ground_here, z_ref, z0);
+                px += f * u_w * dt_traj;
+                py += f * v_w * dt_traj;
+            }
             z_brand -= dz_step;
 
             const Real z_ground = albini_interp_scalar(h_terrain, nx, ny, dx[0], dx[1],
@@ -616,6 +644,7 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
             if (z_brand <= z_ground) { break; }
         }
 
+        if (above_top) { ++n_above_top; }
         if (!in_domain) { continue; }
 
         // Maximum distance cap of the source cell's fuel
@@ -633,6 +662,13 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         landings.push_back({px, py, si, sj, dist, H_z});
     }
 
+    // every rank flew the same brands, so the counts agree
+    if (n_above_top_out) { *n_above_top_out = n_above_top; }
+    if (n_above_top > 0) {
+        amrex::Print() << "[FIRE SPOTTING] step " << step << ": " << n_above_top << " of " << n_launched
+                       << " brands flew above the highest GUST cell centre (by up to " << max_excess
+                       << " m) and took that centre's wind there (erf.fire.spotting.drift_wind = frozen)\n";
+    }
     const int nland = static_cast<int>(landings.size());
     if (nland == 0) {
         if (fire_debug) {

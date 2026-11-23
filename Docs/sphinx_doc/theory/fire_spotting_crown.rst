@@ -94,6 +94,43 @@ same random draws on every rank whatever the decomposition:
    forward Euler over :cpp:`erf.fire.spotting.n_traj_steps` sub-steps
    (default 20) from :math:`H_z` to the terrain surface, which is
    interpolated under the brand so that drift downslope lands farther away.
+
+   With :cpp:`erf.fire.spotting.drift_wind = frozen` (and
+   :cpp:`erf.fire.frozen_wind.file` set) the brand drifts instead on
+   :math:`u, v` of the frozen 3-D GUST-CFD field at its height
+   :math:`h = z_b - z_g(x, y)` above the ground under it. Each of the four
+   GUST columns around the brand is sampled at its own ground :math:`+ h`,
+   linearly between its cell centres, and the four are weighted bilinearly
+   (or the column holding the brand is used, with
+   :cpp:`erf.fire.wind_interp = nearest`), the same sampling as the
+   reference wind; at GUST's lateral edges the edge column is used (no
+   periodic wrap). Below the first cell centre the lowest centre's wind is
+   used, or the log profile of roughness :cpp:`erf.fire.wind_sample_z0`
+   with :cpp:`erf.fire.wind_below_first_cell = log`. The reference height
+   :cpp:`erf.fire.wind_sample_ht` and the per-fuel reference heights do not
+   apply to the drift. Above the highest cell centre the brand takes that
+   centre's wind; such brands are counted and reported at each spotting
+   step, and the run goes on. The lofting height still uses the reference
+   wind, and the fall stays at the terminal velocity: the vertical wind
+   :math:`w` is not used. Over terrain :math:`w` can be of the order of
+   :math:`v_t` (up to 0.6 m/s in the ``FireFrozenWind`` hill case), so the
+   flight time on a windward slope can differ from the one computed here.
+   In a wind :math:`u = a\,h` on flat ground, with every sub-step between
+   the first and the highest cell centres, the scheme lands a brand lofted
+   to :math:`H` at
+
+   .. math::
+
+      D = \frac{a H^2}{2 v_t}\,\frac{N + 1}{N},
+
+   :math:`v_t` the terminal velocity and :math:`N` the number of sub-steps;
+   the unit tests ``FrozenDrift.*`` pin this value. The exact distance is
+   :math:`a H^2 / (2 v_t)`: each sub-step takes the wind at its start
+   height, so the scheme overestimates by :math:`1/N` (5 % at the default
+   :math:`N = 20`). On raised ground a brand uses fewer sub-steps, since
+   :math:`\Delta t` is sized for a fall to the lowest ground in the fire
+   domain, and the error grows (up to 9 % at :math:`N = 20` in the
+   ``FireFrozenWind`` hill case). The same holds for the profile drift.
 6. The landing distance is capped at the maximum spotting distance of the
    source cell's fuel (its code on a fuel map, the domain fuel otherwise; a
    burning structure's footprint cell takes the map's code under it, the

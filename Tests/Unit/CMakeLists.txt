@@ -78,6 +78,7 @@ if(ERF_ENABLE_FIRE)
     ${CMAKE_CURRENT_SOURCE_DIR}/Fire/ERF_GTestFireRegistry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Fire/ERF_GTestRothermelCellMoisture.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Fire/ERF_GTestEmberDrift.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Fire/ERF_GTestFrozenDrift.cpp
   )
 endif()
 
@@ -128,7 +129,7 @@ set_tests_properties(flare_unit_tests_shuffle_repeat PROPERTIES LABELS unit TIME
 # 2026 audit BehaveTransfer.WindowReachesState died here with SIGILL in the
 # BEHAVE live-weight 0/0 of a fuel without live load).
 if(ERF_ENABLE_FIRE)
-  set(_fire_gtest_suites "BehaveScottBurgan.*:BehaveTransfer.*:CustomFuel.*:DirectionalShape.*:FarsiteFrontCell.*:FarsiteSpreadTest.*:Fbp.*:FireAcceleration.*:FireAnchorLevel.*:FireBoundaryGuard.*:FireDiagnosticsPerFuel.*:FirePrecip.*:FireSuppression.*:FuelMap.*:FuelMoisture.*:FuelMoistureEMC.*:FuelMoistureLive.*:FuelMoistureStick.*:LcpReader.*:LevelSetAdvection.*:LevelSetEllipse.*:PrescribedFire.*:SplitHamiltonianAdvection.*:StructureIgnition.*:WindLimit.*:FireModelReferences.*:FireDefaults.*:BehaveNetLoad.*:CheneyGould98.*:MacArthurCap.*:FarsiteShape.*:FireHeatBudget.*:ByramIntensity.*:ArrivalStamp.*:FbpSlopeVector.*:PerimeterCount.*:FuelBlendingParity.*:CrownFront.*:ExnerTendency.*:SmokeInjection.*:RothermelCellMoisture.*:EmberDrift.*:FireBreak.*:ReactionVelocityFormula.*:WrfBmstCompat.*:FireModelSummary.*:FireCoupler.*:FireRegistry.*:HeatInjection.*")
+  set(_fire_gtest_suites "BehaveScottBurgan.*:BehaveTransfer.*:CustomFuel.*:DirectionalShape.*:FarsiteFrontCell.*:FarsiteSpreadTest.*:Fbp.*:FireAcceleration.*:FireAnchorLevel.*:FireBoundaryGuard.*:FireDiagnosticsPerFuel.*:FirePrecip.*:FireSuppression.*:FuelMap.*:FuelMoisture.*:FuelMoistureEMC.*:FuelMoistureLive.*:FuelMoistureStick.*:LcpReader.*:LevelSetAdvection.*:LevelSetEllipse.*:PrescribedFire.*:SplitHamiltonianAdvection.*:StructureIgnition.*:WindLimit.*:FireModelReferences.*:FireDefaults.*:BehaveNetLoad.*:CheneyGould98.*:MacArthurCap.*:FarsiteShape.*:FireHeatBudget.*:ByramIntensity.*:ArrivalStamp.*:FbpSlopeVector.*:PerimeterCount.*:FuelBlendingParity.*:CrownFront.*:ExnerTendency.*:SmokeInjection.*:RothermelCellMoisture.*:EmberDrift.*:FrozenDrift.*:FireBreak.*:ReactionVelocityFormula.*:WrfBmstCompat.*:FireModelSummary.*:FireCoupler.*:FireRegistry.*:HeatInjection.*")
   if(ERF_ENABLE_DUST)
     string(APPEND _fire_gtest_suites ":DustColumn.*:DustThreshold.*:DustWind.*:DustBudget.*:DustDiagnostics.*")
   endif()

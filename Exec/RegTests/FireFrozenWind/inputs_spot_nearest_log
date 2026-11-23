@@ -1,0 +1,5 @@
+# Variant of inputs_spot3d: the brands drift in the nearest GUST column, with
+# the log profile below its lowest cell centre
+FILE = inputs_spot3d
+erf.fire.wind_interp = "nearest"
+erf.fire.wind_below_first_cell = "log"

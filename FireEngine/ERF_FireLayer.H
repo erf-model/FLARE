@@ -1014,6 +1014,10 @@ private:
     std::unique_ptr<FrozenWind>              m_frozen_wind;
     std::unique_ptr<amrex::MultiFab>         m_frozen_wind_ref;
     std::unique_ptr<amrex::MultiFab>         m_frozen_extract_z;
+    /// The GUST columns on the host of every rank, and how the brands read
+    /// them (erf.fire.spotting.drift_wind = frozen); null otherwise
+    std::unique_ptr<FrozenWindHost>          m_frozen_host;
+    std::unique_ptr<FrozenDrift>             m_frozen_drift;   ///< views m_frozen_host's data: reset it with or before m_frozen_host
 
     /// Label the footprints of the structure heightmap and allocate the accumulators.
     void build_structure_ids();

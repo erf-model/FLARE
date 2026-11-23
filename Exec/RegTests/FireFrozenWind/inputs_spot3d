@@ -1,0 +1,21 @@
+# FireFrozenWind with ember spotting in the frozen GUST wind
+# (erf.fire.spotting.drift_wind = frozen). Every front cell launches a brand
+# every step (P_base = 1, fixed seed); check_spot3d.py replays each source
+# cell's flight through gust_hill_plt and compares its landing distance with
+# fire_spot_max_dist. inputs_spot_profile is the same run with the default
+# drift on the log-scaled reference wind.
+FILE = inputs_plt
+
+erf.fire.plot_int = 20                 # the check reads step 20
+erf.fire.spotting.enable = true
+erf.fire.spotting.drift_wind = frozen
+erf.fire.spotting.I_B_min = 50.0
+erf.fire.spotting.P_base = 1.0
+erf.fire.spotting.P_catch = 1.0
+erf.fire.spotting.terminal_velocity = 2.5      # lands the brands short of the 200 m cap of short grass
+erf.fire.spotting.n_traj_steps = 20
+erf.fire.spotting.spot_radius = 10.0
+erf.fire.spotting.launch_from = "front"
+erf.fire.spotting.front_band = 2
+erf.fire.spotting.random_seed = 11
+erf.fire.spotting.spotting_interval = 1

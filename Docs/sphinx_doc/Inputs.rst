@@ -6674,8 +6674,9 @@ Wind
 |                                                | cell centre, the plotfile has more than one level or a     |                                |                        |
 |                                                | checkpoint's real size differs from the build; not with    |                                |                        |
 |                                                | prescribed_wind or structures.wind_open_columns            |                                |                        |
-|                                                | (Exec/RegTests/FireFrozenWind). Unset = off; an empty      |                                |                        |
-|                                                | string aborts                                              |                                |                        |
+|                                                | (Exec/RegTests/FireFrozenWind). Ember brands drift in the  |                                |                        |
+|                                                | 3-D field with spotting.drift_wind = frozen. Unset = off;  |                                |                        |
+|                                                | an empty string aborts                                     |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.use_per_fuel_wind_ht**              | Sample the wind at the per-fuel fcwh height (6.096 m for   | Boolean                        | false                  |
 |                                                | every fuel) instead of wind_ref_ht, with or without a      |                                |                        |
@@ -6697,7 +6698,9 @@ Wind
 |                                                | first cell)                                                |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.wind_interp**                       | Horizontal mapping of atmospheric columns onto fire cells  | "bilinear", "nearest"          | "bilinear"             |
+| **erf.fire.wind_interp**                       | Horizontal mapping of atmospheric columns onto fire cells, | "bilinear", "nearest"          | "bilinear"             |
+|                                                | and of the frozen GUST columns onto a brand with           |                                |                        |
+|                                                | spotting.drift_wind = frozen                               |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.use_waf**                           | Apply the wind adjustment factor to the reference wind     | Boolean                        | true                   |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
@@ -7209,6 +7212,17 @@ Spotting
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.spotting.n_traj_steps**             | Forward-Euler sub-steps along the trajectory               | Integer > 0                    | 20                     |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
+| **erf.fire.spotting.drift_wind**               | Wind the brands drift on: the reference wind scaled by the | "profile", "frozen"            | "profile"              |
+|                                                | log profile, or u, v of the frozen GUST field at the       |                                |                        |
+|                                                | brand's height above the ground, sampled as set by         |                                |                        |
+|                                                | wind_interp and wind_below_first_cell (wind_sample_ht and  |                                |                        |
+|                                                | per-fuel heights do not apply). frozen needs               |                                |                        |
+|                                                | erf.fire.frozen_wind.file and keeps the GUST columns under |                                |                        |
+|                                                | the fire region on every rank (32 bytes per GUST cell). A  |                                |                        |
+|                                                | brand above the highest GUST cell centre takes that        |                                |                        |
+|                                                | centre's wind; such brands are counted and reported, and   |                                |                        |
+|                                                | the run goes on. The fall stays at terminal_velocity       |                                |                        |
++------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.spotting.launch_from**              | Cells that may launch a brand: every burned cell, or only  | "burned", "front"              | "burned"               |
 |                                                | those with unburned fuel within front_band cells           |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
@@ -7679,8 +7693,6 @@ MRF section of :ref:`PBLschemes`.
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 | **erf.mrf_fire_q_threshold**                 | Fire heat flux above which a column counts as burning for  | Real >= 0                | 50.0                               |
 |                                              | that boost [W/m²]                                          |                          |                                    |
-+----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
-| **erf.mrf_fire_t_excess_cap**                | Cap on the thermal excess the fire adds [K]                | Real > 0                 | 50.0                               |
 +----------------------------------------------+------------------------------------------------------------+--------------------------+------------------------------------+
 
 

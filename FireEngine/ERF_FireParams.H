@@ -312,6 +312,11 @@ struct FireParams
         // (Scott-Burgan codes, custom fuels, Anderson 8); 0 = none, and such
         // a cell aborts the run.
         int               thermal_fuel_model  = 0;
+        // The wind the brands drift on. "profile" (default): the reference
+        // wind scaled to the brand's height with the neutral log profile.
+        // "frozen": u, v of the frozen GUST field (erf.fire.frozen_wind.file)
+        // at the brand's height above the ground.
+        std::string       drift_wind          = "profile";
     } spotting;
 
     // Phase 9: Crown fire initiation parameters.
@@ -1317,7 +1322,12 @@ struct FireParams
        pp.query("spotting.spotting_interval",   sp.spotting_interval);
        pp.query("spotting.fuel_system",         sp.fuel_system);
        pp.query("spotting.thermal_fuel_model",  sp.thermal_fuel_model);
+       pp.query("spotting.drift_wind",          sp.drift_wind);
        if (sp.enable) {
+           one_of("spotting.drift_wind", sp.drift_wind, {"profile", "frozen"});
+           if (sp.drift_wind == "frozen" && frozen_wind_file.empty()) {
+               fail("erf.fire.spotting.drift_wind = frozen needs the frozen GUST wind: set erf.fire.frozen_wind.file");
+           }
            if (sp.thermal_fuel_model != 0) {
                const int m = sp.thermal_fuel_model;   // albini_thermal_fit's table
                if (m < 1 || m > 13 || m == 8) {
@@ -1339,7 +1349,8 @@ struct FireParams
                  {"spotting.I_B_min", "spotting.P_base", "spotting.terminal_velocity",
                   "spotting.n_traj_steps", "spotting.spot_radius", "spotting.launch_from",
                   "spotting.front_band", "spotting.P_catch", "spotting.reentry_fuel_thresh",
-                  "spotting.random_seed", "spotting.spotting_interval", "spotting.thermal_fuel_model"});
+                  "spotting.random_seed", "spotting.spotting_interval", "spotting.thermal_fuel_model",
+                  "spotting.drift_wind"});
 
        // Phase 9: Crown fire initiation parameters
        auto& cr = crown;
