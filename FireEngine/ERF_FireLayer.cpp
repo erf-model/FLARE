@@ -556,15 +556,18 @@ void FireLayer::initialize(const ERF& erf,
         }
         // Ember spotting in the 3D field: the columns on the host of every
         // rank, read with the reference wind's interpolation inputs
-        if (m_params.spotting.enable && m_params.spotting.drift_wind == "frozen") {
+        if (m_params.spotting.enable && m_params.spotting.frozen_drift()) {
+            const bool with_w = (m_params.spotting.drift_wind == "frozen_uvw");
             m_frozen_host = std::make_unique<FrozenWindHost>();
-            m_frozen_wind->gather_columns(*m_frozen_host, m_fg.geom);
+            m_frozen_wind->gather_columns(*m_frozen_host, m_fg.geom, with_w);
             m_frozen_drift = std::make_unique<FrozenDrift>();
             m_frozen_drift->cols            = m_frozen_host->view;
             m_frozen_drift->bilinear        = (m_params.wind_interp == 1);
             m_frozen_drift->below_first_log = m_params.wind_below_first_log;
             m_frozen_drift->z0_log          = m_params.wind_sample_z0;
+            m_frozen_drift->vertical        = with_w;
             amrex::Print() << "[FIRE] Frozen wind: ember spotting drifts in the 3D GUST field ("
+                           << (with_w ? "u, v and w, " : "u and v, ")
                            << static_cast<double>(m_frozen_host->data.size() * sizeof(Real)) / (1024.0 * 1024.0)
                            << " MiB, the columns under the fire region, copied to every rank)\n";
         }
@@ -1600,8 +1603,8 @@ void FireLayer::advance(const FireForcing& forcing)
     // Apply stochastic spotting at the specified interval (fire steps).
     // The brands launch with the cell's own Byram intensity (h w0 R of its
     // fuel), drift on the reference-height wind scaled to their height (or,
-    // with spotting.drift_wind = frozen, on the 3D GUST wind at their
-    // height), and land against the landing cell's own fuel.
+    // with spotting.drift_wind = frozen or frozen_uvw, on the 3D GUST wind
+    // at their height), and land against the landing cell's own fuel.
     if (m_params.spotting.enable && fire_albini_data && fire_wind_ref) {
         if (m_step % m_params.spotting.spotting_interval == 0) {
             fire_albini_data->setVal(0.0_rt);

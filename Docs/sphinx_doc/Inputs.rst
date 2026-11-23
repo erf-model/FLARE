@@ -6675,7 +6675,8 @@ Wind
 |                                                | checkpoint's real size differs from the build; not with    |                                |                        |
 |                                                | prescribed_wind or structures.wind_open_columns            |                                |                        |
 |                                                | (Exec/RegTests/FireFrozenWind). Ember brands drift in the  |                                |                        |
-|                                                | 3-D field with spotting.drift_wind = frozen. Unset = off;  |                                |                        |
+|                                                | 3-D field with spotting.drift_wind = frozen or frozen_uvw. |                                |                        |
+|                                                | Unset = off;                                               |                                |                        |
 |                                                | an empty string aborts                                     |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.use_per_fuel_wind_ht**              | Sample the wind at the per-fuel fcwh height (6.096 m for   | Boolean                        | false                  |
@@ -6700,7 +6701,7 @@ Wind
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_interp**                       | Horizontal mapping of atmospheric columns onto fire cells, | "bilinear", "nearest"          | "bilinear"             |
 |                                                | and of the frozen GUST columns onto a brand with           |                                |                        |
-|                                                | spotting.drift_wind = frozen                               |                                |                        |
+|                                                | spotting.drift_wind = frozen or frozen_uvw                 |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.use_waf**                           | Apply the wind adjustment factor to the reference wind     | Boolean                        | true                   |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
@@ -7212,8 +7213,8 @@ Spotting
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.spotting.n_traj_steps**             | Forward-Euler sub-steps along the trajectory               | Integer > 0                    | 20                     |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.spotting.drift_wind**               | Wind the brands drift on: the reference wind scaled by the | "profile", "frozen"            | "profile"              |
-|                                                | log profile, or u, v of the frozen GUST field at the       |                                |                        |
+| **erf.fire.spotting.drift_wind**               | Wind the brands drift on: the reference wind scaled by the | "profile", "frozen",           | "profile"              |
+|                                                | log profile, or u, v of the frozen GUST field at the       | "frozen_uvw"                   |                        |
 |                                                | brand's height above the ground, sampled as set by         |                                |                        |
 |                                                | wind_interp and wind_below_first_cell (wind_sample_ht and  |                                |                        |
 |                                                | per-fuel heights do not apply). frozen needs               |                                |                        |
@@ -7221,7 +7222,12 @@ Spotting
 |                                                | the fire region on every rank (32 bytes per GUST cell). A  |                                |                        |
 |                                                | brand above the highest GUST cell centre takes that        |                                |                        |
 |                                                | centre's wind; such brands are counted and reported, and   |                                |                        |
-|                                                | the run goes on. The fall stays at terminal_velocity       |                                |                        |
+|                                                | the run goes on. The fall stays at terminal_velocity.      |                                |                        |
+|                                                | frozen_uvw: as frozen, and the brand also moves with the   |                                |                        |
+|                                                | field's vertical wind w (vertical speed w -                |                                |                        |
+|                                                | terminal_velocity, 40 bytes per GUST cell); it steps on    |                                |                        |
+|                                                | until it lands, up to 10 x n_traj_steps steps, and a brand |                                |                        |
+|                                                | still aloft then is dropped, counted and reported          |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.spotting.launch_from**              | Cells that may launch a brand: every burned cell, or only  | "burned", "front"              | "burned"               |
 |                                                | those with unburned fuel within front_band cells           |                                |                        |

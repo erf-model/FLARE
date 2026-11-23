@@ -427,7 +427,7 @@ void FrozenWind::sample_reference_wind (MultiFab& wind_ref,
     }
 }
 
-void FrozenWind::gather_columns (FrozenWindHost& h, const Geometry& fire_geom) const
+void FrozenWind::gather_columns (FrozenWindHost& h, const Geometry& fire_geom, bool with_w) const
 {
     AMREX_ALWAYS_ASSERT(defined());
     const Box& gdom = m_geom.Domain();
@@ -447,13 +447,14 @@ void FrozenWind::gather_columns (FrozenWindHost& h, const Geometry& fire_geom) c
                      IntVect(AMREX_D_DECL(ihi, jhi, gdom.bigEnd(2))));
     AMREX_ALWAYS_ASSERT(region.ok() && gdom.contains(region));
 
+    const int  nc   = with_w ? 5 : 4;   // u, v, z, ground (, w)
     const Long npts = region.numPts();
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(4 * npts <= Long(std::numeric_limits<int>::max()),
-                                     "erf.fire.spotting.drift_wind = frozen: the GUST columns under the fire region are too many to copy to every rank");
-    h.data.assign(static_cast<std::size_t>(4 * npts), Real(0.0));
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(nc * npts <= Long(std::numeric_limits<int>::max()),
+                                     "erf.fire.spotting.drift_wind = frozen or frozen_uvw: the GUST columns under the fire region are too many to copy to every rank");
+    h.data.assign(static_cast<std::size_t>(nc * npts), Real(0.0));
     const Dim3 hi = amrex::ubound(region);
     const Dim3 hi1{hi.x + 1, hi.y + 1, hi.z + 1};   // Array4's end is one past the last cell
-    Array4<Real> out(h.data.data(), amrex::lbound(region), hi1, 4);
+    Array4<Real> out(h.data.data(), amrex::lbound(region), hi1, nc);
     for (MFIter mfi(m_cc); mfi.isValid(); ++mfi) {
         const Box bx = mfi.validbox() & region;   // every cell has one owner: m_cc has no ghosts
         if (!bx.ok()) { continue; }
@@ -470,12 +471,13 @@ void FrozenWind::gather_columns (FrozenWindHost& h, const Geometry& fire_geom) c
             out(i, j, k, 1) = in(i, j, k, V);
             out(i, j, k, 2) = in(i, j, k, Z);
             out(i, j, k, 3) = in(i, j, k, ZG);
+            if (with_w) { out(i, j, k, 4) = in(i, j, k, W); }
         });
     }
     ParallelDescriptor::ReduceRealSum(h.data.data(), static_cast<int>(h.data.size()));
 
     FrozenColumnsView& c = h.view;
-    c.a = Array4<const Real>(h.data.data(), amrex::lbound(region), hi1, 4);
+    c.a = Array4<const Real>(h.data.data(), amrex::lbound(region), hi1, nc);
     c.gilo = gilo; c.gihi = gihi;   // GUST's bounds: the index origin and the edge clamp
     c.gjlo = gjlo; c.gjhi = gjhi;
     c.kz0  = gdom.smallEnd(2); c.kz1  = gdom.bigEnd(2);

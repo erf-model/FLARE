@@ -8,6 +8,7 @@
 # inputs_spot_profile  the same run on the log-scaled reference wind (the default)
 # inputs_spot_nearest_log  frozen, in the nearest GUST column, log profile below
 #                      its lowest cell centre (wind_interp, wind_below_first_cell)
+# inputs_spot_uvw      frozen, and the brands also move with GUST's w (drift_wind = frozen_uvw)
 
 set -u
 EXE=${1:?usage: run_spot3d.sh /path/to/erf_exec}
@@ -27,5 +28,6 @@ run_case () {
 run_case inputs_spot3d frozen
 run_case inputs_spot_profile profile
 run_case inputs_spot_nearest_log frozen --interp nearest --below log
+run_case inputs_spot_uvw frozen_uvw
 rm -rf plt_fire_*
 exit $status

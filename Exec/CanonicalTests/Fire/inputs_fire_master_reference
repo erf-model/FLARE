@@ -968,7 +968,10 @@ erf.fire.spotting.n_traj_steps = 20
 # Wind the brands drift on: "profile" (default) = the reference wind scaled by
 # the neutral log profile of wind_sample_z0 to the brand's height; "frozen" =
 # u, v of the frozen GUST field (erf.fire.frozen_wind.file, required) at the
-# brand's height above the ground. The fall stays at terminal_velocity.
+# brand's height above the ground, falling at terminal_velocity; "frozen_uvw" =
+# the same, and the brand also moves with the field's vertical wind w (vertical
+# speed w - terminal_velocity, up to 10 x n_traj_steps steps; a brand still
+# aloft then is dropped and reported).
 erf.fire.spotting.drift_wind = "profile"
 
 # Ignition disk radius at landing [m]

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the ember drift of the FireFrozenWind spotting decks.
 
-    python3 check_spot3d.py --drift frozen|profile [--plotfile plt_fire_00020]
+    python3 check_spot3d.py --drift frozen|frozen_uvw|profile [--plotfile plt_fire_00020]
                             [--interp bilinear|nearest] [--below clamp|log]
 
 Reads the fire plotfile (step 20 by default) in the working directory and
@@ -31,6 +31,12 @@ The flight, as documented for erf.fire.spotting.drift_wind:
     log) the lowest centre's wind is scaled by ln(h' / z0) / ln(h1 / z0)
     below it, h' and h1 the heights above that column's ground and z0 =
     0.1 m (wind_sample_z0)
+  - frozen_uvw: as frozen, and the brand also moves with GUST's w, sampled
+    as u and v; it falls (v_t - w) dt per step, keeps dt, steps on until it
+    lands (w's share z_w of the height is summed apart from the v_t fall; with
+    z_w != 0 it lands within 1e-3 v_t dt above the ground, and with z_w <= 0
+    after N steps at the latest), up to 10 N steps, and
+    is dropped if still aloft then
   - profile: (u, v) = fire_wind_ref x ln(h / z0) / ln(z_ref / z0), z_ref =
     6.1 m and z0 = 0.1 m (inputs_base), fire_wind_ref bilinear
   - the distance is capped at 200 m, the Scott cap of fuel model 1
@@ -39,8 +45,12 @@ Checks:
   sources   the step launched brands (fire_spot_brand_count > 0)
   uncapped  every landing is short of the 200 m cap, so the drift is tested
   replay    |fire_spot_max_dist - replay| <= 1e-6 m for every source
-  other     the other drift's replay differs by more than 1 m somewhere
-            (the check can tell the two drifts apart)
+  other     the other drift's replay (profile for frozen, frozen for
+            profile and frozen_uvw) differs by more than 1 m somewhere (the
+            check can tell the two drifts apart)
+  steps     frozen_uvw: w changes the flight time, so some brand lands in
+            more or fewer steps than its frozen replay; none is still aloft
+            (the cap of 10 N steps itself is pinned by the FrozenDrift gtests)
   options   frozen with a non-default --interp or --below: the replay with the
             default bilinear and clamp differs by more than 1 m somewhere, so
             the run read the option (and, for --below log, some brand sampled
@@ -62,6 +72,7 @@ Z_REF, Z0 = 6.1, 0.1   # inputs_base: wind_ref_ht; wind_sample_z0 (default)
 TINY = 1.0e-30
 CAP = 200.0         # Scott cap of Anderson model 1
 TOL = 1.0e-6
+ALOFT_FACTOR = 10   # albini_aloft_step_factor: frozen_uvw steps on up to 10 N steps
 
 results = []
 
@@ -73,15 +84,15 @@ def check(name, ok, detail):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--drift", choices=("frozen", "profile"), required=True)
+    ap.add_argument("--drift", choices=("frozen", "frozen_uvw", "profile"), required=True)
     ap.add_argument("--plotfile", default="plt_fire_00020")
     ap.add_argument("--interp", choices=("bilinear", "nearest"), default="bilinear")
     ap.add_argument("--below", choices=("clamp", "log"), default="clamp")
     opt = ap.parse_args()
 
     # GUST columns
-    ghdr, g = erf_plotfile.read_fields("gust_hill_plt", ["u", "v", "z"])
-    U, V, Z = g["u"], g["v"], g["z"]
+    ghdr, g = erf_plotfile.read_fields("gust_hill_plt", ["u", "v", "w", "z"])
+    U, V, Wz, Z = g["u"], g["v"], g["w"], g["z"]
     gnx, gny, gnz = len(U), len(U[0]), len(U[0][0])
     gx0, gy0 = ghdr["prob_lo"][0], ghdr["prob_lo"][1]
     gdx = (ghdr["prob_hi"][0] - gx0) / gnx
@@ -102,13 +113,14 @@ def main():
                 zg = G[ia][ja]
                 z1 = max(zc[0] - zg, z0s * 1.000001)
                 f = math.log(max(min(zt - zg, z1), z0s) / z0s) / math.log(z1 / z0s)
-            return f * U[ia][ja][0], f * V[ia][ja][0]
+            return f * U[ia][ja][0], f * V[ia][ja][0], f * Wz[ia][ja][0]
         k = 0
         while k < gnz - 2 and zc[k + 1] <= zt:
             k += 1
         a = min(1.0, max(0.0, (zt - zc[k]) / (zc[k + 1] - zc[k])))
         return (U[ia][ja][k] + a * (U[ia][ja][k + 1] - U[ia][ja][k]),
-                V[ia][ja][k] + a * (V[ia][ja][k + 1] - V[ia][ja][k]))
+                V[ia][ja][k] + a * (V[ia][ja][k + 1] - V[ia][ja][k]),
+                Wz[ia][ja][k] + a * (Wz[ia][ja][k + 1] - Wz[ia][ja][k]))
 
     def frozen_wind(x, y, h, interp, below):
         if interp == "nearest":
@@ -119,7 +131,7 @@ def main():
         gy = (y - gy0) / gdy - 0.5
         i0, j0 = math.floor(gx), math.floor(gy)
         wx, wy = gx - i0, gy - j0
-        u = v = 0.0
+        u = v = wz = 0.0
         for di in (0, 1):
             for dj in (0, 1):
                 ia = max(0, min(i0 + di, gnx - 1))
@@ -127,10 +139,11 @@ def main():
                 w = (wx if di else 1.0 - wx) * (wy if dj else 1.0 - wy)
                 if w <= 0.0:
                     continue
-                uc, vc = column(ia, ja, G[ia][ja] + h, below)
+                uc, vc, wc = column(ia, ja, G[ia][ja] + h, below)
                 u += w * uc
                 v += w * vc
-        return u, v
+                wz += w * wc
+        return u, v, wz
 
     # fire fields
     if not os.path.isdir(opt.plotfile):
@@ -176,29 +189,44 @@ def main():
         zr = max(Z_REF, z0s * 1.000001)
         return math.log(max(h, z0s) / z0s) / math.log(zr / z0s)
 
+    steps = [0]
+
     def fly(si, sj, H, drift, interp=opt.interp, below=opt.below):
+        """Landing distance, None if the brand left the grid, "aloft" if dropped."""
         cx, cy = x0 + (si + 0.5) * dx, y0 + (sj + 0.5) * dy
         zb = T[si][sj] + H
         dt = (zb - zmin) / V_T / N_TRAJ
         dz = V_T * dt
+        uvw = drift == "frozen_uvw"
+        tol = 1.0e-3 * dz
+        zw = 0.0          # w's share of the height change, apart from the v_t fall
         px, py = cx, cy
-        for _ in range(N_TRAJ):
+        landed = False
+        steps[0] = 0
+        for ns in range(ALOFT_FACTOR * N_TRAJ if uvw else N_TRAJ):
             if not inside(px, py):
                 return None
-            h = zb - bilin(T, px, py)
-            if drift == "frozen":
-                u, v = frozen_wind(px, py, h, interp, below)
+            steps[0] += 1
+            h = zb + zw - bilin(T, px, py)
+            if drift in ("frozen", "frozen_uvw"):
+                u, v, wz = frozen_wind(px, py, h, interp, below)
             else:
                 f = profile_factor(h)
-                u, v = f * bilin(WU, px, py), f * bilin(WV, px, py)
+                u, v, wz = f * bilin(WU, px, py), f * bilin(WV, px, py), 0.0
             px += u * dt
             py += v * dt
+            if uvw:
+                zw += wz * dt
             zb -= dz
-            if zb <= bilin(T, px, py):
+            if (zb + zw <= bilin(T, px, py) + (tol if zw != 0.0 else 0.0)
+                    or (uvw and ns + 1 >= N_TRAJ and zw <= 0.0)):
+                landed = True
                 break
+        if uvw and not landed:
+            return "aloft"
         return min(math.hypot(px - cx, py - cy), CAP)
 
-    other = "profile" if opt.drift == "frozen" else "frozen"
+    other = {"frozen": "profile", "profile": "frozen", "frozen_uvw": "frozen"}[opt.drift]
     src = [(i, j) for i in range(nx) for j in range(ny) if CNT[i][j] > 0.0]
     check("sources", len(src) > 0, f"{len(src)} source cells at {opt.plotfile}")
     if not src:
@@ -210,14 +238,21 @@ def main():
     below_seen = 0
     dmax = 0.0
     lost = 0
+    aloft = 0
+    steps_max = 0
+    n_longer = 0
+    n_shorter = 0
     for i, j in src:
         D = DST[i][j]
         dmax = max(dmax, D)
         n_below[0] = 0
         r = fly(i, j, HZ[i][j], opt.drift)
+        n_steps = steps[0]
+        steps_max = max(steps_max, n_steps)
         below_seen += n_below[0]
-        if r is None:
-            lost += 1
+        if r is None or r == "aloft":
+            lost += r is None
+            aloft += r == "aloft"
             err = math.inf
             continue
         err = max(err, abs(D - r))
@@ -226,13 +261,19 @@ def main():
             if rd is not None:
                 gap_opt = max(gap_opt, abs(rd - r))
         ro = fly(i, j, HZ[i][j], other)
-        if ro is not None:
+        n_longer += steps[0] < n_steps
+        n_shorter += steps[0] > n_steps
+        if ro is not None and ro != "aloft":
             gap = max(gap, abs(ro - r))
     check("uncapped", dmax < CAP, f"longest landing {dmax:.3f} m (cap {CAP} m)")
     check("replay", err <= TOL and lost == 0,
           f"max |fire_spot_max_dist - {opt.drift} replay| = {err:.3e} m (tol {TOL}); "
-          f"{lost} replays left the domain")
+          f"{lost} replays left the domain, {aloft} stayed aloft")
     check("other", gap > 1.0, f"the {other} replay differs by up to {gap:.3f} m")
+    if opt.drift == "frozen_uvw":
+        check("steps", n_longer + n_shorter > 0 and aloft == 0,
+              f"{n_longer} flights took more steps and {n_shorter} fewer than the frozen replay; "
+              f"longest {steps_max} steps (N = {N_TRAJ}); {aloft} brands stayed aloft")
     if opt.drift == "frozen" and (opt.interp, opt.below) != ("bilinear", "clamp"):
         ok_opt = gap_opt > 1.0 and (opt.below != "log" or below_seen > 0)
         check("options", ok_opt,

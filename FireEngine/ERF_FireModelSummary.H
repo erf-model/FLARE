@@ -176,7 +176,7 @@ inline std::vector<FireModelLine> fire_model_summary (const FireParams& fp)
     // cell and the ember drift
     if (!fp.prescribed_wind && (fp.wind_sample_ht > 0.0 || fp.wind_below_first_log) ) {
         add("  log-profile roughness [m]", "wind_sample_z0", real_str(fp.wind_sample_z0));
-    } else if (fp.spotting.enable && fp.spotting.drift_wind != "frozen") {
+    } else if (fp.spotting.enable && !fp.spotting.frozen_drift()) {
         add("Ember-drift roughness [m]", "wind_sample_z0", real_str(fp.wind_sample_z0));
     }
     add("Wind adjustment factor", "use_waf", on_off(fp.use_waf));
@@ -258,8 +258,9 @@ inline std::vector<FireModelLine> fire_model_summary (const FireParams& fp)
         add("  spotting fuel system", "spotting.fuel_system", fp.spotting.fuel_system);
         add("  brands launched from", "spotting.launch_from", fp.spotting.launch_from);
         add("  brands drift on", "spotting.drift_wind",
-            fp.spotting.drift_wind == "frozen" ? std::string("frozen (the 3D GUST wind at their height)")
-                                               : std::string("profile (the reference wind, log-scaled to their height)"));
+            fp.spotting.drift_wind == "frozen_uvw" ? std::string("frozen_uvw (the 3D GUST wind at their height, with w)")
+            : fp.spotting.drift_wind == "frozen"   ? std::string("frozen (the 3D GUST wind at their height, u and v)")
+                                                   : std::string("profile (the reference wind, log-scaled to their height)"));
         add("  spotting every N subcycles", "spotting.spotting_interval", std::to_string(fp.spotting.spotting_interval));
     }
     add("Crown fire", "crown.enable", on_off(fp.crown.enable));
