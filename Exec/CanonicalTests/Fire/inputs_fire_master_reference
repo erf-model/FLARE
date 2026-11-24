@@ -976,7 +976,9 @@ erf.fire.spotting.P_base = 0.05
 # Typical: 0.2 to 1.0 m/s (higher = less horizontal transport)
 erf.fire.spotting.terminal_velocity = 0.5
 
-# Trajectory integration sub-steps per atmospheric timestep
+# Trajectory steps per lofting height of fall: each step falls lofting
+# height / n_traj_steps; over lower ground a brand may take more steps, up
+# to its fall to the lowest ground
 # Higher = more accurate landing position, more computationally expensive
 # Typical: 10 to 50
 erf.fire.spotting.n_traj_steps = 20
@@ -986,8 +988,8 @@ erf.fire.spotting.n_traj_steps = 20
 # u, v of the frozen GUST field (erf.fire.frozen_wind.file, required) at the
 # brand's height above the ground, falling at terminal_velocity; "frozen_uvw" =
 # the same, and the brand also moves with the field's vertical wind w (vertical
-# speed w - terminal_velocity, up to 10 x n_traj_steps steps; a brand still
-# aloft then is dropped and reported).
+# speed w - terminal_velocity, up to 10 x the steps of its fall to the lowest
+# ground; a brand still aloft then is dropped and reported).
 erf.fire.spotting.drift_wind = "profile"
 
 # Ignition disk radius at landing [m]

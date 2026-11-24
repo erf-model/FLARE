@@ -7256,7 +7256,12 @@ Spotting
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.spotting.terminal_velocity**        | Brand terminal fall velocity [m/s]                         | Real > 0                       | 0.5                    |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.spotting.n_traj_steps**             | Forward-Euler sub-steps along the trajectory               | Integer > 0                    | 20                     |
+| **erf.fire.spotting.n_traj_steps**             | Forward-Euler sub-steps of the fall from the lofting       | Integer > 0                    | 20                     |
+|                                                | height to the source's ground (each falls the lofting      |                                |                        |
+|                                                | height / n_traj_steps); over lower ground the brand steps  |                                |                        |
+|                                                | on, up to its fall to the lowest ground in the domain, and |                                |                        |
+|                                                | lands inside the last sub-step. A brand that needs more    |                                |                        |
+|                                                | than 1e6 sub-steps for that fall stops the run             |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.spotting.drift_wind**               | Wind the brands drift on: the reference wind scaled by the | "profile", "frozen",           | "profile"              |
 |                                                | log profile, or u, v of the frozen GUST field at the       | "frozen_uvw"                   |                        |
@@ -7271,8 +7276,12 @@ Spotting
 |                                                | frozen_uvw: as frozen, and the brand also moves with the   |                                |                        |
 |                                                | field's vertical wind w (vertical speed w -                |                                |                        |
 |                                                | terminal_velocity, 40 bytes per GUST cell); it steps on    |                                |                        |
-|                                                | until it lands, up to 10 x n_traj_steps steps, and a brand |                                |                        |
-|                                                | still aloft then is dropped, counted and reported          |                                |                        |
+|                                                | until it lands, up to 10 times the sub-steps of its fall   |                                |                        |
+|                                                | to the lowest ground (10 x n_traj_steps on flat ground),   |                                |                        |
+|                                                | and a brand still aloft then is dropped, counted and       |                                |                        |
+|                                                | reported. A brand with a low loft over high relief can     |                                |                        |
+|                                                | take many sub-steps (about 10 n_traj_steps x relief / loft |                                |                        |
+|                                                | if it stays aloft)                                         |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.spotting.launch_from**              | Cells that may launch a brand: every burned cell, or only  | "burned", "front"              | "burned"               |
 |                                                | those with unburned fuel within front_band cells           |                                |                        |

@@ -7,7 +7,8 @@ its terminal velocity while the wind carries it. The ground it lands on is not
 the height it left: a brand drifting downslope falls further and lands further
 out, and one drifting upslope meets the rising ground sooner. These tests cover
 the descent, its reduction to the flat-earth trajectory when there is no
-terrain, and the step size that has to cover the longest possible fall.
+terrain, and a step that depends on the brand's own loft, not on the lowest
+ground in the domain.
 
 Reference implementation extracted from:
   - ERF_AlbiniSpotting.H: compute_albini_spotting() trajectory loop,
@@ -36,25 +37,32 @@ def fly(H_z, z_src, ground_of_x, u_wind, w_terminal, n_steps=20,
     """
     Integrate a firebrand from its source to the ground.
 
-    Mirrors the trajectory loop: the step size comes from the longest fall the
-    brand could make, down to the lowest ground in the domain, so a fixed step
-    count always covers the descent. The brand lands when its altitude drops to
-    the ground beneath it.
+    Mirrors the trajectory loop: each step falls H_z / n_steps, and over
+    lower ground the brand steps on, up to its fall to the lowest ground in
+    the domain (n_fall steps), so it always lands. In the step where its
+    height above the ground goes from a0 > 0 to a1 < 0 it lands at the
+    fraction a0 / (a0 - a1) of the step (until Nov 2026 the step was the fall
+    to the lowest ground over n_steps, and the brand landed at the step end).
 
     Returns (landing_x, flight_time, steps_taken).
     """
     z_brand = z_src + H_z
-    t_max = (z_brand - z_ground_min) / w_terminal if w_terminal > 0.0 else 0.0
-    dt = t_max / n_steps if n_steps > 0 else 0.0
-    dz = w_terminal * dt
+    dz = H_z / n_steps
+    dt = dz / w_terminal
+    n_fall = max(n_steps, math.ceil((z_brand - z_ground_min) / dz))
 
     x = x0
-    for ns in range(n_steps):
+    for ns in range(n_fall):
+        x_start = x
+        a0 = z_brand - ground_of_x(x)
         x += u_wind * dt
         z_brand -= dz
-        if z_brand <= ground_of_x(x):
-            return x, (ns + 1) * dt, ns + 1
-    return x, n_steps * dt, n_steps
+        a1 = z_brand - ground_of_x(x)
+        if a1 <= 0.0:
+            frac = a0 / (a0 - a1) if a1 < 0.0 < a0 else 1.0
+            x = x_start + (x - x_start) * frac
+            return x, (ns + frac) * dt, ns + 1
+    return x, n_fall * dt, n_fall
 
 
 def check(failures, name, condition, detail=""):
@@ -145,26 +153,31 @@ def test_ridge_to_valley_reach():
     return failures
 
 
-def test_step_size_covers_the_longest_fall():
-    """The step count always covers the descent to the lowest ground."""
+def test_step_does_not_depend_on_the_lowest_ground():
+    """On a plateau the flight is the flat one, however low the lowest ground."""
     failures = []
     H_z, u, w = 60.0, 8.0, 1.5
     n = 20
-    z_src, z_min = 150.0, 0.0
+    plateau = lambda x: 500.0
 
-    # Worst case: the brand falls from z_src + H_z all the way to z_min
-    t_max = (z_src + H_z - z_min) / w
-    dt = t_max / n
-    total_drop = w * dt * n
-    check(failures, "Fixed step count spans the full possible descent",
-          abs(total_drop - (z_src + H_z - z_min)) < 1.0e-9,
-          f"covers {total_drop} m of {z_src + H_z - z_min} m")
-
-    # And a brand over the lowest ground does land within the step budget
-    _, _, steps = fly(H_z, z_src, lambda x: 0.0, u, w, n_steps=n,
-                      z_ground_min=z_min)
-    check(failures, "Brand lands within the step budget", steps <= n,
+    # The step is H_z / n, so the brand falls to the plateau in n steps; until
+    # Nov 2026 it was (500 + H_z) / n here and the brand took 3 steps of 28 m
+    x_land, t_land, steps = fly(H_z, 500.0, plateau, u, w, n_steps=n,
+                                z_ground_min=0.0)
+    check(failures, "Plateau flight takes the flat step count", steps == n,
           f"took {steps} of {n}")
+    check(failures, "Plateau flight lands at the flat-earth point",
+          abs(x_land - u * H_z / w) < 1.0e-9,
+          f"got {x_land}, expected {u * H_z / w}")
+
+    # A brand from the plateau over a cliff down to the lowest ground steps on
+    # past n until it lands there
+    cliff = lambda x: 500.0 if x < 10.0 else 0.0
+    x_cliff, _, steps_cliff = fly(H_z, 500.0, cliff, u, w, n_steps=n,
+                                  z_ground_min=0.0)
+    check(failures, "Brand over a cliff steps on and lands on the low ground",
+          steps_cliff > n and abs(x_cliff - u * (500.0 + H_z) / w) < 1.0e-6,
+          f"took {steps_cliff} steps, landed at {x_cliff}")
     return failures
 
 
@@ -193,7 +206,7 @@ def main():
     all_failures.extend(test_downslope_flies_further())
     all_failures.extend(test_upslope_lands_sooner())
     all_failures.extend(test_ridge_to_valley_reach())
-    all_failures.extend(test_step_size_covers_the_longest_fall())
+    all_failures.extend(test_step_does_not_depend_on_the_lowest_ground())
     all_failures.extend(test_lofting_height_threshold())
 
     print("\n" + "=" * 70)

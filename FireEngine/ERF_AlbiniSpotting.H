@@ -68,8 +68,16 @@ constexpr amrex::Real U10_FIT_MAX = 30.0;
 } // namespace albini
 
 /// erf.fire.spotting.drift_wind = frozen_uvw: a brand steps on for up to this many
-/// times n_traj_steps steps (of the v_t fall's size) before it is dropped as aloft
+/// times the steps of its v_t fall to the lowest ground in the domain (steps of
+/// H_z / n_traj_steps) before it is dropped as aloft
 constexpr int albini_aloft_step_factor = 10;
+
+/// Most steps a brand may take to fall to the lowest ground in the domain
+/// (n_fall); a brand that needs more stops the run (a tiny lofting height over
+/// high relief, or a very large n_traj_steps, would take hours of host steps,
+/// and in single precision a step below the round-off of the height would not
+/// move the brand down)
+constexpr long albini_max_fall_steps = 1000000;
 
 /**
  * @brief Albini (1983, INT-309) Table 4: E / I = A U^B, the strength of the
@@ -338,7 +346,11 @@ struct LaunchCell {
  *     Anderson model (albini_thermal_model) and U10 the reference wind
  *     brought to 10 m on the same log profile as the drift.
  *  3. Stochastic launch: draw uniform random; launch if draw < P_launch.
- *  4. Forward-Euler trajectory over n_traj_steps sub-steps, drifting on the
+ *  4. Forward-Euler trajectory in steps of H_z / n_traj_steps of the fall
+ *     (n_traj_steps steps from H_z to the source's ground; more over lower
+ *     ground, up to the fall to the lowest ground in the domain), landing
+ *     where the height above the ground, linear over the last step, is
+ *     zero, and drifting on the
  *     reference-height wind scaled to the brand's height above ground with a
  *     neutral log profile of roughness z0 (albini_wind_profile_factor); the
  *     wind and terrain fields are gathered to every rank for it. With
@@ -350,7 +362,8 @@ struct LaunchCell {
  *     drift3d->vertical (drift_wind = frozen_uvw) the brand also moves with
  *     the field's vertical wind w, at w - v_t: it keeps the step size of the
  *     v_t fall and steps on until it lands, up to
- *     albini_aloft_step_factor x n_traj_steps steps; a brand still aloft then
+ *     albini_aloft_step_factor times the steps of its fall to the lowest
+ *     ground; a brand still aloft then
  *     (an updraft close to or above v_t: above 0.9 v_t in a uniform wind) is
  *     dropped, counted and reported. With w = 0 it lands where frozen does.
  *  5. The landing distance is capped at the Scott/Albini maximum distance of
@@ -605,10 +618,9 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
     int  n_aloft = 0;                       // drift3d->vertical: brands still aloft after the last step
     const bool vertical = drift3d && drift3d->vertical;
     // With w the fall is v_t - w, not v_t: the brand keeps the step of the v_t
-    // fall and steps on until it lands, up to this many times n_traj_steps
-    // (in Long: n_traj_steps has no upper bound)
-    const Long max_steps = vertical ? Long(albini_aloft_step_factor) * sp.n_traj_steps
-                                    : Long(sp.n_traj_steps);
+    // fall and steps on until it lands, up to albini_aloft_step_factor times
+    // the steps of its v_t fall to the lowest ground (n_steps, per brand, in
+    // Long: n_traj_steps has no upper bound)
     // vertical reads w, component 4 of the gathered columns
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!vertical || drift3d->cols.a.nComp() >= 5,
         "spotting drift with w: the frozen GUST columns were gathered without w");
@@ -638,21 +650,38 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         // Forward-Euler trajectory. The brand is lofted H_z above the ground at
         // the source and descends at its terminal velocity until it meets the
         // ground beneath it, drifting on the reference wind scaled to its
-        // height above that ground. The step size is set from the longest fall
-        // the brand could make, down to the lowest ground in the domain, so the
-        // fixed step count always covers the descent.
+        // height above that ground. n_traj_steps steps cover the fall of H_z,
+        // so the step does not depend on the ground elsewhere in the domain
+        // (until Nov 2026 it was the fall to the lowest ground in the domain
+        // over n_traj_steps: a brand from ground 500 m above that lowest
+        // ground took steps of about 26 m for a 30 m loft and landed 74 % too
+        // far). Over lower ground the brand steps on, up to the fall to the
+        // lowest ground (n_fall steps), so a brand without w always lands.
+        // terminal_velocity > 0 and n_traj_steps >= 1 (FireParams::read).
         Real z_brand  = cz + H_z;
-        Real t_max    = (sp.terminal_velocity > 0.0)
-                      ? (z_brand - z_ground_min) / sp.terminal_velocity : 0.0;
-        Real dt_traj  = (sp.n_traj_steps > 0) ? t_max / sp.n_traj_steps : 0.0;
-        Real dz_step  = sp.terminal_velocity * dt_traj;
+        const Real dz_step = H_z / sp.n_traj_steps;
+        const Real dt_traj = dz_step / sp.terminal_velocity;
+        const Real n_fall_r = amrex::max(Real(sp.n_traj_steps),
+                                         Real(std::ceil((z_brand - z_ground_min) / dz_step)));
+        if (!(n_fall_r <= Real(albini_max_fall_steps)) ||
+            dz_step <= Real(4.0) * std::numeric_limits<Real>::epsilon() * std::abs(z_brand)) {
+            amrex::Abort("erf.fire.spotting: a brand lofted " + std::to_string(H_z) +
+                         " m from ground at " + std::to_string(cz) + " m needs " +
+                         std::to_string(n_fall_r) + " steps of lofting height / n_traj_steps to "
+                         "fall to the lowest ground (" + std::to_string(z_ground_min) +
+                         " m), more than " + std::to_string(albini_max_fall_steps) +
+                         " or below the round-off of its height; lower "
+                         "erf.fire.spotting.n_traj_steps or raise erf.fire.spotting.I_B_min");
+        }
+        const Long n_fall  = Long(n_fall_r);
+        const Long n_steps = vertical ? Long(albini_aloft_step_factor) * n_fall : n_fall;
         // frozen_uvw: w's share of the height change is summed apart from the
         // v_t fall, so z_brand steps exactly as in frozen and, with w = 0
         // (z_w == 0), the brand lands exactly where frozen lands it (also in
         // single precision and on sloping ground). With w != 0 a brand within
         // land_tol of the ground lands, so the round-off of the steps cannot
         // add one; and a brand that w has not lifted overall (z_w <= 0) lands
-        // after the N steps of the v_t fall at the latest, as in frozen.
+        // after the n_fall steps of the v_t fall at the latest, as in frozen.
         Real z_w = 0.0;
         const Real land_tol = Real(1.0e-3) * dz_step;
 
@@ -663,7 +692,9 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         bool landed    = false;
         ++n_launched;
 
-        for (Long ns = 0; ns < max_steps && in_domain; ++ns) {
+        for (Long ns = 0; ns < n_steps && in_domain; ++ns) {
+            // the step's start, for the landing inside it
+            const Real px0 = px, py0 = py;
             Real u_w = 0.0, v_w = 0.0;
             in_domain = albini_interp_wind(h_u, h_v, nx, ny, dx[0], dx[1],
                                            prob_lo[0], prob_lo[1],
@@ -671,6 +702,7 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
             if (!in_domain) { break; }
             const Real z_ground_here = albini_interp_scalar(h_terrain, nx, ny, dx[0], dx[1],
                                                             prob_lo[0], prob_lo[1], px, py);
+            const Real a0 = z_brand + z_w - z_ground_here;   // height above the ground at the start
             if (drift3d) {
                 // u, v of the frozen field at the brand's height above the ground
                 // (and, with vertical, w)
@@ -694,8 +726,19 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
 
             const Real z_ground = albini_interp_scalar(h_terrain, nx, ny, dx[0], dx[1],
                                                        prob_lo[0], prob_lo[1], px, py);
-            if (z_brand + z_w <= z_ground + (z_w != Real(0.0) ? land_tol : Real(0.0)) ||
-                (vertical && ns + 1 >= sp.n_traj_steps && z_w <= Real(0.0))) {
+            const Real a1 = z_brand + z_w - z_ground;           // and at the end of the step
+            if (a1 <= (z_w != Real(0.0) ? land_tol : Real(0.0)) ||
+                (vertical && ns + 1 >= n_fall && z_w <= Real(0.0))) {
+                // The brand crossed the ground inside the step: land it where
+                // its height above the ground, linear over the step, is zero
+                // (a1 = 0 keeps the step's end exactly; a brand that ends the
+                // step still above the ground, within land_tol or at the last
+                // v_t step, lands at the end)
+                if (a1 < Real(0.0) && a0 > Real(0.0)) {
+                    const Real back = -a1 / (a0 - a1);   // share of the step past the crossing, in (0, 1)
+                    px -= (px - px0) * back;
+                    py -= (py - py0) * back;
+                }
                 landed = true;
                 break;
             }
@@ -704,7 +747,7 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         if (above_top) { ++n_above_top; }
         if (!in_domain) { continue; }
         // frozen_uvw: a brand an updraft still holds up after the last step does not land
-        // (without w the n_traj_steps falls always reach the lowest ground, so every brand lands)
+        // (without w the n_fall steps always reach the lowest ground, so every brand lands)
         if (vertical && !landed) { ++n_aloft; continue; }
 
         // Maximum distance cap of the source cell's fuel
@@ -733,7 +776,8 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
     if (n_aloft_out) { *n_aloft_out = n_aloft; }
     if (n_aloft > 0) {
         amrex::Print() << "[FIRE SPOTTING] step " << step << ": " << n_aloft << " of " << n_launched
-                       << " brands were still aloft after " << max_steps << " steps (updrafts close to or above"
+                       << " brands were still aloft after " << albini_aloft_step_factor
+                       << " times the steps of their fall to the lowest ground (updrafts close to or above"
                           " the terminal velocity) and were dropped (erf.fire.spotting.drift_wind = frozen_uvw)\n";
     }
     const int nland = static_cast<int>(landings.size());

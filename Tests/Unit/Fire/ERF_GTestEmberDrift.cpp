@@ -83,7 +83,7 @@ struct SpotCase
 /// The forward Euler drift of a brand lofted to H_z on flat ground
 Real euler_drift (Real H_z)
 {
-    const Real dt = (H_z / V_T) / N_TRAJ, dz = V_T * dt;
+    const Real dz = H_z / N_TRAJ, dt = dz / V_T;
     Real z = H_z, d = 0.0;
     for (int n = 0; n < N_TRAJ; ++n) {
         d += albini_wind_profile_factor(z, Z_REF, Z0) * U * dt;
@@ -338,5 +338,114 @@ TEST(EmberDrift, PerCellRoughnessReplacesTheScalar)
     MultiFab::Subtract(dd, s.data, 0, 0, dd.nComp(), 0);
     for (int n = 0; n < dd.nComp(); ++n) {
         EXPECT_EQ(dd.norm0(n), 0.0_rt) << "spotting data component " << n << " as with the scalar 0.5 m";
+    }
+}
+
+namespace {
+/// Ground z = z_flat everywhere except (one low cell) or z = -slope x
+MultiFab make_ground (const SpotCase& c, Real z_flat, Real slope, bool low_corner)
+{
+    MultiFab z(c.ba, c.dm, 1, 0);
+    for (MFIter mfi(z); mfi.isValid(); ++mfi) {
+        auto a = z.array(mfi);
+        const Box& bx = mfi.validbox();
+        for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j)
+            for (int i = bx.smallEnd(0); i <= bx.bigEnd(0); ++i) {
+                a(i, j, 0) = z_flat - slope * (i + 0.5_rt) * DX;
+                if (low_corner && i == NX - 1 && j == 0) { a(i, j, 0) = 0.0_rt; }
+            }
+    }
+    return z;
+}
+
+/// Smallest and largest landing distance the launch cells recorded (data component 2)
+void launch_distances (const MultiFab& data, Real& dmin, Real& dmax, int& n)
+{
+    dmin = 1.0e30; dmax = -1.0e30; n = 0;
+    for (MFIter mfi(data); mfi.isValid(); ++mfi) {
+        auto d = data.const_array(mfi);
+        const Box& bx = mfi.validbox();
+        for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j)
+            for (int i = bx.smallEnd(0); i <= bx.bigEnd(0); ++i)
+                if (launches(i, j) && d(i, j, 0, 1) > 0.0_rt) {
+                    dmin = amrex::min(dmin, d(i, j, 0, 2));
+                    dmax = amrex::max(dmax, d(i, j, 0, 2));
+                    ++n;
+                }
+    }
+    ParallelDescriptor::ReduceRealMin(dmin);
+    ParallelDescriptor::ReduceRealMax(dmax);
+    ParallelDescriptor::ReduceIntSum(n);
+}
+
+/// The landing distance on the ground z = -slope x (slope * U * f < V_T), by
+/// Simpson's rule in the height above the ground h (RK4 for dx/dh, which depends
+/// on h only): dx/dh = U f(h) / (-V_T + slope U f(h))
+Real slope_drift_exact (Real H_z, Real slope)
+{
+    const int n = 20000;
+    const Real dh = -H_z / n;
+    auto g = [=] (Real h) {
+        const Real f = albini_wind_profile_factor(h, Z_REF, Z0);
+        return U * f / (-V_T + slope * U * f);
+    };
+    Real h = H_z, x = 0.0;
+    for (int k = 0; k < n; ++k) {
+        const Real k1 = g(h), k2 = g(h + 0.5_rt * dh), k4 = g(h + dh);
+        x += dh * (k1 + 4.0_rt * k2 + k4) / 6.0_rt;
+        h += dh;
+    }
+    return x;
+}
+}
+
+TEST(EmberDrift, OnAPlateauTheBrandFlightIsTheFlatOne)
+{
+    // Ground 500 m everywhere but one cell at 0 m far from the flight: the
+    // brands fall H_z over n_traj_steps steps, as on flat ground (until Nov
+    // 2026 the step was the fall to that lowest cell over n_traj_steps, 30 m
+    // here, and the brands landed far beyond the flat-ground distance)
+    const Real H_z = case_height(13);
+    const Real D = euler_drift(H_z);
+    SpotCase r(25, 10);
+    MultiFab terrain = make_ground(r, 500.0_rt, 0.0_rt, true);
+    const FireParams::SpottingParams sp = r.params();
+    compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                            nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0,
+                            false, &terrain);
+    Real dmin, dmax; int n;
+    launch_distances(r.data, dmin, dmax, n);
+    const Real tol = (sizeof(Real) == 8 ? 1.0e-9 : 1.0e-4) * D;
+    EXPECT_EQ(n, 12) << "every launch cell's brand landed";
+    EXPECT_NEAR(dmin, D, tol);
+    EXPECT_NEAR(dmax, D, tol);
+}
+
+TEST(EmberDrift, OnASlopeTheBrandLandsWhereItMeetsTheGround)
+{
+    // Uniform slopes along the wind: the brand meets the ground inside its last
+    // step and is landed there, by linear interpolation of its height above the
+    // ground over the step. Forward Euler with n_traj_steps = 20 then lands
+    // 1.7 % (downslope) and 1.9 % (upslope) beyond the Simpson integral, inside
+    // the bounds of 2.2 % and 2.5 %; the end of the step lands 2.7 % and 3.9 %
+    // too far. (The bounds suit this case only: the crossing's place in the last
+    // step sets the end-of-step error. FrozenDrift.OnASlopeUniformWindLandsAt-
+    // TheClosedForm pins the landing exactly.) Downslope, the brand also
+    // steps on past the n_traj_steps of its loft (n_fall steps).
+    const Real H_z = case_height(13);
+    for (const Real slope : {0.05_rt, -0.05_rt}) {
+        const Real E = slope_drift_exact(H_z, slope);
+        SpotCase r(25, 10);
+        MultiFab terrain = make_ground(r, 0.0_rt, slope, false);
+        const FireParams::SpottingParams sp = r.params();
+        compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                                nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0,
+                                false, &terrain);
+        Real dmin, dmax; int n;
+        launch_distances(r.data, dmin, dmax, n);
+        EXPECT_EQ(n, 12) << "slope " << slope;
+        const Real bound = (slope > 0.0_rt ? 0.022_rt : 0.025_rt) * E;
+        EXPECT_GT(dmin, E) << "slope " << slope << ": forward Euler overshoots";
+        EXPECT_LT(dmax, E + bound) << "slope " << slope << ": exact " << E;
     }
 }
