@@ -136,7 +136,12 @@ renormalised, so the fire reads the wind of the open columns only. A cell
 whose four columns are all closed keeps the plain weights; it is inside a
 footprint and masked anyway. Off by default; needs
 :cpp:`erf.fire.structures.enable` and ``wind_interp = "bilinear"``; with
-``"nearest"``, which takes one column, the run aborts.
+``"nearest"``, which takes one column, the run aborts. On a fine fire level
+that covers part of the domain, the open fraction and roof height of a
+column just outside the fire region are those of the nearest column inside
+it (as at a non-periodic face of the domain); until November 2026 those
+ghost columns stayed fully open with no roof, and the heat placement of
+:cpp:`erf.fire.heat_open_fraction` read them the same way.
 
 **Roughness per column.** By default every log profile applied to the sampled
 wind uses the one roughness :cpp:`erf.fire.wind_sample_z0`. With

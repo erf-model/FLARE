@@ -205,19 +205,40 @@ amrex::Real albini_wind_profile_factor(amrex::Real z_agl, amrex::Real z_ref, amr
 
 // ─── Bilinear interpolation of host fields ──────────────────────────────────
 
+/// Index of a stencil cell: wrapped across a periodic seam, else clamped to the edge
+inline int albini_stencil_index(int i, int n, bool periodic) noexcept
+{
+    if (periodic) { return ((i % n) + n) % n; }
+    return std::max(0, std::min(n - 1, i));
+}
+
+/// A position along one direction, wrapped into [lo, lo + n d) if that direction is periodic
+inline amrex::Real albini_wrap(amrex::Real x, amrex::Real lo, int n, amrex::Real d, bool periodic) noexcept
+{
+    if (!periodic) { return x; }
+    const amrex::Real L = static_cast<amrex::Real>(n) * d;
+    amrex::Real r = x - L * std::floor((x - lo) / L);
+    // round-off can leave r at lo + L or just below lo (single precision
+    // above all); keep it in [lo, lo + L) so the landing cell is the right one
+    if (r >= lo + L) { r -= L; }
+    if (r < lo) { r += L; }
+    return r;
+}
+
 /**
  * @brief Bilinear interpolation of a scalar field at continuous coordinates.
  *
- * Used for the terrain elevation under a firebrand in flight. Positions outside
- * the domain are clamped to the edge, since a brand leaving the domain is
- * discarded by the wind interpolation on the same step.
+ * Used for the terrain elevation (and z0) under a firebrand in flight. Between
+ * the outermost cell centres and a non-periodic face the edge value is used
+ * (the stencil is clamped); across a periodic seam the stencil wraps.
  *
  * @param[in] f          Flat host array, indexed j * nx + i
  * @param[in] nx, ny     Grid dimensions
  * @param[in] dx, dy     Cell sizes [m]
  * @param[in] prob_lo_x  Domain lower x [m]
  * @param[in] prob_lo_y  Domain lower y [m]
- * @param[in] x, y       Query position [m]
+ * @param[in] x, y       Query position [m], wrapped into the domain in a periodic direction
+ * @param[in] per_x, per_y  Whether x, y are periodic
  * @return interpolated value
  */
 inline amrex::Real
@@ -225,29 +246,35 @@ albini_interp_scalar(const std::vector<amrex::Real>& f,
                      int nx, int ny,
                      amrex::Real dx, amrex::Real dy,
                      amrex::Real prob_lo_x, amrex::Real prob_lo_y,
-                     amrex::Real x, amrex::Real y)
+                     amrex::Real x, amrex::Real y,
+                     bool per_x = false, bool per_y = false)
 {
-    amrex::Real gx = (x - prob_lo_x) / dx - amrex::Real(0.5);
-    amrex::Real gy = (y - prob_lo_y) / dy - amrex::Real(0.5);
-    int i0 = static_cast<int>(std::floor(gx));
-    int j0 = static_cast<int>(std::floor(gy));
-    amrex::Real wx = gx - static_cast<amrex::Real>(i0);
-    amrex::Real wy = gy - static_cast<amrex::Real>(j0);
+    using amrex::Real;
+    const Real gx = (x - prob_lo_x) / dx - Real(0.5);
+    const Real gy = (y - prob_lo_y) / dy - Real(0.5);
+    const int i0 = static_cast<int>(std::floor(gx));
+    const int j0 = static_cast<int>(std::floor(gy));
+    const Real wx = gx - static_cast<Real>(i0);
+    const Real wy = gy - static_cast<Real>(j0);
 
-    auto at = [&](int i, int j) -> amrex::Real {
-        i = std::max(0, std::min(nx - 1, i));
-        j = std::max(0, std::min(ny - 1, j));
-        return f[static_cast<std::size_t>(j) * nx + i];
+    auto at = [&](int i, int j) -> Real {
+        return f[static_cast<std::size_t>(albini_stencil_index(j, ny, per_y)) * nx
+                 + albini_stencil_index(i, nx, per_x)];
     };
 
-    return (1.0 - wx) * (1.0 - wy) * at(i0,     j0)
-         +        wx  * (1.0 - wy) * at(i0 + 1, j0)
-         + (1.0 - wx) *        wy  * at(i0,     j0 + 1)
-         +        wx  *        wy  * at(i0 + 1, j0 + 1);
+    return (Real(1.0) - wx) * (Real(1.0) - wy) * at(i0,     j0)
+         +              wx  * (Real(1.0) - wy) * at(i0 + 1, j0)
+         + (Real(1.0) - wx) *              wy  * at(i0,     j0 + 1)
+         +              wx  *              wy  * at(i0 + 1, j0 + 1);
 }
 
 /**
  * @brief Bilinear interpolation of 2-component wind at continuous coordinates.
+ *
+ * A position inside the domain is kept up to its faces: between the outermost
+ * cell centres and a non-periodic face the stencil is clamped to the edge, as
+ * for the terrain, and across a periodic seam it wraps (until Nov 2026 a brand
+ * past the outermost cell centre left the domain, half a cell early).
  *
  * @param[in]  wind_u     u-component array (comp 0 of wind MultiFab)
  * @param[in]  wind_v     v-component array (comp 1 of wind MultiFab)
@@ -257,11 +284,13 @@ albini_interp_scalar(const std::vector<amrex::Real>& f,
  * @param[in]  dy         Cell size in y [m]
  * @param[in]  prob_lo_x  Domain lower x [m]
  * @param[in]  prob_lo_y  Domain lower y [m]
- * @param[in]  x          Query x position [m]
- * @param[in]  y          Query y position [m]
+ * @param[in]  x          Query x position [m], wrapped into the domain if x is periodic
+ * @param[in]  y          Query y position [m], wrapped into the domain if y is periodic
  * @param[out] u_out      Interpolated u-wind [m/s]
  * @param[out] v_out      Interpolated v-wind [m/s]
- * @return true if position is within domain, false if outside (exits trajectory).
+ * @param[in]  per_x, per_y  Whether x, y are periodic
+ * @return true if the position is inside the domain, false if it is past a
+ *         non-periodic face (the brand leaves the domain).
  */
 inline bool
 albini_interp_wind(const std::vector<amrex::Real>& wind_u,
@@ -270,37 +299,20 @@ albini_interp_wind(const std::vector<amrex::Real>& wind_u,
                    amrex::Real dx, amrex::Real dy,
                    amrex::Real prob_lo_x, amrex::Real prob_lo_y,
                    amrex::Real x, amrex::Real y,
-                   amrex::Real& u_out, amrex::Real& v_out)
+                   amrex::Real& u_out, amrex::Real& v_out,
+                   bool per_x = false, bool per_y = false)
 {
-    // Cell-centre coordinates: cell (i,j) centre at prob_lo + (i+0.5)*dx
-    amrex::Real fx = (x - prob_lo_x) / dx - 0.5;
-    amrex::Real fy = (y - prob_lo_y) / dy - 0.5;
-
-    int i0 = static_cast<int>(std::floor(fx));
-    int j0 = static_cast<int>(std::floor(fy));
-
-    // Domain exit check
-    if (i0 < 0 || i0 >= nx - 1 || j0 < 0 || j0 >= ny - 1) {
-        u_out = 0.0;
-        v_out = 0.0;
+    using amrex::Real;
+    const Real fx = (x - prob_lo_x) / dx;
+    const Real fy = (y - prob_lo_y) / dy;
+    if ((!per_x && !(fx >= Real(0.0) && fx < static_cast<Real>(nx))) ||
+        (!per_y && !(fy >= Real(0.0) && fy < static_cast<Real>(ny)))) {
+        u_out = Real(0.0);
+        v_out = Real(0.0);
         return false;
     }
-
-    amrex::Real ax = fx - i0;
-    amrex::Real ay = fy - j0;
-
-    auto idx = [&](int ii, int jj) { return jj * nx + ii; };
-
-    u_out = (1.0 - ax) * (1.0 - ay) * wind_u[idx(i0,   j0  )]
-          + (      ax) * (1.0 - ay) * wind_u[idx(i0+1, j0  )]
-          + (1.0 - ax) * (      ay) * wind_u[idx(i0,   j0+1)]
-          + (      ax) * (      ay) * wind_u[idx(i0+1, j0+1)];
-
-    v_out = (1.0 - ax) * (1.0 - ay) * wind_v[idx(i0,   j0  )]
-          + (      ax) * (1.0 - ay) * wind_v[idx(i0+1, j0  )]
-          + (1.0 - ax) * (      ay) * wind_v[idx(i0,   j0+1)]
-          + (      ax) * (      ay) * wind_v[idx(i0+1, j0+1)];
-
+    u_out = albini_interp_scalar(wind_u, nx, ny, dx, dy, prob_lo_x, prob_lo_y, x, y, per_x, per_y);
+    v_out = albini_interp_scalar(wind_v, nx, ny, dx, dy, prob_lo_x, prob_lo_y, x, y, per_x, per_y);
     return true;
 }
 
@@ -450,6 +462,10 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
     const Box domain = geom.Domain();
     const int nx = domain.length(0);
     const int ny = domain.length(1);
+    // the fields are gathered to every rank as flat arrays with int counts
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(Long(nx) * Long(ny) <= Long(std::numeric_limits<int>::max()),
+                                     "erf.fire.spotting: the fire grid has more cells than the spotting gather "
+                                     "can copy to every rank (2^31 - 1)");
     const int ncells = nx * ny;
 
     // ---------------------------------------------------------------------
@@ -488,19 +504,19 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
             Real I = 0.0;
             Real is_structure = 0.0;
-            if (p(i, j, k) < 0.0 && ib(i, j, k) >= I_min) {
+            if (p(i, j, k) < Real(0.0) && ib(i, j, k) >= I_min) {
                 bool near_unburned = !front_only;
                 if (front_only) {
                     for (int dj = -band; dj <= band && !near_unburned; ++dj) {
                         for (int di = -band; di <= band; ++di) {
                             const int ii = i + di, jj = j + dj;
                             if (ii < dlo[0] || ii > dhi[0] || jj < dlo[1] || jj > dhi[1]) { continue; }
-                            if (p(ii, jj, k) >= 0.0) { near_unburned = true; break; }
+                            if (p(ii, jj, k) >= Real(0.0)) { near_unburned = true; break; }
                         }
                     }
                 }
                 if (near_unburned) { I = ib(i, j, k); }
-            } else if (has_extra && ex(i, j, k) > 0.0) {
+            } else if (has_extra && ex(i, j, k) > Real(0.0)) {
                 // A burning structure: not fuel, not behind the front, but a
                 // launch site with the equivalent intensity it was given.
                 I = ex(i, j, k);
@@ -521,8 +537,8 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         auto L = Lv.array();
         LoopOnCpu(bx, [&](int i, int j, int /*k*/) {
             const Real I = L(i, j, 0, 0);
-            if (I <= 0.0) { return; }
-            const int code = (L(i, j, 0, 1) >= 0.0) ? static_cast<int>(L(i, j, 0, 1) + Real(0.5)) : fuel_model_id;
+            if (I <= Real(0.0)) { return; }
+            const int code = (L(i, j, 0, 1) >= Real(0.0)) ? static_cast<int>(L(i, j, 0, 1) + Real(0.5)) : fuel_model_id;
             // A burning structure is not the vegetation of its cell: it always
             // uses thermal_fuel_model, which the input check requires with
             // structure ignition. The checks at input time and at start-up
@@ -617,6 +633,9 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
     Real max_excess = 0.0;                  // and by how much at most [m]
     int  n_aloft = 0;                       // drift3d->vertical: brands still aloft after the last step
     const bool vertical = drift3d && drift3d->vertical;
+    // a brand crossing a periodic seam flies on from the other side
+    const bool per_x = geom.isPeriodic(0);
+    const bool per_y = geom.isPeriodic(1);
     // With w the fall is v_t - w, not v_t: the brand keeps the step of the v_t
     // fall and steps on until it lands, up to albini_aloft_step_factor times
     // the steps of its v_t fall to the lowest ground (n_steps, per brand, in
@@ -638,9 +657,9 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         Real A_th = 0.0, B_th = 0.0;
         albini_thermal_fit(front_cells[fc].model, A_th, B_th);
         const Real H_z = albini_lofting_height(I_B, U10, A_th, B_th, sp.I_B_min);
-        if (H_z <= 0.0) { continue; }
-        const Real cx  = prob_lo[0] + (si + 0.5) * dx[0];
-        const Real cy  = prob_lo[1] + (sj + 0.5) * dx[1];
+        if (H_z <= Real(0.0)) { continue; }
+        const Real cx  = prob_lo[0] + (si + Real(0.5)) * dx[0];
+        const Real cy  = prob_lo[1] + (sj + Real(0.5)) * dx[1];
         const Real cz  = h_terrain[static_cast<std::size_t>(sj) * nx + si];
 
         // Stochastic launch: P_launch = P_base × min(1, I_B / I_B_min)
@@ -695,28 +714,33 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         for (Long ns = 0; ns < n_steps && in_domain; ++ns) {
             // the step's start, for the landing inside it
             const Real px0 = px, py0 = py;
+            // px, py are not wrapped (the landing distance is the drift); the
+            // fields are read at the position wrapped across a periodic seam
+            const Real qx = albini_wrap(px, prob_lo[0], nx, dx[0], per_x);
+            const Real qy = albini_wrap(py, prob_lo[1], ny, dx[1], per_y);
             Real u_w = 0.0, v_w = 0.0;
             in_domain = albini_interp_wind(h_u, h_v, nx, ny, dx[0], dx[1],
                                            prob_lo[0], prob_lo[1],
-                                           px, py, u_w, v_w);
+                                           qx, qy, u_w, v_w, per_x, per_y);
             if (!in_domain) { break; }
             const Real z_ground_here = albini_interp_scalar(h_terrain, nx, ny, dx[0], dx[1],
-                                                            prob_lo[0], prob_lo[1], px, py);
+                                                            prob_lo[0], prob_lo[1], qx, qy, per_x, per_y);
             const Real a0 = z_brand + z_w - z_ground_here;   // height above the ground at the start
             if (drift3d) {
                 // u, v of the frozen field at the brand's height above the ground
                 // (and, with vertical, w)
                 Real u3, v3, z_s, g_s, excess, w3 = 0.0;
-                frozen_point_wind(drift3d->cols, px, py, z_brand + z_w - z_ground_here,
+                frozen_point_wind(drift3d->cols, qx, qy, z_brand + z_w - z_ground_here,
                                   drift3d->bilinear, drift3d->below_first_log, drift3d->z0_log,
                                   u3, v3, z_s, g_s, excess, vertical ? &w3 : nullptr);
-                if (excess > 0.0) { above_top = true; max_excess = std::max(max_excess, excess); }
+                if (excess > Real(0.0)) { above_top = true; max_excess = std::max(max_excess, excess); }
                 px += u3 * dt_traj;
                 py += v3 * dt_traj;
                 z_w += w3 * dt_traj;
             } else {
                 const Real z0_here = z0_cell ? albini_interp_scalar(h_z0, nx, ny, dx[0], dx[1],
-                                                                    prob_lo[0], prob_lo[1], px, py)
+                                                                    prob_lo[0], prob_lo[1], qx, qy,
+                                                                    per_x, per_y)
                                              : z0;
                 const Real f = albini_wind_profile_factor(z_brand - z_ground_here, z_ref, z0_here);
                 px += f * u_w * dt_traj;
@@ -724,8 +748,10 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
             }
             z_brand -= dz_step;
 
-            const Real z_ground = albini_interp_scalar(h_terrain, nx, ny, dx[0], dx[1],
-                                                       prob_lo[0], prob_lo[1], px, py);
+            const Real z_ground = albini_interp_scalar(h_terrain, nx, ny, dx[0], dx[1], prob_lo[0], prob_lo[1],
+                                                       albini_wrap(px, prob_lo[0], nx, dx[0], per_x),
+                                                       albini_wrap(py, prob_lo[1], ny, dx[1], per_y),
+                                                       per_x, per_y);
             const Real a1 = z_brand + z_w - z_ground;           // and at the end of the step
             if (a1 <= (z_w != Real(0.0) ? land_tol : Real(0.0)) ||
                 (vertical && ns + 1 >= n_fall && z_w <= Real(0.0))) {
@@ -749,20 +775,31 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         // frozen_uvw: a brand an updraft still holds up after the last step does not land
         // (without w the n_fall steps always reach the lowest ground, so every brand lands)
         if (vertical && !landed) { ++n_aloft; continue; }
+        // The face is tested at the start of each step, so a brand can cross a
+        // non-periodic face in its last step and meet the ground outside the
+        // domain: it is lost too, as one that crosses the face in flight.
+        {
+            const Real fx = (px - prob_lo[0]) / dx[0];
+            const Real fy = (py - prob_lo[1]) / dx[1];
+            if ((!per_x && !(fx >= Real(0.0) && fx < static_cast<Real>(nx))) ||
+                (!per_y && !(fy >= Real(0.0) && fy < static_cast<Real>(ny)))) { continue; }
+        }
 
         // Maximum distance cap of the source cell's fuel
         Real dist = std::sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
         const Real max_dist_cap = front_cells[fc].cap;
-        if (dist > max_dist_cap && dist > 0.0) {
+        if (dist > max_dist_cap && dist > Real(0.0)) {
             px = cx + (px - cx) / dist * max_dist_cap;
             py = cy + (py - cy) / dist * max_dist_cap;
             dist = max_dist_cap;
         }
 
         // Catching probability filter
-        if (sp.P_catch < 1.0 && uniform(rng) >= sp.P_catch) { continue; }
+        if (sp.P_catch < Real(1.0) && uniform(rng) >= sp.P_catch) { continue; }
 
-        landings.push_back({px, py, si, sj, dist, H_z});
+        // the landing cell is found from the position wrapped into the domain
+        landings.push_back({albini_wrap(px, prob_lo[0], nx, dx[0], per_x),
+                            albini_wrap(py, prob_lo[1], ny, dx[1], per_y), si, sj, dist, H_z});
     }
 
     // every rank flew the same brands, so the counts agree
@@ -845,7 +882,7 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
         ParallelFor(nland, [=] AMREX_GPU_DEVICE (int n) noexcept {
             const int li = p_li[n], lj = p_lj[n];
             if (!bx.contains(IntVect(li, lj, 0))) { return; }
-            if (has_mask && mask_arr(li, lj, 0) > 0.5) {
+            if (has_mask && mask_arr(li, lj, 0) > Real(0.5)) {
                 // A brand on a non-burnable cell (structure, non-burnable fuel
                 // code, masked firebreak) does not ignite; counted for the
                 // exposure diagnostics when they are on.
@@ -857,7 +894,7 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
                 // cell started with (its own on a fuel map): brands landing in
                 // the burned area or on consumed fuel are discarded.
                 const Real w0 = has_w0 ? w0_arr(li, lj, 0) : w0_uniform;
-                const Real frac = (w0 > 0.0) ? fuel_arr(li, lj, 0) / amrex::max(w0, std::numeric_limits<Real>::min())
+                const Real frac = (w0 > Real(0.0)) ? fuel_arr(li, lj, 0) / amrex::max(w0, std::numeric_limits<Real>::min())
                                              : Real(1.0);
                 if (frac < reentry) { return; }
             }
@@ -879,6 +916,9 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
     // ---------------------------------------------------------------------
     if (n_accepted > 0) {
         const Real spot_radius = sp.spot_radius;
+        // across a periodic seam the disc is measured to the nearest image of the landing
+        const Real Lx = static_cast<Real>(nx) * dx[0];
+        const Real Ly = static_cast<Real>(ny) * dx[1];
         for (MFIter mfi(phi); mfi.isValid(); ++mfi) {
             const Box& bx = mfi.validbox();
             auto phi_arr  = phi.array(mfi);
@@ -890,9 +930,9 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
             {
                 // Non-burnable cells never receive a spot stamp, even inside the
                 // disc of a landing that fell on a burnable neighbour.
-                if (has_mask && mask_arr(i, j, 0) > 0.5) { return; }
-                const Real ccx = prob_lo[0] + (i + 0.5) * dx[0];
-                const Real ccy = prob_lo[1] + (j + 0.5) * dx[1];
+                if (has_mask && mask_arr(i, j, 0) > Real(0.5)) { return; }
+                const Real ccx = prob_lo[0] + (i + Real(0.5)) * dx[0];
+                const Real ccy = prob_lo[1] + (j + Real(0.5)) * dx[1];
 
                 Real phi_new  = phi_arr(i, j, 0, 0);
                 bool spotted  = false;
@@ -902,8 +942,10 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
 
                 for (int n = 0; n < nland; ++n) {
                     if (p_ok[n] == 0) { continue; }
-                    const Real ddx = ccx - p_lx[n];
-                    const Real ddy = ccy - p_ly[n];
+                    Real ddx = ccx - p_lx[n];
+                    Real ddy = ccy - p_ly[n];
+                    if (per_x) { ddx -= Lx * std::floor(ddx / Lx + Real(0.5)); }
+                    if (per_y) { ddy -= Ly * std::floor(ddy / Ly + Real(0.5)); }
                     const Real d   = std::sqrt(ddx*ddx + ddy*ddy);
                     if (d <= spot_radius) {
                         // Signed distance of the spot disc: normalized by the
@@ -923,7 +965,7 @@ compute_albini_spotting(amrex::MultiFab&                  phi,
 
                 phi_arr(i, j, 0, 0) = phi_new;
                 if (spotted) { alb_arr(i, j, 0, 3) = 1.0; }   // active spot flag; the fuel is left as it is
-                if (n_brands > 0.0) {
+                if (n_brands > Real(0.0)) {
                     alb_arr(i, j, 0, 0)  = hz_here;    // lofting height
                     alb_arr(i, j, 0, 1) += n_brands;   // brand count
                     alb_arr(i, j, 0, 2)  = max_d;      // max landing dist

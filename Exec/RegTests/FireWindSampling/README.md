@@ -29,3 +29,11 @@ prints is the expected one. With the uniform 8 m/s sounding the wind at 20 m
 is barely higher than at 6.1 m early in the run, so the sampled deck sees
 about 78 % of the historical wind and burns less; that comparison is
 tabulated, not checked.
+
+## CTest
+
+`FireWindSampling` runs `run_wind.sh` on 2 ranks with `max_step=40` (5 s
+of the 60 s decks; every step is checked); the script's exit status is the
+verdict. It is registered only in MPI builds that are not Windows. Until November 2026 the CTest `FireWindSampling_sample20` ran
+the sampled deck alone and checked nothing of its answer. The script is POSIX
+`sh` (CTest runs it with `sh`, which is `dash` on Ubuntu).

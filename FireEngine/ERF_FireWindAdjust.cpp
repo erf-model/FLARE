@@ -27,12 +27,12 @@ void compute_terrain_curvature(
             // dz/dx at (i±1, j)
             Real dzdx_ip = slopes(i+1, j, k, 0);  // dz/dx component
             Real dzdx_im = slopes(i-1, j, k, 0);
-            Real d2zdx2 = (dzdx_ip - dzdx_im) / (2.0 * dx);
+            Real d2zdx2 = (dzdx_ip - dzdx_im) / (Real(2.0) * dx);
 
             // dz/dy at (i, j±1)
             Real dzdy_jp = slopes(i, j+1, k, 1);  // dz/dy component
             Real dzdy_jm = slopes(i, j-1, k, 1);
-            Real d2zdy2 = (dzdy_jp - dzdy_jm) / (2.0 * dy);
+            Real d2zdy2 = (dzdy_jp - dzdy_jm) / (Real(2.0) * dy);
 
             curv(i, j, k) = d2zdx2 + d2zdy2;
         });
@@ -77,7 +77,7 @@ void apply_farsite_terrain_wind(
             // 0/0 of a flat or calm cell would be speculated under the traps)
             const Real sw = slope_mag * wind_mag;
             const Real cos_raw = (sx*ux + sy*uy) / amrex::max(sw, Real(1.0e-10));
-            Real cos_upslope = (sw > 1.0e-10) ? cos_raw : Real(0.0);
+            Real cos_upslope = (sw > Real(1.0e-10)) ? cos_raw : Real(0.0);
 
             // Classify terrain position and compute speed factor.
             // Slope-based classification uses wind-slope alignment (cos_upslope)
@@ -88,15 +88,15 @@ void apply_farsite_terrain_wind(
             Real factor = 1.0;
 
             // Windward slope: wind climbing the slope (upslope face / ridge)
-            if (slope_mag > 0.05 && cos_upslope > 0.0) {
+            if (slope_mag > Real(0.05) && cos_upslope > Real(0.0)) {
                 factor = k_ridge;
             }
             // Shelter: lee-side slope (wind blowing downslope)
-            else if (slope_mag > 0.05 && cos_upslope < -0.5) {
+            else if (slope_mag > Real(0.05) && cos_upslope < -Real(0.5)) {
                 factor = k_shelter;
             }
             // Valley: concave terrain (negative curvature)
-            else if (curv_val < -0.01) {
+            else if (curv_val < -Real(0.01)) {
                 factor = k_valley + (1.0_rt - k_valley) * (1.0_rt - amrex::min(slope_mag, 1.0_rt));
             }
             // Flat/other: no correction
@@ -114,7 +114,7 @@ void apply_farsite_terrain_wind(
 
             // Apply valley wind deflection toward slope aspect
             // Only when in valley (curv < -0.01) and on sloped terrain (slope_mag > 0.05)
-            if (curv_val < -0.01 && slope_mag > 0.05) {
+            if (curv_val < -Real(0.01) && slope_mag > Real(0.05)) {
                 // Compute z-component of slope × wind cross product. ux, uy
                 // already carry the speed factor, so the sine of the wind-slope
                 // angle is the cross product over |slope| |U_new|: one factor,
