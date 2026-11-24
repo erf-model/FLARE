@@ -35,7 +35,9 @@
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real neutral_wind_height_factor(amrex::Real z_to, amrex::Real z_from, amrex::Real z0) noexcept
 {
-    const amrex::Real z0s = amrex::max(z0, amrex::Real(1.0e-6));
+    // a guard against z0 = 0 only, the same as the ERF sampler's
+    // (ERF_FireWindExtract.cpp): every z0 the run accepts (> 0) is used as is
+    const amrex::Real z0s = amrex::max(z0, amrex::Real(1.0e-30));
     const amrex::Real zt  = amrex::max(z_to,   z0s * amrex::Real(1.000001));
     const amrex::Real zf  = amrex::max(z_from, z0s * amrex::Real(1.000001));
     return std::log(zt / z0s) / std::log(zf / z0s);

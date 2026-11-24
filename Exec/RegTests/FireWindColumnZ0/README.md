@@ -34,7 +34,7 @@ cell is then a closed form of that cell's roughness.
 | `inputs_base` | Grass fire on flat ground; uniform `erf.most.z0 = 0.1`, the scalar's value |
 | `inputs_map` | `inputs_base` with `erf.most.roughness_file_name = roughness_halves.txt` |
 | `input_sounding` | Uniform u = 8, v = 4 m/s, theta = 300 K |
-| `run_wind_column_z0.sh` | Writes the maps, runs the fourteen runs, runs the checks |
+| `run_wind_column_z0.sh` | Writes the maps, runs the eighteen runs, runs the checks |
 | `check_firewindcolumnz0.py` | Writes the maps (`write_map`) and checks the plotfiles (standard library and `erf_plotfile.py`) |
 
 `roughness_halves.txt` and `fuel_stripes.asc` are written by the script, not
@@ -63,8 +63,17 @@ run with `scalar` (`_sc`) and with `surface_layer` (`_sl`):
 | `map` | `inputs_map` | none |
 | `map10` | `inputs_map` | `erf.fire.wind_ref_ht = 10` |
 | `cg` | `inputs_map` | `erf.fire.ros_model = cheney_gould` |
+| `cg0` | `inputs_map` | `erf.fire.ros_model = cheney_gould`, `erf.fire.wind_sample_ht = 0` |
 | `fmap` | `inputs_map` | as `map10`, with `erf.fire.fuel_map.file = fuel_stripes.asc` |
 | `bil` | `inputs_map` | `wind_interp = bilinear`, `wind_sample_ht = 0`, `wind_below_first_cell = log`, `wind_ref_ht = 2` |
+
+Two more runs use `surface_layer` only, with `erf.fire.wind_sample_ht = 0` at
+the 6.1 m default: `fbp0` (`erf.fire.ros_model = fbp`, and
+`erf.fire.wind_sample_z0 = 3`, out of range for the scalar, which
+`surface_layer` leaves unused and unchecked) and `cr0`
+(`erf.fire.crown.enable = true`, Rothermel surface rate with the Cruz crown
+rate). In these the 10 m conversion is the only log profile applied, so they
+must run rather than stop as "no effect"; their fields are not compared.
 
 The restart pair runs `inputs_base` with `surface_layer` and `bulk_coeff`
 fluxes: `rs_a` straight to step 4 with a checkpoint at step 2, and `rs_b` from
@@ -82,6 +91,7 @@ column roughness and 0.1 m the scalar:
 | ft20 | `fire_wind_ref` u, `map10` | F(10, 20, z0c) / F(10, 20, 0.1) | 2.2e-16 |
 | ft20 | `fire_wind_eff / fire_wind_ref`, `map10` | F(6.096, 10, z0c) / F(6.096, 10, 0.1) | 4.4e-16 |
 | m10 | `fire_ros`, `cg` | R(U10 with z0c) / R(U10 with 0.1) | 4.4e-16 |
+| m10s | `fire_ros`, `cg0` | R(U10 with z0c) / R(U10 with 0.1) | 6.7e-16 |
 | fmap | `fire_wind_eff / fire_wind_ref`, `fmap` | F(6.096, 10, z0c) / F(6.096, 10, 0.1) | 4.4e-16 |
 | bil | `fire_wind_ref` u and v, `bil` | F(2, 2.5, z0c) / F(2, 2.5, 0.1) | 4.4e-16 |
 | restart | the six fields, `rs_b` over `rs_a` | identical | 0 values differ |
@@ -112,6 +122,19 @@ Each check fails against a one-line change to the code (measured 2026-11-23):
 | 20 ft conversion with the scalar on a fuel map | fmap eff/ref (error 0.069) |
 | roughness copied only when the sea roughness varies | restart (196608 values differ) |
 
+The start-up check of `surface_layer` with no effect (measured 2026-11-23;
+each change made to `FireParams::applies_wind_log_profile` or the range check):
+
+| Change | Test that fails |
+|--------|-----------------|
+| 20 ft conversion counted at 6.1 m | `_no_effect_6p1_abort` (runs) |
+| Cruz counted with `crown.wind_10m_kmh` set | `_no_effect_crown_abort` (runs) |
+| FBP counted with `wind_source = midflame` | `_no_effect_fbp_abort` (runs) |
+| Cruz crown rate not counted | `cr0` (stops) |
+| Cheney-Gould not counted | `cg0_sl` (stops) |
+| FBP not counted | `fbp0` (stops) |
+| scalar range checked with `surface_layer` | `fbp0` (stops) |
+
 ## CTest
 
 | Test | What it runs |
@@ -122,3 +145,6 @@ Each check fails against a one-line change to the code (measured 2026-11-23):
 | `FireWindColumnZ0_prescribed_abort` | `surface_layer` with `erf.fire.prescribed_wind = true` |
 | `FireWindColumnZ0_z0_range_abort` | `surface_layer` with `erf.most.z0 = 2.4`, above 6.096 m / e |
 | `FireWindColumnZ0_no_effect_abort` | `surface_layer` where no log profile is applied (no sampling height, a 10 m reference wind, no WAF) |
+| `FireWindColumnZ0_no_effect_6p1_abort` | `surface_layer` with no sampling height at the 6.1 m default (Rothermel, WAF on): the 20 ft conversion is skipped at 6.1 m |
+| `FireWindColumnZ0_no_effect_fbp_abort` | as `_6p1_abort` with `ros_model = fbp`, `fbp.wind_source = midflame` (no 10 m wind read) |
+| `FireWindColumnZ0_no_effect_crown_abort` | as `_6p1_abort` with the crown rate on and `crown.wind_10m_kmh = 20` (no 10 m wind read) |
