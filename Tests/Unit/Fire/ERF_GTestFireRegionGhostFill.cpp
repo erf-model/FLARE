@@ -56,7 +56,6 @@ TEST(FireRegionGhostFill, TheEdgeOfAPartialRegionTakesItsEdgeColumn)
     Region r(2, 2, 0);
     for (MFIter mfi(r.mf); mfi.isValid(); ++mfi) {
         auto a = r.mf.const_array(mfi);
-        const Box& vb = mfi.validbox();
         const Box gb = mfi.fabbox();
         for (int k = gb.smallEnd(2); k <= gb.bigEnd(2); ++k)
         for (int j = gb.smallEnd(1); j <= gb.bigEnd(1); ++j)
