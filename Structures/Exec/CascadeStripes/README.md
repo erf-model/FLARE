@@ -36,7 +36,8 @@ Every capacity is 1e9 N except the towers' footing uplift, which is a **syntheti
 design value or a supplier's.
 
 It comes from a calibration run of the same plan with every capacity at 1e9 N, which only records
-the peak demands (MoorDyn-C, one rank):
+the peak demands (MoorDyn-C, one rank, built with FFT so the terrain solve is the deck's
+FFT-preconditioned GMRES):
 
 | Component | 10 m/s (seeds 7, 8) | 25 m/s (seeds 7, 8) |
 |---|---|---|
@@ -65,6 +66,11 @@ or `--no-load-gate` to run at once). The six runs (two spin-ups, four members) t
 on one rank; the CTest takes about 8 s. `--out` must not already hold `ensemble` or `fit`: the driver skips
 members that finished, so an earlier run would be reused at another allowable. `--mpiexec` and
 `--mpiexec-args` (for example `--mpiexec-args="--oversubscribe"`) are passed to the driver.
+
+The deck solves the terrain Poisson equation with FFT-preconditioned GMRES (`erf.use_fft = true`),
+which needs `-DERF_ENABLE_FFT=ON`. For a build without FFT add `--without-fft`: every spin-up and
+member then runs with `erf.use_fft = false` and `erf.terrain_poisson_solver = mlmg`. The checks are
+the same.
 
 ## Expected results
 
@@ -110,7 +116,8 @@ conductor model's message at the restart.
 ## CTest
 
 `CascadeStripes_DamageStates` (labels `regression`, `conductors`, `failure`, `fragility`) runs the
-case with `--no-load-gate --check` on one rank per run and passes when the case prints
+case with `--no-load-gate --check` on one rank per run (and `--without-fft` when
+`ERF_ENABLE_FFT` is off, as in FLARE's Ubuntu CI job) and passes when the case prints
 `CascadeStripes: all checks hold`. It passes CMake's `MPIEXEC_PREFLAGS` through
 `--mpiexec-args`. The outputs (the two spin-ups' checkpoints, the four members, the fit and the two
 plans) are removed after a pass and kept after a failure.

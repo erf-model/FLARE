@@ -3,7 +3,7 @@
 states DS1-DS4 from the fragility fit.
 
     python3 run_case.py --exe path/to/flare --out case_dir [--mpiexec mpiexec] [--mpiexec-args=...] [--ranks 1]
-                        [--uplift 20000] [--load-start 6 | --no-load-gate] [--check]
+                        [--uplift 20000] [--load-start 6 | --no-load-gate] [--without-fft] [--check]
 
 The lines are Tests/test_files/Conductors_RandomGusts (two lines over hills, three lattice towers,
 random gusts). The driver runs two stripes, 10 and 25 m/s at 30 m, two gust seeds each, and one shared
@@ -12,6 +12,11 @@ with the lines, the failures (conductors.failure_break, ground_contact, tower_fa
 runs on to step 15. The towers' footings hold a SYNTHETIC uplift allowable (--uplift, default 20 kN)
 and every other capacity is 1e9, so the footing uplift alone decides the outcome. The fit then counts
 each damage state per stripe (DS4: 2 or more towers lost).
+
+The deck solves the terrain Poisson equation with FFT-preconditioned GMRES (erf.use_fft = true), which
+needs an executable built with ERF_ENABLE_FFT. --without-fft runs every member and spin-up with
+erf.use_fft = false and erf.terrain_poisson_solver = mlmg instead, for a build without FFT (the CTest
+passes it when ERF_ENABLE_FFT is off). The checks below are the same either way.
 
 The allowable comes from a calibration run with every capacity at 1e9 (README.md): the largest
 footing uplift was 0 at 10 m/s in both seeds and 33 to 66 kN at 25 m/s. 20 kN is a value chosen
@@ -55,8 +60,8 @@ CASCADE_TOWERS = 2
 STATES = ("DS1", "DS2", "DS3", "DS4")
 
 
-def driver_plan(uplift):
-    return {
+def driver_plan(uplift, without_fft=False):
+    plan = {
         "base_deck": os.path.join(DECK_DIR, DECK),
         "output_dir": "ensemble",
         "speeds": list(SPEEDS),
@@ -77,6 +82,10 @@ def driver_plan(uplift):
             "conductors.L2.rated_breaking_strength": 1.0e9,
         },
     }
+    if without_fft:
+        plan["inputs"]["erf.use_fft"] = False
+        plan["inputs"]["erf.terrain_poisson_solver"] = "mlmg"
+    return plan
 
 
 def fit_plan():
@@ -201,6 +210,9 @@ def main():
     ap.add_argument("--load-start", type=float, default=6.0,
                     help="a run starts when the 1-minute load is below this (default 6, the driver's)")
     ap.add_argument("--no-load-gate", action="store_true", help="run without looking at the machine's load")
+    ap.add_argument("--without-fft", action="store_true",
+                    help="erf.use_fft = false and erf.terrain_poisson_solver = mlmg, for an executable built "
+                         "without ERF_ENABLE_FFT (the deck uses the FFT-preconditioned GMRES)")
     ap.add_argument("--check", action="store_true", help="end with return code 1 unless the checks hold")
     a = ap.parse_args()
     if not a.uplift > 0.0:
@@ -211,7 +223,7 @@ def main():
             # the driver skips members that finished, so an earlier run would be reused at another allowable
             sys.exit("run_case.py: %s already exists; remove it or give another --out" % os.path.join(out, sub))
     os.makedirs(out, exist_ok=True)
-    write_json(os.path.join(out, "plan.json"), driver_plan(a.uplift))
+    write_json(os.path.join(out, "plan.json"), driver_plan(a.uplift, a.without_fft))
     write_json(os.path.join(out, "fit_plan.json"), fit_plan())
     cmd = [sys.executable, "-I", "-u", DRIVER, "run", "--plan", os.path.join(out, "plan.json"), "--exe", a.exe,
            "--mpiexec", a.mpiexec, "--mpiexec-args=" + a.mpiexec_args, "--ranks", str(a.ranks), "--load-start", str(a.load_start)]

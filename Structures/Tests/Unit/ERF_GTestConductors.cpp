@@ -188,6 +188,7 @@
 
 #include <gtest/gtest.h>
 
+#include "ERF_GTestFPTraps.H"
 #include "ERF_GTestTempDir.H"
 #include "ERF_ActuatorSpreading.H"
 #include "ERF_Conductors.H"
@@ -547,7 +548,7 @@ TEST(Conductors, LinesRunWithTheFloatingPointTrapsOn)
                 was.push_back(b ? 1 : 0);
                 pa.add(k.c_str(), true);
             }
-            prev = amrex::enableFPExcept(amrex::FPExcept::all);
+            prev = erf_gtest::set_fp_traps(amrex::FPExcept::all);
         }
         ~TrapsOn ()
         {

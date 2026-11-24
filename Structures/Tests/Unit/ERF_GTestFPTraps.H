@@ -8,15 +8,30 @@
 namespace erf_gtest {
 
 /**
+ * amrex::setFPExcept(excepts) with the floating-point flags cleared first; returns the earlier traps. A test
+ * that ran with the traps off may leave a flag raised. On x86-64 glibc that flag can sit in the x87 status
+ * word as well as in the SSE register: fesetexceptflag writes both, and erf_moordyn::FPTrapMask's destructor
+ * calls it to give back the flags raised before the mask. feenableexcept then unmasks it, and the next x87
+ * instruction that waits (the fstcw in fegetexcept, that is the next amrex::getFPExcept) stops the test
+ * binary with SIGFPE for an operation of an earlier test. Every scope below that sets traps goes through here.
+ */
+inline amrex::FPExcept set_fp_traps (amrex::FPExcept excepts)
+{
+    std::feclearexcept(FE_ALL_EXCEPT);
+    return amrex::setFPExcept(excepts);
+}
+
+/**
  * AMReX's three floating-point traps (invalid, zero and overflow, as amrex.fpe_trap_* sets them) on for a
  * scope, the earlier traps restored after it, a failed assertion included. active() is false where AMReX
- * cannot set traps (not Linux glibc or macOS): a test then skips. The flags raised in the scope are cleared
- * before the earlier traps come back, so that none fires later from a sticky flag.
+ * cannot set traps (not Linux glibc or macOS): a test then skips. The flags raised before the scope are
+ * cleared before the traps come on (set_fp_traps), and those raised in it before the earlier traps come back,
+ * so that none fires later from a sticky flag.
  */
 class FPTrapsOn
 {
 public:
-    FPTrapsOn () : m_prev(amrex::enableFPExcept(amrex::FPExcept::all)) {}
+    FPTrapsOn () : m_prev(set_fp_traps(amrex::FPExcept::all)) {}
     ~FPTrapsOn () { std::feclearexcept(FE_ALL_EXCEPT); amrex::setFPExcept(m_prev); }
     FPTrapsOn (const FPTrapsOn&) = delete;
     FPTrapsOn& operator= (const FPTrapsOn&) = delete;
