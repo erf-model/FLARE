@@ -68,7 +68,6 @@ erf.fire.waf_formula = "andrews"
 erf.fire.use_wind_limit = true
 erf.fire.use_terrain_wind = false
 erf.fire.balbi.formulation = "2020"
-erf.fire.balbi.wind_source = "reference"
 erf.fire.write_fire_stats_csv = false
 
 # Arrival-time probes: upwind faces, gap midpoints, downwind faces of the boxes.

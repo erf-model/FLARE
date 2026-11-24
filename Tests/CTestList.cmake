@@ -487,6 +487,16 @@ add_test_fire_abort(FireCustomFuelMissing_abort     FireCustomFuel inputs_bad_mi
     "erf.fire.custom_fuel.1000.sav_1h_1_m is required" "max_step=1")
 add_test_fire_abort(FireCustomFuelBadDepth_abort    FireCustomFuel inputs_bad_depth
     "erf.fire.custom_fuel.1000.depth_m must be in" "max_step=1")
+# with the wind adjustment factor on, a custom bed deeper than 13.5 m stops the
+# run (the unsheltered WAF reaches 1 at 13.53 m); with use_waf = false it runs
+add_test_fire_abort(FireCustomFuelWafDepth_abort    FireCustomFuel inputs_custom_grass
+    "erf.fire.custom_fuel.1000.depth_m = 20.0+ m is above 13.5 m, the deepest bed" "erf.fire.custom_fuel.1000.depth_m=20 max_step=1")
+add_test_fire_abort(FireCustomFuelWafDepth_nowaf    FireCustomFuel inputs_custom_grass
+    "STEP 1 ends" "erf.fire.custom_fuel.1000.depth_m=20 erf.fire.use_waf=false max_step=1")
+# the deepest accepted bed, 13.5 m, runs with the WAF on (in single precision
+# it comes back from feet as 13.500001 m)
+add_test_fire_abort(FireCustomFuelWafDepth_max      FireCustomFuel inputs_custom_grass
+    "STEP 1 ends" "erf.fire.custom_fuel.1000.depth_m=13.5 max_step=1")
 add_test_fire_abort(FireCustomFuelBadHeat_abort     FireCustomFuel inputs_bad_heat
     "erf.fire.custom_fuel.1000.heat_content_J_kg must be in" "max_step=1")
 # a 1-h SAV below 100 1/ft aborts; Rothermel's reaction term clamped it up to
@@ -657,6 +667,34 @@ add_test_fire_abort(FireWindColumnZ0_no_effect_fbp_abort   FireWindColumnZ0 inpu
     "surface_layer has no effect here" "erf.fire.wind_sample_z0_source=surface_layer erf.fire.wind_sample_ht=0 erf.fire.ros_model=fbp erf.fire.fbp.wind_source=midflame")
 add_test_fire_abort(FireWindColumnZ0_no_effect_crown_abort FireWindColumnZ0 inputs_base
     "surface_layer has no effect here" "erf.fire.wind_sample_z0_source=surface_layer erf.fire.wind_sample_ht=0 erf.fire.crown.enable=true erf.fire.crown.wind_10m_kmh=20")
+# wind keys that a run would read and then ignore: the prescribed wind without
+# the switch, the atmosphere's sampling inputs with a prescribed wind (no column
+# is sampled), the open-column weights with nearest (only the bilinear blend
+# uses them), and a model's wind_source with another rate model
+add_test_fire_abort(FireWindKeys_prescribed_x_abort   FireLineFire inputs_wind2p5
+    "erf.fire.prescribed_wind_x needs erf.fire.prescribed_wind = true" "erf.fire.prescribed_wind_x=3 max_step=1")
+add_test_fire_abort(FireWindKeys_prescribed_y_abort   FireLineFire inputs_wind2p5
+    "erf.fire.prescribed_wind_y needs erf.fire.prescribed_wind = true" "erf.fire.prescribed_wind_y=3 max_step=1")
+add_test_fire_abort(FireWindKeys_prescribed_ht_abort  FireLineFire inputs_wind2p5
+    "erf.fire.wind_sample_ht has no effect with erf.fire.prescribed_wind = true" "erf.fire.prescribed_wind=true erf.fire.wind_sample_ht=20 max_step=1")
+add_test_fire_abort(FireWindKeys_prescribed_interp_abort FireLineFire inputs_wind2p5
+    "erf.fire.wind_interp has no effect with erf.fire.prescribed_wind = true" "erf.fire.prescribed_wind=true erf.fire.wind_interp=nearest max_step=1")
+add_test_fire_abort(FireWindKeys_prescribed_below_abort FireLineFire inputs_wind2p5
+    "erf.fire.wind_below_first_cell has no effect with erf.fire.prescribed_wind = true" "erf.fire.prescribed_wind=true erf.fire.wind_below_first_cell=log max_step=1")
+add_test_fire_abort(FireWindKeys_prescribed_open_abort FireLineFire inputs_wind2p5
+    "erf.fire.structures.wind_open_columns has no effect with erf.fire.prescribed_wind = true"
+    "erf.fire.prescribed_wind=true erf.fire.structures.enable=true erf.fire.structures.file=input_sounding_u2p5 erf.fire.structures.wind_open_columns=true max_step=1")
+# the same keys at their defaults (as the master reference deck sets them) only warn
+add_test_fire_abort(FireWindKeys_prescribed_default_warn FireLineFire inputs_wind2p5
+    "WARNING: erf.fire.wind_sample_ht is ignored with erf.fire.prescribed_wind = true.*STEP 1 ends"
+    "erf.fire.prescribed_wind=true erf.fire.wind_sample_ht=0 erf.fire.wind_interp=bilinear erf.fire.wind_below_first_cell=clamp max_step=1")
+add_test_fire_abort(FireWindKeys_open_nearest_abort   FireLineFire inputs_wind2p5
+    "erf.fire.structures.wind_open_columns needs erf.fire.wind_interp = bilinear"
+    "erf.fire.wind_interp=nearest erf.fire.structures.enable=true erf.fire.structures.file=input_sounding_u2p5 erf.fire.structures.wind_open_columns=true max_step=1")
+add_test_fire_abort(FireWindKeys_balbi_source_abort   FireLineFire inputs_wind2p5
+    "erf.fire.balbi.wind_source needs erf.fire.ros_model = balbi" "erf.fire.balbi.wind_source=reference max_step=1")
+add_test_fire_abort(FireWindKeys_fbp_source_abort     FireLineFire inputs_wind2p5
+    "erf.fire.fbp.wind_source needs erf.fire.ros_model = fbp" "erf.fire.fbp.wind_source=midflame max_step=1")
 # where the rain that wets the dead fuel comes from (erf.fire.precip_source): the
 # atmosphere's rain per column wets the fuel under the raining columns only and the
 # fire-grid rate equals the change of the Kessler surface accumulation over the step,

@@ -6,6 +6,7 @@ erf.fire.hybrid.secondary = "balbi"
 erf.fire.hybrid.selector  = "structure"
 erf.fire.hybrid.structure_file = "buildings_5m_64x32.txt"
 erf.fire.hybrid.structure_distance = 10.0
+erf.fire.balbi.wind_source = "reference"
 
 # Structures as non-burnable cells: the fire goes around the boxes
 erf.fire.structures.enable = true

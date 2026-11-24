@@ -218,6 +218,10 @@ erf.fire.wind_ref_ht = 6.1
 # controlled idealized-wind test cases (Exec/RegTests/FireLineIgnition,
 # FireAdvectiveWindCoupling). Exact everywhere only with use_waf = false and
 # use_terrain_wind = false, since both still apply downstream otherwise.
+# prescribed_wind_x/y need prescribed_wind = true. No atmospheric column is
+# sampled, so with prescribed_wind = true wind_sample_ht > 0, wind_interp =
+# "nearest", wind_below_first_cell = "log" and structures.wind_open_columns =
+# true abort; the same keys at their defaults (as below) give a warning.
 erf.fire.prescribed_wind   = false
 erf.fire.prescribed_wind_x = 0.0
 erf.fire.prescribed_wind_y = 0.0
@@ -298,7 +302,7 @@ erf.fire.terrain_file_name = ""
 erf.fire.k_ridge = 1.5      # Ridge speed-up factor (wind accelerates over ridges)
 erf.fire.k_shelter = 0.6    # Sheltered wind reduction (wind slows in valleys/ravines)
 erf.fire.k_valley = 0.8     # Valley channeling factor (wind alignment in valleys)
-erf.fire.k_deflect = 0.3    # Wind deflection factor (affects wind direction change)
+erf.fire.k_deflect = 0.3    # Wind deflection factor (affects wind direction change); >= 0, 0 = none
 
 # Horizontal interpolation of the atmospheric wind onto the finer fire grid
 # "bilinear" (default) blends the four atmospheric columns surrounding each fire
@@ -543,7 +547,8 @@ erf.fire.structures.min_height = 0.5      # sampled height [m] above which a cel
 # open at the fire cell's wind height (a column whose sampled roof is above
 # that height counts with its open fraction), so the relaxed velocity inside
 # an immersed-forcing building does not leak into the wind of the fire cells
-# around it. Needs structures.enable; no effect with wind_interp = "nearest".
+# around it. Needs structures.enable and wind_interp = "bilinear" (aborts with
+# "nearest", which takes one column and ignores the weights).
 erf.fire.structures.wind_open_columns = false
 # Structure ignition and house-to-house spread on the exposure accumulators
 # (needs exposure.enable). A structure ignites when the largest accumulated
@@ -609,7 +614,7 @@ erf.fire.fuel_map.load_from_map = false
 #   erf.fire.custom_fuel.1000.sav_1h_1_m         = 5000.0  # [328.084, 12000] 1/m (>= 100 1/ft)
 #   erf.fire.custom_fuel.1000.sav_live_herb_1_m  = 5000.0  # [10, 12000] 1/m, default sav_1h_1_m
 #   erf.fire.custom_fuel.1000.sav_live_woody_1_m = 5000.0  # [10, 12000] 1/m, default sav_1h_1_m
-#   erf.fire.custom_fuel.1000.depth_m            = 0.60    # (0.01, 50] m
+#   erf.fire.custom_fuel.1000.depth_m            = 0.60    # (0.01, 50] m; <= 13.5 m with use_waf (WAF reaches 1 at 13.53 m)
 #   erf.fire.custom_fuel.1000.moisture_ext       = 0.25    # [0.01, 2] fraction
 #   erf.fire.custom_fuel.1000.heat_content_J_kg  = 1.86e7  # [5e6, 5e7] J/kg
 #   erf.fire.custom_fuel.1000.density_kg_m3      = 512.0   # [50, 2000] kg/m3
@@ -716,6 +721,7 @@ erf.fire.balbi.herb_curing = 0.0
 #             normalises the wind by its own vertical velocity scale rather
 #             than by a midflame reduction, so the WAF is arguably double
 #             counting.
+# Needs ros_model = "balbi" (or a hybrid member).
 erf.fire.balbi.wind_source = "midflame"
 
 # Augment the vertical velocity scale with the fire-induced component built
@@ -755,7 +761,7 @@ erf.fire.fbp.curing = 60.0       # grass types [%]
 erf.fire.fbp.pc = 50.0           # percent conifer (M1, M2)
 erf.fire.fbp.pdf = 50.0          # percent dead fir (M3, M4)
 erf.fire.fbp.use_slope = true
-erf.fire.fbp.wind_source = "reference"
+erf.fire.fbp.wind_source = "reference"   # needs ros_model = "fbp" (or a hybrid member)
 
 # ============================================================================
 # BEHAVE MULTI-CLASS ROTHERMEL (used only when ros_model = "behave")
