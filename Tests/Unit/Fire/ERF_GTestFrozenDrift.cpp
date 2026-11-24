@@ -65,10 +65,13 @@ void make_columns (FrozenWindHost& h, int nz, const std::function<Real(Real, Rea
 {
     const int gnx = static_cast<int>(NX * DX / GDX), gny = static_cast<int>(NY * DX / GDX);
     const Box gdom(IntVect(0, 0, 0), IntVect(gnx - 1, gny - 1, nz - 1));
+    // The buffer always holds 5 components, so the w write below is in bounds
+    // for the compiler too (GCC 11 -Warray-bounds otherwise flags it when wh is
+    // null); the view exposes only the first nc
     const int nc = wh ? 5 : 4;
-    h.data.assign(static_cast<std::size_t>(nc * gdom.numPts()), 0.0);
+    h.data.assign(static_cast<std::size_t>(5 * gdom.numPts()), 0.0);
     const Dim3 lo = lbound(gdom), hi = ubound(gdom);
-    Array4<Real> out(h.data.data(), lo, Dim3{hi.x + 1, hi.y + 1, hi.z + 1}, nc);
+    Array4<Real> out(h.data.data(), lo, Dim3{hi.x + 1, hi.y + 1, hi.z + 1}, 5);
     for (int k = 0; k < nz; ++k)
         for (int j = 0; j < gny; ++j)
             for (int i = 0; i < gnx; ++i) {
