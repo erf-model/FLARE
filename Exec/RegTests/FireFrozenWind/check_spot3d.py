@@ -13,15 +13,19 @@ only (plus erf_plotfile.py and check_frozen_wind.py, next to it).
 The flight, as documented for erf.fire.spotting.drift_wind:
   - the brand starts at the source cell centre, fire_lofting_height above
     the fire ground there; it falls at v_t (terminal_velocity) in
-    n_traj_steps forward-Euler steps of dt = (z_start - z_min) / v_t / N,
-    z_min the lowest fire ground
+    forward-Euler steps of dz = H / N (dt = dz / v_t, N = n_traj_steps),
+    up to n_fall = max(N, ceil((z_start - z_min) / dz)) steps, z_min the
+    lowest fire ground (before Nov 2026: N steps of dt = (z_start - z_min)
+    / v_t / N)
   - the fire ground is the GUST column ground (mean of its four k = 0
     nodes in gust_hill_plt/Level_0/z_phys_nd) of the column holding the fire
     cell centre (the ERF and GUST meshes coincide in this case); between
     fire cell centres it is bilinear, clamped at the edges
   - each step: the brand leaves the run if its cell-centre index leaves the
     interior of the fire grid; else it moves by (u, v) dt and falls v_t dt,
-    and it lands when it is at or below the ground under it
+    and it lands when it is at or below the ground under it; when its height
+    above the ground went from a0 > 0 to a1 < 0 in the step, it lands at the
+    fraction a0 / (a0 - a1) of the step
   - frozen: (u, v) is GUST's wind at h = height above the fire ground, each
     of the four GUST columns around the brand sampled at its own ground + h,
     linearly between its cell centres, the lowest centre's wind below it and
@@ -35,7 +39,7 @@ The flight, as documented for erf.fire.spotting.drift_wind:
     as u and v; it falls (v_t - w) dt per step, keeps dt, steps on until it
     lands (w's share z_w of the height is summed apart from the v_t fall; with
     z_w != 0 it lands within 1e-3 v_t dt above the ground, and with z_w <= 0
-    after N steps at the latest), up to 10 N steps, and
+    after n_fall steps at the latest), up to 10 n_fall steps, and
     is dropped if still aloft then
   - profile: (u, v) = fire_wind_ref x ln(h / z0) / ln(z_ref / z0), z_ref =
     6.1 m and z0 = 0.1 m (inputs_base), fire_wind_ref bilinear
@@ -50,11 +54,12 @@ Checks:
             check can tell the two drifts apart)
   steps     frozen_uvw: w changes the flight time, so some brand lands in
             more or fewer steps than its frozen replay; none is still aloft
-            (the cap of 10 N steps itself is pinned by the FrozenDrift gtests)
-  options   frozen with a non-default --interp or --below: the replay with the
-            default bilinear and clamp differs by more than 1 m somewhere, so
-            the run read the option (and, for --below log, some brand sampled
-            below a lowest centre)
+            (the cap of 10 n_fall steps itself is pinned by the FrozenDrift gtests)
+  options   frozen with a non-default --interp or --below: the replay with
+            each such option set back to its default (bilinear, clamp), one at
+            a time, differs by more than 0.1 m (1e5 times the replay tolerance)
+            somewhere, so the run read each option (and, for --below log, some
+            brand sampled below a lowest centre)
 """
 import argparse
 import math
@@ -68,11 +73,12 @@ from check_frozen_wind import ground_nodes  # noqa: E402
 
 V_T = 2.5           # inputs_spot3d: terminal_velocity
 N_TRAJ = 20         # inputs_spot3d: n_traj_steps
+OPT_GAP = 0.1       # options: least gap of a replay with one option at its default [m]
 Z_REF, Z0 = 6.1, 0.1   # inputs_base: wind_ref_ht; wind_sample_z0 (default)
 TINY = 1.0e-30
 CAP = 200.0         # Scott cap of Anderson model 1
 TOL = 1.0e-6
-ALOFT_FACTOR = 10   # albini_aloft_step_factor: frozen_uvw steps on up to 10 N steps
+ALOFT_FACTOR = 10   # albini_aloft_step_factor: frozen_uvw steps on up to 10 n_fall steps
 
 results = []
 
@@ -195,19 +201,21 @@ def main():
         """Landing distance, None if the brand left the grid, "aloft" if dropped."""
         cx, cy = x0 + (si + 0.5) * dx, y0 + (sj + 0.5) * dy
         zb = T[si][sj] + H
-        dt = (zb - zmin) / V_T / N_TRAJ
-        dz = V_T * dt
+        dz = H / N_TRAJ
+        dt = dz / V_T
+        n_fall = max(N_TRAJ, math.ceil((zb - zmin) / dz))
         uvw = drift == "frozen_uvw"
         tol = 1.0e-3 * dz
         zw = 0.0          # w's share of the height change, apart from the v_t fall
         px, py = cx, cy
         landed = False
         steps[0] = 0
-        for ns in range(ALOFT_FACTOR * N_TRAJ if uvw else N_TRAJ):
+        for ns in range(ALOFT_FACTOR * n_fall if uvw else n_fall):
             if not inside(px, py):
                 return None
             steps[0] += 1
             h = zb + zw - bilin(T, px, py)
+            px0, py0 = px, py
             if drift in ("frozen", "frozen_uvw"):
                 u, v, wz = frozen_wind(px, py, h, interp, below)
             else:
@@ -218,8 +226,13 @@ def main():
             if uvw:
                 zw += wz * dt
             zb -= dz
-            if (zb + zw <= bilin(T, px, py) + (tol if zw != 0.0 else 0.0)
-                    or (uvw and ns + 1 >= N_TRAJ and zw <= 0.0)):
+            a1 = zb + zw - bilin(T, px, py)
+            if (a1 <= (tol if zw != 0.0 else 0.0)
+                    or (uvw and ns + 1 >= n_fall and zw <= 0.0)):
+                if a1 < 0.0 < h:
+                    back = -a1 / (h - a1)
+                    px -= (px - px0) * back
+                    py -= (py - py0) * back
                 landed = True
                 break
         if uvw and not landed:
@@ -234,7 +247,13 @@ def main():
         return 1
     err = 0.0
     gap = 0.0
-    gap_opt = 0.0
+    # replays with one non-default option set back to its default
+    gap_opt = {}
+    if opt.drift == "frozen":
+        if opt.interp != "bilinear":
+            gap_opt[("bilinear", opt.below)] = 0.0
+        if opt.below != "clamp":
+            gap_opt[(opt.interp, "clamp")] = 0.0
     below_seen = 0
     dmax = 0.0
     lost = 0
@@ -256,10 +275,10 @@ def main():
             err = math.inf
             continue
         err = max(err, abs(D - r))
-        if opt.drift == "frozen" and (opt.interp, opt.below) != ("bilinear", "clamp"):
-            rd = fly(i, j, HZ[i][j], "frozen", "bilinear", "clamp")
+        for key in gap_opt:
+            rd = fly(i, j, HZ[i][j], "frozen", *key)
             if rd is not None:
-                gap_opt = max(gap_opt, abs(rd - r))
+                gap_opt[key] = max(gap_opt[key], abs(rd - r))
         ro = fly(i, j, HZ[i][j], other)
         n_longer += steps[0] < n_steps
         n_shorter += steps[0] > n_steps
@@ -274,10 +293,11 @@ def main():
         check("steps", n_longer + n_shorter > 0 and aloft == 0,
               f"{n_longer} flights took more steps and {n_shorter} fewer than the frozen replay; "
               f"longest {steps_max} steps (N = {N_TRAJ}); {aloft} brands stayed aloft")
-    if opt.drift == "frozen" and (opt.interp, opt.below) != ("bilinear", "clamp"):
-        ok_opt = gap_opt > 1.0 and (opt.below != "log" or below_seen > 0)
+    if gap_opt:
+        ok_opt = all(g > OPT_GAP for g in gap_opt.values()) and (opt.below != "log" or below_seen > 0)
+        gaps = ", ".join(f"{a}/{b} {g:.3f} m" for (a, b), g in gap_opt.items())
         check("options", ok_opt,
-              f"the bilinear/clamp replay differs by up to {gap_opt:.3f} m; "
+              f"the replay with one option at its default differs by up to: {gaps}; "
               f"{below_seen} samples below a lowest centre")
 
     ok = all(results)

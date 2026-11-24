@@ -33,11 +33,12 @@
  *
  * With drift_wind = frozen_uvw the brand also moves with the field's w. In a
  * uniform u = U and w = W on flat ground it falls (v_t - W) dt per step of
- * the v_t fall, dt = H / (v_t N), so it lands after
+ * the v_t fall, dt = H / (v_t N), so it reaches the ground in
  *
- *     n = ceil(N v_t / (v_t - W))   steps,   D = U n dt,
+ *     n = ceil(N v_t / (v_t - W))   steps,   and lands at D = U H / (v_t - W)
  *
- * if n <= 10 N, and is dropped as aloft otherwise (or if W >= v_t).
+ * inside the last of them, if n <= 10 N_fall (10 N on flat ground), and is
+ * dropped as aloft otherwise (or if W >= v_t).
  */
 
 using namespace amrex;
@@ -64,10 +65,13 @@ void make_columns (FrozenWindHost& h, int nz, const std::function<Real(Real, Rea
 {
     const int gnx = static_cast<int>(NX * DX / GDX), gny = static_cast<int>(NY * DX / GDX);
     const Box gdom(IntVect(0, 0, 0), IntVect(gnx - 1, gny - 1, nz - 1));
+    // The buffer always holds 5 components, so the w write below is in bounds
+    // for the compiler too (GCC 11 -Warray-bounds otherwise flags it when wh is
+    // null); the view exposes only the first nc
     const int nc = wh ? 5 : 4;
-    h.data.assign(static_cast<std::size_t>(nc * gdom.numPts()), 0.0);
+    h.data.assign(static_cast<std::size_t>(5 * gdom.numPts()), 0.0);
     const Dim3 lo = lbound(gdom), hi = ubound(gdom);
-    Array4<Real> out(h.data.data(), lo, Dim3{hi.x + 1, hi.y + 1, hi.z + 1}, nc);
+    Array4<Real> out(h.data.data(), lo, Dim3{hi.x + 1, hi.y + 1, hi.z + 1}, 5);
     for (int k = 0; k < nz; ++k)
         for (int j = 0; j < gny; ++j)
             for (int i = 0; i < gnx; ++i) {
@@ -165,7 +169,7 @@ Real lofting_height ()
 /// Forward Euler drift of a brand lofted to H on flat ground in u = a min(h, h_top)
 Real euler_shear_drift (Real H, Real h_top)
 {
-    const Real dt = (H / V_T) / N_TRAJ, dz = V_T * dt;
+    const Real dz = H / N_TRAJ, dt = dz / V_T;
     Real d = 0.0;
     for (int n = 0; n < N_TRAJ; ++n) { d += SHEAR * std::min(H - n * dz, h_top) * dt; }
     return d;
@@ -407,12 +411,14 @@ int steps_to_land (Real W)
 TEST(FrozenDrift, VerticalWindChangesTheFallClosedForm)
 {
     const Real H  = lofting_height();
-    const Real dt = H / (V_T * N_TRAJ);
     // W = 0, an updraft of half v_t, a downdraft of v_t, an updraft of 0.85 v_t
-    // (134 steps, past N = 20 but within 10 N)
+    // (134 steps, past N = 20 but within 10 N). In uniform u and w the height
+    // changes linearly over each step, so the landing inside the last step is
+    // the closed form U H / (v_t - W) (until Nov 2026 the brand landed at the
+    // end of that step: 0.5 % further for W = 0.85 v_t, where 133.3 steps fall H)
     for (Real W : {0.0_rt, 0.5_rt * V_T, -V_T, 0.85_rt * V_T}) {
         const int  n = steps_to_land(W);
-        const Real D = U_DRIFT * n * dt;
+        const Real D = U_DRIFT * H / (V_T - W);
         SpotCase r(NX, NY);
         FrozenWindHost h;
         run_uniform(r, h, W);
@@ -488,4 +494,59 @@ TEST(FrozenDrift, VerticalWindOfZeroLandsAsFrozen)
     }
     EXPECT_EQ(n_cases, NSLOPES);
     EXPECT_GT(longest, 100.0);
+}
+
+namespace {
+/// Fire terrain z = ground((i + 1/2) DX, (j + 1/2) DX) on the case's layout
+MultiFab terrain_of (const SpotCase& c, const std::function<Real(Real, Real)>& ground)
+{
+    MultiFab t(c.ba, c.dm, 1, 0);
+    for (MFIter mfi(t); mfi.isValid(); ++mfi) {
+        auto ta = t.array(mfi);
+        LoopOnCpu(mfi.validbox(), [&] (int i, int j, int k) { ta(i, j, k) = ground((i + 0.5) * DX, (j + 0.5) * DX); });
+    }
+    return t;
+}
+} // namespace
+
+TEST(FrozenDrift, OnASlopeUniformWindLandsAtTheClosedForm)
+{
+    // Uniform u = U over the ground z = s x: the height above the ground falls
+    // linearly, (v_t + s U) per second, so the brand lands at D = U H / (v_t + s U)
+    // and the landing inside the last step is exact. Downslope (s = -0.1) the
+    // brand needs 22.2 steps of H / N, beyond the N = 20 of its loft; upslope
+    // (s = +0.1) 18.2. Landing at the end of the last step instead is about
+    // 4 m (0.8 of a 5.3 m step) too far; stopping after N steps is 12 m short.
+    const Real H = lofting_height();
+    for (const Real s : {-0.1_rt, 0.1_rt}) {
+        auto ground = [=] (Real x, Real) { return s * x; };
+        FrozenWindHost h;
+        make_columns(h, 40, ground, 0.0, 0.0, nullptr, [] (Real) { return U_DRIFT; });
+        const FrozenDrift d = drift_of(h);
+        SpotCase r(25, 10);
+        MultiFab terrain = terrain_of(r, ground);
+        r.run(&d, &terrain);
+        const Real D = U_DRIFT * H / (V_T + s * U_DRIFT);
+        EXPECT_EQ(r.launched(), 12) << "slope " << s;
+        EXPECT_NEAR(r.data.max(2), D, TOLD * D) << "slope " << s;
+    }
+}
+
+TEST(FrozenDrift, OnAPlateauTheAloftCapGrowsWithTheRelief)
+{
+    // A plateau 500 m above one low corner cell, and w = 0.95 v_t: the brand
+    // needs 400 steps of H / N, more than 10 N = 200 but fewer than 10 n_fall
+    // (n_fall = N (500 + H) / H, about 114), so every brand lands. u = 0 keeps
+    // it over its source. With the cap at 10 N every brand would be dropped.
+    auto plateau = [] (Real x, Real y) { return (x > (NX - 1) * DX && y < DX) ? 0.0 : 500.0; };
+    FrozenWindHost h;
+    make_columns(h, 40, [] (Real, Real) { return 500.0; }, 0.0, 0.0,
+                 [] (Real) { return 0.95 * V_T; }, [] (Real) { return 0.0; });
+    const FrozenDrift d = drift_of(h, true);
+    SpotCase r(25, 10);
+    MultiFab terrain = terrain_of(r, plateau);
+    r.run(&d, &terrain);
+    EXPECT_GT(steps_to_land(0.95 * V_T), albini_aloft_step_factor * N_TRAJ);
+    EXPECT_EQ(r.n_aloft, 0) << "the cap is 10 n_fall steps, not 10 N";
+    EXPECT_EQ(r.launched(), 12);
 }

@@ -803,6 +803,10 @@ add_test_fire_abort(FireFrozenWind_spot_drift_value_abort FireFrozenWind inputs_
 add_test_fire_abort(FireFrozenWind_spot_uvw_no_file_abort FireFrozenWind inputs_base
     "erf.fire.spotting.drift_wind = frozen_uvw needs the frozen GUST wind: set erf.fire.frozen_wind.file"
     "erf.fire.spotting.enable=true erf.fire.spotting.drift_wind=frozen_uvw")
+# a brand that needs more than 1e6 steps to fall to the lowest ground stops the run
+add_test_fire_abort(FireFrozenWind_spot_steps_abort FireFrozenWind inputs_spot3d
+    "steps of lofting height / n_traj_steps to fall to the lowest ground .* lower erf.fire.spotting.n_traj_steps or raise erf.fire.spotting.I_B_min"
+    "erf.fire.spotting.n_traj_steps=2000000")
 # every file of the list is read: a second file that does not exist stops the run
 add_test_fire_abort(FireMergingFronts_missing_file_abort FireMergingFronts inputs_missing_file
     "Cannot open polygon vertex file: parallel_missing.csv" "")

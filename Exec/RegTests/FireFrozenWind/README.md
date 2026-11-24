@@ -141,8 +141,10 @@ The check was shown to fail on four mutants:
 launched at step 20:
 
 - the brand starts `fire_lofting_height` above the ground at the source cell
-  centre and falls at the terminal velocity (2.5 m/s) in 20 forward-Euler
-  steps, sized from the fall down to the lowest ground of the domain;
+  centre and falls at the terminal velocity (2.5 m/s) in forward-Euler steps
+  of `fire_lofting_height`/20 in height. It takes as many steps as its fall to
+  the lowest ground of the domain needs (at least 20), and a step that ends
+  below the ground is cut back, linearly, to where it meets the ground;
 - `frozen`: each step it moves with u, v of the GUST field at its height h
   above the ground. Each of the four GUST columns around it is sampled at its
   own ground + h, linearly between cell centres, and the columns are weighted
@@ -151,8 +153,8 @@ launched at step 20:
   ln(h'/z0)/ln(h1/z0), h' and h1 the heights above the column's ground);
 - `frozen_uvw` (`inputs_spot_uvw`): as `frozen`, and it also moves with
   GUST's w, sampled as u and v, so it falls (2.5 m/s - w) per second. It keeps
-  the step size, steps on until it lands (up to 200 steps) and is dropped if
-  still aloft then;
+  the step size, steps on until it lands (up to 10 times the steps of its fall
+  to the lowest ground) and is dropped if still aloft then;
 - `profile`: it moves with `fire_wind_ref` times ln(h/z0)/ln(6.1/z0), with z0 =
   0.1 m;
 - it lands at or below the ground under it, and the distance is capped at
@@ -161,12 +163,12 @@ launched at step 20:
 
 | Check | `inputs_spot3d` (frozen) | `inputs_spot_profile` (profile) | `inputs_spot_nearest_log` (frozen) | `inputs_spot_uvw` (frozen_uvw) |
 |-------|--------------------------|---------------------------------|------------------------------------|--------------------------------|
-| Source cells at step 20 | 726 | 752 | 719 | 703 |
-| Longest landing | 151.1 m | 132.5 m | 144.6 m | 125.8 m |
-| `fire_spot_max_dist` vs the replay | 2.6e-13 m (tol 1e-6) | 2.1e-13 m (tol 1e-6) | 2.1e-13 m (tol 1e-6) | 2.0e-13 m (tol 1e-6) |
-| The other drift's replay differs by up to | 25.3 m | 25.3 m | 23.2 m | 25.8 m (frozen) |
-| The bilinear, clamped replay differs by up to | | | 4.5 m (671 samples below a lowest centre) | |
-| Flights with more / fewer steps than the frozen replay | | | | 71 / 252 (longest 20 steps, none aloft) |
+| Source cells at step 20 | 719 | 747 | 703 | 707 |
+| Longest landing | 147.8 m | 129.7 m | 141.4 m | 124.3 m |
+| `fire_spot_max_dist` vs the replay | 2.6e-13 m (tol 1e-6) | 4.7e-13 m (tol 1e-6) | 3.1e-13 m (tol 1e-6) | 2.6e-13 m (tol 1e-6) |
+| The other drift's replay differs by up to | 24.8 m | 24.8 m | 25.4 m | 26.4 m (frozen) |
+| The replay with bilinear / with clamp differs by up to | | | 1.3 m / 1.7 m (1018 samples below a lowest centre) | |
+| Flights with more / fewer steps than the frozen replay | | | | 85 / 594 (longest 25 steps, none aloft) |
 
 The brands fly to about 47 m, below the highest GUST cell centres, so no
 brand is counted above them here. The unit test
@@ -177,18 +179,22 @@ closed form and the gather of the GUST columns under the fire region
 boxes).
 
 Each check fails when it is run on the other deck's output (landing off by
-25.3 m), so it detects a drift that ignores `drift_wind`. The
-`inputs_spot_nearest_log` replay fails by 3.3 m when FLARE drifts bilinearly
-there, and by 4.5 m when it drops the log profile, so it detects a drift that
-ignores `wind_interp` or `wind_below_first_cell`.
+24.8 m), so it detects a drift that ignores `drift_wind`. The
+`inputs_spot_nearest_log` replay fails by 1.3 m when FLARE drifts bilinearly
+there, and by 1.7 m when it drops the log profile, so it detects a drift that
+ignores `wind_interp` or `wind_below_first_cell`. Each option is checked on its
+own: with both set back to their defaults the replay differs by only 0.9 m,
+as the two changes partly cancel.
 
 In `inputs_spot_uvw` GUST's w lies between -0.54 and +0.63 m/s, a quarter of
 the 2.5 m/s terminal velocity at most, so w shortens or lengthens flights by
-a few steps and no brand needs more than N = 20 steps or stays aloft. A drift
-that ignores w fails the replay by 25.8 m. The cap of 10 N steps and the drop
-of brands still aloft are pinned by the unit tests
-(`FrozenDrift.VerticalWindChangesTheFallClosedForm`,
-`FrozenDrift.BrandsStillAloftAreDroppedAndCounted`), and
+a few steps and no brand stays aloft. Brands from the hill take up to 25
+steps, as they step on over the lower ground beyond it. A drift that ignores
+w fails the replay by 26.4 m. The cap of 10 times the steps of the fall to
+the lowest ground and the drop of brands still aloft are pinned by the unit
+tests (`FrozenDrift.VerticalWindChangesTheFallClosedForm`,
+`FrozenDrift.BrandsStillAloftAreDroppedAndCounted`,
+`FrozenDrift.OnAPlateauTheAloftCapGrowsWithTheRelief`), and
 `FrozenDrift.VerticalWindOfZeroLandsAsFrozen` checks that w = 0 lands every
 brand where `frozen` does, bit for bit, over 400 sloping grounds. The
 `inputs_spot_uvw` run with `erf.fire.frozen_wind.file = gust_hill_chk` (w

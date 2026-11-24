@@ -91,9 +91,32 @@ same random draws on every rank whatever the decomposition:
    :cpp:`erf.fire.wind_sample_z0`, so a brand lofted to 200 m rides a wind
    about twice the 6.1 m wind (until October 2026 it drifted on the
    WAF-reduced midflame wind, about a quarter of that). The fall is integrated by
-   forward Euler over :cpp:`erf.fire.spotting.n_traj_steps` sub-steps
-   (default 20) from :math:`H_z` to the terrain surface, which is
-   interpolated under the brand so that drift downslope lands farther away.
+   forward Euler in sub-steps of height :math:`\Delta z = H_z / N` and time
+   :math:`\Delta t = \Delta z / v_t`, with :math:`N` =
+   :cpp:`erf.fire.spotting.n_traj_steps` (default 20): :math:`N` sub-steps
+   bring the brand from :math:`H_z` to the ground of its source. The terrain
+   surface is interpolated under the brand, so drift downslope lands farther
+   away; over ground lower than the source the brand steps on, up to
+
+   .. math::
+
+      N_{fall} = \max\left(N, \left\lceil \frac{z_s + H_z - z_{min}}{\Delta z} \right\rceil\right)
+
+   sub-steps, with :math:`z_s` the source's ground and :math:`z_{min}` the
+   lowest ground in the domain, so every brand lands. In the sub-step where
+   the brand's height above the ground goes from :math:`a_0 > 0` to
+   :math:`a_1 \le 0`, it lands at the fraction :math:`a_0 / (a_0 - a_1)` of
+   that sub-step (the height above the ground taken linear over it). Until
+   November 2026 :math:`\Delta z` was :math:`(z_s + H_z - z_{min}) / N`, the
+   fall to the lowest ground in the domain, and the brand landed at the end
+   of its last sub-step: a 30 m loft from ground 500 m above that lowest
+   ground (5 m/s at 6.1 m, z0 = 0.1 m) took sub-steps of 26.5 m and landed
+   74 % too far (310 % at 2000 m).
+   With :math:`N = 20` the remaining forward Euler error of the distance is
+   about 2.5 % for that 30 m loft on flat ground and about halves each time
+   :math:`N` doubles. A brand with :math:`N_{fall} > 10^6` (a tiny loft over
+   high relief, or a very large :math:`N`) stops the run with a message
+   naming :cpp:`n_traj_steps` and :cpp:`I_B_min`.
 
    With :cpp:`erf.fire.spotting.drift_wind = frozen` (and
    :cpp:`erf.fire.frozen_wind.file` set) the brand drifts instead on
@@ -131,7 +154,8 @@ same random draws on every rank whatever the decomposition:
    keeps its direction there), and its height changes by
    :math:`(w - v_t)\,\Delta t` per sub-step. :math:`\Delta t` stays the step of
    the :math:`v_t` fall, so in an updraft the brand needs more sub-steps: it
-   steps on until it lands, up to :math:`10 N`, and a brand still aloft then
+   steps on until it lands, up to :math:`10 N_{fall}` (:math:`10 N` on flat
+   ground), and a brand still aloft then
    is dropped, counted and reported. In uniform :math:`u = U`, :math:`w = W
    < v_t` on flat ground it lands after
 
@@ -139,12 +163,13 @@ same random draws on every rank whatever the decomposition:
 
       n = \left\lceil \frac{N v_t}{v_t - W} \right\rceil
 
-   sub-steps, at :math:`D = U\,n\,\Delta t`, :math:`\Delta t = H / (v_t N)`;
-   the unit tests ``FrozenDrift.*`` pin this value. The brand lands at the
-   end of the sub-step in which it reaches the ground (as with ``frozen``
-   and ``profile``), so :math:`D` exceeds the exact :math:`U H / (v_t - W)` by
-   less than one sub-step. With :math:`W \ge 0.9\,v_t` it needs more than
-   :math:`10 N` sub-steps and is dropped.
+   sub-steps, :math:`\Delta t = H / (v_t N)`. It lands inside the last of
+   them, where its height above the ground, linear over the sub-step, is zero
+   (as with ``frozen`` and ``profile``); in uniform :math:`u` and :math:`w`
+   this is the exact :math:`D = U H / (v_t - W)`, which the unit tests
+   ``FrozenDrift.*`` pin (until November 2026 it landed at the end of that
+   sub-step, up to one sub-step further). With :math:`W \ge 0.9\,v_t` it
+   needs more than :math:`10 N` sub-steps and is dropped.
 
    The share of :math:`w` in the height change is summed apart from the
    :math:`v_t` fall. When :math:`w` has moved the brand, it lands within
@@ -152,8 +177,8 @@ same random draws on every rank whatever the decomposition:
    sub-steps cannot add one; this can land it one sub-step before the
    :math:`n` above when :math:`N v_t / (v_t - W)` lies within
    :math:`10^{-3}\,v_t/(v_t - W)` above an integer. A brand that :math:`w`
-   has not lifted overall lands after :math:`N` sub-steps at the latest, as
-   with ``frozen``. With :math:`w = 0` it therefore lands every brand where
+   has not lifted overall lands after :math:`N_{fall}` sub-steps at the
+   latest, as with ``frozen``. With :math:`w = 0` it therefore lands every brand where
    ``frozen`` does, bit for bit, in double and single precision.
 
    With the default :cpp:`erf.fire.wind_below_first_cell = clamp`, :math:`w`
@@ -175,10 +200,11 @@ same random draws on every rank whatever the decomposition:
    the unit tests ``FrozenDrift.*`` pin this value. The exact distance is
    :math:`a H^2 / (2 v_t)`: each sub-step takes the wind at its start
    height, so the scheme overestimates by :math:`1/N` (5 % at the default
-   :math:`N = 20`). On raised ground a brand uses fewer sub-steps, since
-   :math:`\Delta t` is sized for a fall to the lowest ground in the fire
-   domain, and the error grows (up to 9 % at :math:`N = 20` in the
-   ``FireFrozenWind`` hill case). The same holds for the profile drift.
+   :math:`N = 20`). The same holds for the profile drift. The sub-step does
+   not depend on the ground elsewhere in the domain (until November 2026 a
+   brand on raised ground took fewer, larger sub-steps, sized for a fall to
+   the lowest ground, and the error grew to 9 % at :math:`N = 20` in the
+   ``FireFrozenWind`` hill case).
 6. The landing distance is capped at the maximum spotting distance of the
    source cell's fuel (its code on a fuel map, the domain fuel otherwise; a
    burning structure's footprint cell takes the map's code under it, the
