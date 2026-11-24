@@ -2,7 +2,7 @@
 """Checks on the FireWindColumnZ0 regression test.
 
     python3 check_firewindcolumnz0.py write_map
-    python3 check_firewindcolumnz0.py [parity] [sample] [ft20] [m10] [fmap] [bil] [restart]
+    python3 check_firewindcolumnz0.py [parity] [sample] [ft20] [m10] [m10s] [fmap] [bil] [restart]
 
 run_wind_column_z0.sh writes, for each variant v, run_<v>.log and
 plt_fire_<v>_00004. Every pair of variants shares one atmosphere (one-way
@@ -37,6 +37,9 @@ m10        inputs_map with erf.fire.ros_model = cheney_gould, whose rate reads
            each U10 taken from its own run's fire_wind_ref. With
            moisture_dynamic = false the rate reads
            erf.fire.cheney_gould.moisture (default 10 %).
+m10s       m10 with no sampling height (erf.fire.wind_sample_ht = 0): the 6.1 m
+           reference wind is the first centre's, and the 10 m conversion is the
+           only log profile applied. The run must not stop as "no effect".
 fmap       ft20 on the fuel map: the 20 ft factor of the spatial-fuel branch.
 bil        inputs_map, wind_interp = bilinear, no two-height sampling, the
            2 m reference wind below the 2.5 m first centre, wind_below_first_cell
@@ -197,9 +200,9 @@ def cg98(u10):
     return 1.4 + 0.838 * (U - 5.0) ** 0.844
 
 
-def m10():
+def m10(v="cg"):
     names = ["fire_wind_ref_u", "fire_wind_ref_v", "fire_ros"]
-    a, b = pair("cg_sc", "cg_sl", names)
+    a, b = pair(f"{v}_sc", f"{v}_sl", names)
     if a is None:
         return
     worst, n, umin = 0.0, 0, 1e30
@@ -213,16 +216,16 @@ def m10():
         r = b["fire_ros"][i][j] / a["fire_ros"][i][j]
         worst = max(worst, abs(r / (cg98(u_sl) / cg98(u_sc)) - 1.0))
         n += 1
-    check("10 m wind, CG98 rate", n > 1000 and worst <= 1e-10,
+    check(f"{v}: 10 m wind, CG98 rate", n > 1000 and worst <= 1e-10,
           f"{n} cells, max rel. error {worst:.2e} (tol 1e-10); lowest U10 {umin:.1f} km/h")
 
 
 if __name__ == "__main__":
-    which = sys.argv[1:] or ["parity", "sample", "ft20", "m10", "fmap", "bil", "restart"]
+    which = sys.argv[1:] or ["parity", "sample", "ft20", "m10", "m10s", "fmap", "bil", "restart"]
     if which == ["write_map"]:
         write_map()
         sys.exit(0)
     for w in which:
-        {"parity": parity, "sample": sample, "ft20": ft20, "m10": m10,
+        {"parity": parity, "sample": sample, "ft20": ft20, "m10": m10, "m10s": lambda: m10("cg0"),
          "fmap": fmap, "bil": bil, "restart": restart}[w]()
     sys.exit(0 if results and all(results) else 1)

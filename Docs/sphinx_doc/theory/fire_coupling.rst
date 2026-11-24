@@ -159,9 +159,13 @@ profiles stay neutral, with no displacement height:
 With ``"bilinear"``, a fire cell within one atmospheric cell of a change in
 roughness blends four columns brought to the reference height each with its own
 :math:`z_0`, and its 10 m and 20 ft conversions then use the :math:`z_0` of the
-column holding it. Across a step from 0.03 to 0.5 m this gives a 10 m wind
-4-6 % lower than blending the four columns' own 10 m winds would; ``"nearest"``
-has no such strip. FBP, Cheney-Gould, Cruz and the wind adjustment factor take
+column holding it. Across a step from 0.03 to 0.5 m, with the same wind at
+60 m over both roughnesses and a 6.1 m reference wind, this gives a 10 m wind
+up to 4 % lower on the smooth side and up to 5 % higher on the rough side than
+blending the four columns' own 10 m winds would (3 % and 4 % with four fire
+cells per atmospheric cell), and a jump of up to 10 % in the 10 m wind at the
+atmospheric cell face. With a 2 m reference wind the differences reach 16 % and
+31 %, and the jump 56 %. ``"nearest"`` has no such strip. FBP, Cheney-Gould, Cruz and the wind adjustment factor take
 an open wind: converted with a forest :math:`z_0` the 10 m and 20 ft winds are
 near-canopy winds instead.
 
@@ -172,9 +176,20 @@ run. Each value must be positive and at most
 :cpp:`erf.fire.wind_sample_z0` meets (with or without the wind adjustment
 factor), or the run stops. It needs ``zlo.type = surface_layer`` on a planar or
 terrain-fitted mesh (with EB terrain the roughness is 3D), does not apply to a
-frozen or prescribed wind, and stops a deck where no log profile is applied
-(no two-height sampling, ``"clamp"`` below the first centre, a 10 m reference
-wind, no wind adjustment factor and no spotting).
+frozen or prescribed wind, and stops a deck where no log profile is applied:
+no two-height sampling, ``"clamp"`` below the first centre, no spotting, no
+20 ft conversion (no wind adjustment factor, or a reference wind at 6.096 m,
+where the conversion is skipped) and no 10 m wind read (the 10 m wind is read
+only by FBP and Cheney-Gould with ``wind_source = reference`` and by the Cruz
+crown rate without :cpp:`erf.fire.crown.wind_10m_kmh`, and is not converted
+from a 10 m reference wind). Rothermel with the default 6.1 m reference wind
+and no sampling height is such a deck. The 20 ft conversion counts whenever
+the wind adjustment factor is on, even where the rate model reads the 10 m wind
+instead (FBP with a 10 m reference wind, Balbi with ``wind_source =
+reference``, a prescribed rate): the roughness then changes only the plotted
+``fire_wind_eff``. With ``"surface_layer"`` the scalar
+:cpp:`erf.fire.wind_sample_z0` is unused and not checked, and a deck that sets
+it gets a warning.
 
 **Adjustment to the flame zone.** ``fire_wind_eff`` is the reference wind
 multiplied by the wind adjustment factor and modified by the terrain

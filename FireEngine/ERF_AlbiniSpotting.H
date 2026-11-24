@@ -187,7 +187,9 @@ albini_thermal_model(int code, const std::string& fuel_system, int thermal_fuel_
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real albini_wind_profile_factor(amrex::Real z_agl, amrex::Real z_ref, amrex::Real z0) noexcept
 {
-    const amrex::Real z0s = amrex::max(z0, amrex::Real(1.0e-6));
+    // a guard against z0 = 0 only, the same as the ERF sampler's
+    // (ERF_FireWindExtract.cpp): every z0 the run accepts (> 0) is used as is
+    const amrex::Real z0s = amrex::max(z0, amrex::Real(1.0e-30));
     const amrex::Real zr  = amrex::max(z_ref, z0s * amrex::Real(1.000001));
     const amrex::Real z   = amrex::max(z_agl, z0s);
     return std::log(z / z0s) / std::log(zr / z0s);

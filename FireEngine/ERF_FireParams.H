@@ -1043,7 +1043,14 @@ struct FireParams
        // use_per_fuel_wind_ht). A roughness at or above it reverses the
        // two-height scaling (a negative log) and puts every brand's profile
        // factor at ln(z/z0)/ln(1.000001)
-       {
+       // With wind_sample_z0_source = surface_layer the scalar is unused (each
+       // column value is checked against the same bounds every step,
+       // FireLayer::refresh_column_z0), so it is not checked here.
+       if (wind_z0_from_surface_layer && pp.contains("wind_sample_z0")) {
+           amrex::Print() << "[FIRE] WARNING: erf.fire.wind_sample_z0 is not used (or checked) with"
+                          << " erf.fire.wind_sample_z0_source = surface_layer\n";
+       }
+       if (!wind_z0_from_surface_layer) {
            const amrex::Real z_target = sampled_wind_ht();
            if (!(wind_sample_z0 > 0.0 && wind_sample_z0 < z_target)) {
                fail("erf.fire.wind_sample_z0 must be positive and below the height of the reference wind"
@@ -1350,16 +1357,6 @@ struct FireParams
        pp.query("spotting.fuel_system",         sp.fuel_system);
        pp.query("spotting.thermal_fuel_model",  sp.thermal_fuel_model);
        pp.query("spotting.drift_wind",          sp.drift_wind);
-       // wind_sample_z0_source = surface_layer changes nothing when no log
-       // profile is applied: no two-height resampling, no wind below the first
-       // centre, a reference wind already at 10 m (no 10 m conversion) and no
-       // WAF (no 20 ft conversion), and no ember drift
-       if (wind_z0_from_surface_layer && !(wind_sample_ht > 0.0) && !wind_below_first_log
-           && std::abs(sampled_wind_ht() - 10.0) <= 1.0e-6 && !use_waf && !sp.enable) {
-           fail("erf.fire.wind_sample_z0_source = surface_layer has no effect here: no log profile is applied"
-                " to the wind (erf.fire.wind_sample_ht = 0, wind_below_first_cell = clamp, a 10 m reference"
-                " wind, use_waf = false, no spotting); remove it or use the default \"scalar\"");
-       }
        if (sp.enable) {
            one_of("spotting.drift_wind", sp.drift_wind, {"profile", "frozen", "frozen_uvw"});
            if (sp.frozen_drift() && frozen_wind_file.empty()) {
@@ -2272,6 +2269,17 @@ struct FireParams
            amrex::Abort("erf.fire.directional_split_hamiltonian needs erf.fire.directional_wind_coupling = \"advective\"");
        }
 
+       // wind_sample_z0_source = surface_layer changes nothing when no log
+       // profile is applied (applies_wind_log_profile). Checked last, once the
+       // models that read the 10 m wind are known.
+       if (wind_z0_from_surface_layer && !applies_wind_log_profile()) {
+           fail("erf.fire.wind_sample_z0_source = surface_layer has no effect here: no log profile is applied"
+                " to the wind (erf.fire.wind_sample_ht = 0, wind_below_first_cell = clamp, no spotting, no"
+                " 20 ft conversion (use_waf = false, or a reference wind at 6.096 m) and no 10 m wind read"
+                " (no FBP or Cheney-Gould with wind_source = reference, no Cruz crown rate without"
+                " crown.wind_10m_kmh, or a reference wind at 10 m)); remove it or use the default \"scalar\"");
+       }
+
        // The two Rothermel coefficient options do nothing when no Rothermel
        // model runs (ros_model left unset is Rothermel, so this is always an
        // explicit choice of another model): warn rather than stop, as for
@@ -2305,6 +2313,31 @@ struct FireParams
                    ros_model != "fbp" && ros_model != "prescribed";
         }
         return ros_model == m;
+    }
+
+    /// True when the fire layer applies a neutral log profile, and so a
+    /// roughness, to the sampled wind: the two-height resampling, the log wind
+    /// below the first centre, the ember drift (in the frozen field only
+    /// below its first centre, with the log wind), the 20 ft conversion before the
+    /// WAF (skipped for a reference wind within 0.01 m of 6.096 m, as in
+    /// FireLayer::apply_waf) or the 10 m conversion (skipped at a 10 m
+    /// reference wind, and read only by FBP and Cheney-Gould with wind_source =
+    /// reference and by the Cruz crown rate without crown.wind_10m_kmh).
+    /// With a prescribed wind nothing is sampled, but the 10 m and 20 ft
+    /// conversions and the ember drift still apply the profile.
+    bool applies_wind_log_profile() const
+    {
+        const bool sampled = !prescribed_wind && (wind_sample_ht > 0.0 || wind_below_first_log);
+        const amrex::Real z_ref = sampled_wind_ht();
+        const bool to_20ft = use_waf && std::abs(z_ref - 6.096) > 0.01;
+        const bool reads_u10 = (uses_model("fbp") && fbp.wind_source == 0)
+                            || (uses_model("cheney_gould") && cheney_gould.wind_source == 0)
+                            || (crown.enable && crown.ros_model == "cruz" && !(crown.wind_10m_kmh > 0.0));
+        const bool to_10m = reads_u10 && std::abs(z_ref - 10.0) > 1.0e-6;
+        // ember drift in the frozen 3D field takes z0 only below its first
+        // centre with wind_below_first_cell = log, which "sampled" counts
+        const bool drift = spotting.enable && !spotting.frozen_drift();
+        return sampled || drift || to_20ft || to_10m;
     }
 
     // Convenience accessors for coupling mode

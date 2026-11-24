@@ -6694,7 +6694,9 @@ Wind
 |                                                | centre, the ember drift, and the reference wind brought to | at most)                       |                        |
 |                                                | 20 ft (WAF) and to 10 m (FBP, Cheney-Gould, Cruz). With    |                                |                        |
 |                                                | wind_sample_z0_source = surface_layer the surface layer's  |                                |                        |
-|                                                | z0 of each column replaces it in all of these              |                                |                        |
+|                                                | z0 of each column replaces it in all of these, and it is   | (not checked with              |                        |
+|                                                | unused                                                     | wind_sample_z0_source =        |                        |
+|                                                |                                                            | surface_layer)                 |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_sample_z0_source**             | Roughness of the neutral log profiles (no displacement     | "scalar", "surface_layer"      | "scalar"               |
 |                                                | height) applied to the sampled wind: "scalar" =            | (surface_layer: each value 0 < |                        |
@@ -6705,18 +6707,24 @@ Wind
 |                                                | bulk_coeff and land-surface fluxes), copied every step,    | EB terrain, no frozen or       |                        |
 |                                                | for the two-height resampling, the wind below the first    | prescribed wind, and at least  |                        |
 |                                                | cell centre, the 20 ft and 10 m conversions and the ember  | one log profile applied, or    |                        |
-|                                                | drift. The 10 m wind is read only by FBP, Cheney-Gould and | the run aborts)                |                        |
-|                                                | Cruz. With "bilinear" the 10 m and 20 ft conversions take  |                                |                        |
-|                                                | the fire cell's own column z0 after the blend (see the     |                                |                        |
-|                                                | theory page). These models take an open wind: a forest z0  |                                |                        |
-|                                                | gives a near-canopy wind instead                           |                                |                        |
+|                                                | drift. The 10 m wind is read only by FBP and Cheney-Gould  | the run aborts)                |                        |
+|                                                | with wind_source = reference and by Cruz without           |                                |                        |
+|                                                | crown.wind_10m_kmh. With "bilinear" the 10 m and 20 ft     |                                |                        |
+|                                                | conversions take the fire cell's own column z0 after the   |                                |                        |
+|                                                | blend (see the theory page). These models take an open     |                                |                        |
+|                                                | wind: a forest z0 gives a near-canopy wind instead. The    |                                |                        |
+|                                                | 20 ft conversion is skipped at a 6.1 m reference wind, so  |                                |                        |
+|                                                | Rothermel with the defaults and no sampling height         |                                |                        |
+|                                                | applies no log profile                                     |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_below_first_cell**             | Wind at a target below the first cell centre: "clamp"      | "clamp", "log"                 | "clamp"                |
 |                                                | takes the centre's wind unchanged; "log" scales it by the  |                                |                        |
 |                                                | neutral log profile of wind_sample_z0 (or of each column's |                                |                        |
 |                                                | surface-layer z0 with wind_sample_z0_source =              |                                |                        |
 |                                                | surface_layer; recommended for a first cell above          |                                |                        |
-|                                                | wind_ref_ht; 12 % lower under a 20 m first cell)           |                                |                        |
+|                                                | wind_ref_ht; with z0 = 0.1 m and a 20 m deep first cell    |                                |                        |
+|                                                | (centre at 10 m) the 6.1 m wind is 10.7 % lower than with  |                                |                        |
+|                                                | "clamp")                                                   |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_interp**                       | Horizontal mapping of atmospheric columns onto fire cells, | "bilinear", "nearest"          | "bilinear"             |

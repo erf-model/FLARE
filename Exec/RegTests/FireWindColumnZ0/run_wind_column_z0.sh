@@ -10,6 +10,10 @@
 # map     inputs_map: z0 = 0.03 / 0.5 m over the western / eastern half
 # map10   inputs_map with erf.fire.wind_ref_ht = 10 (the 20 ft conversion)
 # cg      inputs_map with erf.fire.ros_model = cheney_gould (the 10 m wind)
+# cg0     cg with erf.fire.wind_sample_ht = 0: the 10 m conversion is the only
+#         log profile at the 6.1 m default
+# fbp0, cr0  FBP and the Cruz crown rate with wind_sample_ht = 0, surface_layer
+#         only: they must run, not stop as "no effect"
 # fmap    map10 on a two-fuel map (the spatial-fuel branch of the WAF)
 # bil     inputs_map, bilinear, the 2 m reference wind below the 2.5 m first
 #         centre brought down with wind_below_first_cell = log
@@ -49,6 +53,14 @@ if [ "${SKIP_RUN:-0}" != "1" ]; then
     must_run map10_sl inputs_map  erf.fire.wind_ref_ht=10 $SL
     must_run cg_sc    inputs_map  erf.fire.ros_model=cheney_gould
     must_run cg_sl    inputs_map  erf.fire.ros_model=cheney_gould $SL
+    # no sampling height at the 6.1 m default: the 10 m conversion (Cheney-Gould,
+    # FBP, the Cruz crown rate) is then the only log profile, and these must run
+    must_run cg0_sc   inputs_map  erf.fire.ros_model=cheney_gould erf.fire.wind_sample_ht=0
+    must_run cg0_sl   inputs_map  erf.fire.ros_model=cheney_gould erf.fire.wind_sample_ht=0 $SL
+    # the scalar wind_sample_z0 is unused with surface_layer: 3 m (above
+    # 6.1 m / e) must not stop the run
+    must_run fbp0_sl  inputs_map  erf.fire.ros_model=fbp erf.fire.wind_sample_ht=0 erf.fire.wind_sample_z0=3.0 $SL
+    must_run cr0_sl   inputs_map  erf.fire.crown.enable=true erf.fire.wind_sample_ht=0 $SL
     must_run fmap_sc  inputs_map  $FMAP
     must_run fmap_sl  inputs_map  $FMAP $SL
     must_run bil_sc   inputs_map  $BIL
@@ -58,6 +70,6 @@ if [ "${SKIP_RUN:-0}" != "1" ]; then
 fi
 
 status=0
-$PY check_firewindcolumnz0.py parity sample ft20 m10 fmap bil restart || status=1
+$PY check_firewindcolumnz0.py parity sample ft20 m10 m10s fmap bil restart || status=1
 [ $status -eq 0 ] && echo "ALL PASS" || echo "SOME CHECKS FAILED"
 exit $status

@@ -648,6 +648,15 @@ add_test_fire_abort(FireWindColumnZ0_z0_range_abort   FireWindColumnZ0 inputs_ba
     "every value must be positive and at most 2.24" "erf.fire.wind_sample_z0_source=surface_layer erf.most.z0=2.4")
 add_test_fire_abort(FireWindColumnZ0_no_effect_abort  FireWindColumnZ0 inputs_base
     "surface_layer has no effect here" "erf.fire.wind_sample_z0_source=surface_layer erf.fire.wind_sample_ht=0 erf.fire.wind_ref_ht=10 erf.fire.use_waf=false")
+# the 6.1 m default skips the 20 ft conversion, so Rothermel with the WAF and no
+# sampling height applies no log profile; nor do FBP with the midflame wind or a
+# Cruz crown rate given its own 10 m wind
+add_test_fire_abort(FireWindColumnZ0_no_effect_6p1_abort   FireWindColumnZ0 inputs_base
+    "surface_layer has no effect here" "erf.fire.wind_sample_z0_source=surface_layer erf.fire.wind_sample_ht=0")
+add_test_fire_abort(FireWindColumnZ0_no_effect_fbp_abort   FireWindColumnZ0 inputs_base
+    "surface_layer has no effect here" "erf.fire.wind_sample_z0_source=surface_layer erf.fire.wind_sample_ht=0 erf.fire.ros_model=fbp erf.fire.fbp.wind_source=midflame")
+add_test_fire_abort(FireWindColumnZ0_no_effect_crown_abort FireWindColumnZ0 inputs_base
+    "surface_layer has no effect here" "erf.fire.wind_sample_z0_source=surface_layer erf.fire.wind_sample_ht=0 erf.fire.crown.enable=true erf.fire.crown.wind_10m_kmh=20")
 # where the rain that wets the dead fuel comes from (erf.fire.precip_source): the
 # atmosphere's rain per column wets the fuel under the raining columns only and the
 # fire-grid rate equals the change of the Kessler surface accumulation over the step,

@@ -11,6 +11,7 @@
 
 #include "ERF_FireParams.H"
 #include "ERF_AlbiniSpotting.H"
+#include "ERF_FireWindAdjust.H"
 
 /**
  * @file ERF_GTestEmberDrift.cpp
@@ -117,6 +118,18 @@ TEST(EmberDrift, ProfileFactor)
     EXPECT_NEAR(albini_wind_profile_factor(0.0, Z_REF, Z0), 0.0, TOLP) << "floored at z0";
     EXPECT_NEAR(albini_wind_profile_factor(61.0, Z_REF, Z0), std::log(610.0) / std::log(61.0), TOLP);
     EXPECT_NEAR(albini_wind_profile_factor(200.0, Z_REF, Z0), 1.85, 0.01) << "about twice the 6.1 m wind at 200 m";
+}
+
+/// A roughness below 1e-6 m is accepted by the range checks (z0 > 0) and is
+/// used as given, as in the ERF sampler, not floored at 1e-6 m (0.4 % at
+/// z0 = 1e-7 m between the drift and the 10 m wind of the same column).
+TEST(EmberDrift, SmallRoughnessIsNotFloored)
+{
+    const Real z0 = 1.0e-7;
+    const double tol = (sizeof(Real) == 8) ? 1.0e-12 : 1.0e-5;
+    EXPECT_NEAR(albini_wind_profile_factor(10.0, Z_REF, z0), std::log(10.0 / 1.0e-7) / std::log(6.1 / 1.0e-7), tol);
+    EXPECT_NEAR(neutral_wind_height_factor(10.0, Z_REF, z0), std::log(10.0 / 1.0e-7) / std::log(6.1 / 1.0e-7), tol);
+    EXPECT_NEAR(neutral_wind_height_factor(6.096, 10.0, z0), std::log(6.096 / 1.0e-7) / std::log(10.0 / 1.0e-7), tol);
 }
 
 /// INT-309's lofting height for an Anderson model at the case's wind: the
