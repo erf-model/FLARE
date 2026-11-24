@@ -1,3 +1,4 @@
 FILE = inputs_base
 
 erf.fire.ros_model = "balbi"
+erf.fire.balbi.wind_source = "reference"

@@ -6,3 +6,4 @@ erf.fire.hybrid.secondary = "balbi"
 erf.fire.hybrid.selector  = "structure"
 erf.fire.hybrid.structure_file = "buildings_5m_64x32.txt"
 erf.fire.hybrid.structure_distance = 10.0
+erf.fire.balbi.wind_source = "reference"

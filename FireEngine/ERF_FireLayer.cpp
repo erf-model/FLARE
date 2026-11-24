@@ -320,6 +320,26 @@ void FireLayer::initialize(const ERF& erf,
     // map's own load and the coefficient tables all go through the slot table
     // this builds, so it has to exist before any of them.
     m_custom_fuel.init_from_inputs();
+    // The unsheltered WAF, 1.83 / ln((20 + 0.36 h) / (0.13 h)) (Andrews 2012,
+    // eq. 1), passes 1 for a bed deeper than 44.4 ft (13.53 m): the midflame
+    // wind would exceed the 20 ft wind. A sanity bound, not the formula's
+    // range of validity: the run stops above 13.5 m (WAF 0.9992 there).
+    // Every tabulated fuel is at most 6 ft deep; a custom depth may reach
+    // 50 m (ERF_CustomFuel.cpp).
+    if (fire_params.use_waf) {
+        constexpr Real waf_max_depth_m = 13.5_rt;
+        for (int code = CUSTOM_FUEL_CODE_BASE; code < CUSTOM_FUEL_CODE_BASE + CUSTOM_FUEL_MAX; ++code) {
+            if (!m_custom_fuel.has_code(code)) { continue; }
+            const Real delta_ft = m_custom_fuel.params(code).delta;
+            // 0.1 mm absorbs the m -> ft -> m round trip of a depth given as 13.5
+            if (delta_ft * 0.3048_rt > waf_max_depth_m + 1.0e-4_rt) {
+                amrex::Abort("[FIRE] erf.fire.custom_fuel." + std::to_string(code) + ".depth_m = "
+                             + std::to_string(delta_ft * 0.3048) + " m is above 13.5 m, the deepest bed the"
+                             " unsheltered wind adjustment factor takes with erf.fire.use_waf (it reaches 1 at"
+                             " 13.53 m): use a depth of at most 13.5 m or erf.fire.use_waf = false");
+            }
+        }
+    }
     m_h_fuel_params = build_fuel_params_slot_table(fire_params.fuel_map.fuel_set_id(),
                                                    fire_params.moisture_live, m_custom_fuel);
     m_d_fuel_params.resize(m_h_fuel_params.size());

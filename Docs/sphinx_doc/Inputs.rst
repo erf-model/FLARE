@@ -6515,8 +6515,9 @@ Fuel and moisture
 | **erf.fire.custom_fuel.N.sav_live_woody_1_m**  | Live woody surface-area-to-volume ratio [1/m]; kept only   | Real in [10, 12000]            | sav_1h_1_m             |
 |                                                | where that load is > 0                                     |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.custom_fuel.N.depth_m**             | Fuel bed depth [m]; the Balbi models return zero spread at | Real in (0.01, 50]             | required               |
-|                                                | or below 0.01 m                                            |                                |                        |
+| **erf.fire.custom_fuel.N.depth_m**             | Fuel bed depth [m]; the Balbi models return zero spread at | Real in (0.01, 50]; at most    | required               |
+|                                                | or below 0.01 m. With use_waf, a depth above 13.5 m        | 13.5 with use_waf              |                        |
+|                                                | aborts: the unsheltered WAF reaches 1 at 13.53 m           |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.custom_fuel.N.moisture_ext**        | Moisture of extinction [fraction]                          | Real in [0.01, 2]              | required               |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
@@ -6548,7 +6549,8 @@ Fuel and moisture
 | **erf.fire.structures.min_height**             | Sampled height above which a cell is a structure [m]       | Real >= 0                      | 0.5                    |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.structures.wind_open_columns**      | Renormalise the bilinear wind weights over the columns open| Boolean                        | false                  |
-|                                                | at the wind height; needs structures.enable                |                                |                        |
+|                                                | at the wind height; needs structures.enable and            |                                |                        |
+|                                                | wind_interp = bilinear; not with prescribed_wind           |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.structures.ignition.enable**        | Structures ignite from the exposure accumulators, burn,    | Boolean                        | false                  |
 |                                                | radiate and launch brands (:ref:`sec:WUIStructureIgnition`)|                                |                        |
@@ -6651,11 +6653,17 @@ Wind
 |                                                | reference wind, for controlled idealized-wind test cases;  |                                |                        |
 |                                                | exact everywhere only with use_waf = false and             |                                |                        |
 |                                                | use_terrain_wind = false; FBP, Cheney-Gould and Cruz read  |                                |                        |
-|                                                | it brought to 10 m unless wind_ref_ht = 10                 |                                |                        |
+|                                                | it brought to 10 m unless wind_ref_ht = 10. No column is   |                                |                        |
+|                                                | sampled: wind_sample_ht > 0, wind_interp = nearest,        |                                |                        |
+|                                                | wind_below_first_cell = log or                             |                                |                        |
+|                                                | structures.wind_open_columns = true abort with it; the     |                                |                        |
+|                                                | same keys at their defaults give a warning                 |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.prescribed_wind_x**                 | Constant reference wind, x, when prescribed_wind [m/s]     | Real                           | 0.0                    |
+| **erf.fire.prescribed_wind_x**                 | Constant reference wind, x, when prescribed_wind [m/s];    | Real                           | 0.0                    |
+|                                                | needs prescribed_wind = true                               |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.prescribed_wind_y**                 | Constant reference wind, y, when prescribed_wind [m/s]     | Real                           | 0.0                    |
+| **erf.fire.prescribed_wind_y**                 | Constant reference wind, y, when prescribed_wind [m/s];    | Real                           | 0.0                    |
+|                                                | needs prescribed_wind = true                               |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.frozen_wind.file**                  | GUST-CFD plotfile or checkpoint directory read once at     | Directory with a GUST          | ""                     |
 |                                                | start-up; the reference wind is sampled from it with the   | "Header", or unset             |                        |
@@ -6687,7 +6695,8 @@ Wind
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_sample_ht**                    | Sample the wind at this height above ground and bring it   | Real > wind_ref_ht (6.096 with | 0.0                    |
 |                                                | to wind_ref_ht (6.096 m with use_per_fuel_wind_ht) with a  | use_per_fuel_wind_ht), or 0    |                        |
-|                                                | log profile (CFBM); 0 = off                                |                                |                        |
+|                                                | log profile (CFBM); 0 = off. A value > 0 aborts with       |                                |                        |
+|                                                | prescribed_wind                                            |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_sample_z0**                    | Roughness length [m] of every log profile the fire reads:  | 0 < Real <= min(reference wind | 0.1                    |
 |                                                | the two-height resampling, the wind below the first cell   | height, 6.096 m) / e (2.24 m   |                        |
@@ -6724,14 +6733,17 @@ Wind
 |                                                | surface_layer; recommended for a first cell above          |                                |                        |
 |                                                | wind_ref_ht; with z0 = 0.1 m and a 20 m deep first cell    |                                |                        |
 |                                                | (centre at 10 m) the 6.1 m wind is 10.7 % lower than with  |                                |                        |
-|                                                | "clamp")                                                   |                                |                        |
+|                                                | "clamp"). "log" aborts with prescribed_wind                |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.wind_interp**                       | Horizontal mapping of atmospheric columns onto fire cells, | "bilinear", "nearest"          | "bilinear"             |
 |                                                | and of the frozen GUST columns onto a brand with           |                                |                        |
-|                                                | spotting.drift_wind = frozen or frozen_uvw                 |                                |                        |
+|                                                | spotting.drift_wind = frozen or frozen_uvw. "nearest"      |                                |                        |
+|                                                | aborts with prescribed_wind and with                       |                                |                        |
+|                                                | structures.wind_open_columns                               |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.use_waf**                           | Apply the wind adjustment factor to the reference wind     | Boolean                        | true                   |
+| **erf.fire.use_waf**                           | Apply the wind adjustment factor to the reference wind;    | Boolean                        | true                   |
+|                                                | with it, a custom fuel depth_m above 13.5 m aborts         |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.waf_formula**                       | Wind adjustment factor formula, from the fuel bed depth:   | "andrews"                      | "andrews"              |
 |                                                | the domain model's on a uniform fuel, each cell's own      |                                |                        |
@@ -6760,7 +6772,7 @@ Wind
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.k_valley**                          | Valley channelling factor                                  | Real > 0                       | 0.8                    |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.k_deflect**                         | Wind deflection factor                                     | Real > 0                       | 0.3                    |
+| **erf.fire.k_deflect**                         | Wind deflection factor; 0 = no deflection                  | Real >= 0                      | 0.3                    |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.terrain_file_name**                 | Fine-grid terrain file interpolated onto the fire grid for | String                         | ""                     |
 |                                                | slopes                                                     |                                |                        |
@@ -6881,7 +6893,8 @@ Rate of spread
 | **erf.fire.fbp.wind_source**                   | The reference wind brought to 10 m with the neutral log    | "reference", "midflame"        | "reference"            |
 |                                                | profile of wind_sample_z0 or of the column z0              |                                |                        |
 |                                                | (wind_sample_z0_source) (the system's 10 m open wind), or  |                                |                        |
-|                                                | the midflame wind after the Wind Adjustment Factor         |                                |                        |
+|                                                | the midflame wind after the Wind Adjustment Factor; needs  |                                |                        |
+|                                                | ros_model = fbp (or a hybrid member)                       |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.behave.dynamic_transfer_lo**        | BEHAVE live herbaceous moisture [fraction] at and below    | Real < dynamic_transfer_hi     | 0.30                   |
 |                                                | which the whole live herbaceous load transfers to dead,    |                                |                        |
@@ -6959,7 +6972,8 @@ Balbi model
 | **erf.fire.balbi.herb_curing**                 | Fraction of live herbaceous load carried as cured dead     | Real 0-1                       | 0.0                    |
 |                                                | fuel, 2020 form                                            |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.balbi.wind_source**                 | Wind consumed by the model                                 | "midflame", "reference"        | "midflame"             |
+| **erf.fire.balbi.wind_source**                 | Wind consumed by the model; needs ros_model = balbi (or a  | "midflame", "reference"        | "midflame"             |
+|                                                | hybrid member)                                             |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.balbi.heat_flux_coupling**          | Add the fire-induced vertical velocity from the surface    | Boolean                        | false                  |
 |                                                | heat flux                                                  |                                |                        |

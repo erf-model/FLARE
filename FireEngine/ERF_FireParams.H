@@ -6,6 +6,7 @@
 #include <ERF_BurnCurve.H>
 #include <ERF_FireAcceleration.H>
 #include <string>
+#include <utility>
 #include <vector>
 #include <ERF_FuelModels.H>
 #include <ERF_FbpModel.H>
@@ -965,6 +966,7 @@ struct FireParams
        pp.query("prescribed_wind", prescribed_wind);
        pp.query("prescribed_wind_x", prescribed_wind_x);
        pp.query("prescribed_wind_y", prescribed_wind_y);
+       keys_need("prescribed_wind", prescribed_wind, {"prescribed_wind_x", "prescribed_wind_y"});
        if (pp.contains("frozen_wind.file")) {
            pp.get("frozen_wind.file", frozen_wind_file);
            if (frozen_wind_file.empty()) {
@@ -1887,6 +1889,33 @@ struct FireParams
            amrex::Abort("erf.fire.structures.wind_open_columns weights the atmosphere's columns and has no effect"
                         " with erf.fire.frozen_wind.file: remove one of the two");
        }
+       // the open-column weights enter only the bilinear blend of the
+       // atmosphere's columns (ERF_FireWindExtract.cpp: open_weights needs
+       // bilinear); nearest takes one column and ignores them
+       if (structures.wind_open_columns && wind_interp == 0) {
+           fail("erf.fire.structures.wind_open_columns needs erf.fire.wind_interp = bilinear:"
+                " nearest takes one column and does not use the open-column weights");
+       }
+       // a prescribed wind is set directly on the fire grid (FireLayer::advance)
+       // and samples no atmospheric column, so the sampling inputs have no
+       // effect. A key that asks for something (a sampling height, nearest,
+       // log, open columns) aborts; one set to its default, as in the master
+       // reference deck, only warns, as keys_need does for a switch set false
+       if (prescribed_wind) {
+           const std::pair<const char*, bool> sampling_keys[] = {
+               {"wind_sample_ht",               wind_sample_ht > 0.0},
+               {"wind_interp",                  wind_interp == 0},
+               {"wind_below_first_cell",        wind_below_first_log},
+               {"structures.wind_open_columns", structures.wind_open_columns}};
+           for (const auto& [k, asks] : sampling_keys) {
+               if (!pp.contains(k)) { continue; }
+               if (asks) {
+                   fail(std::string("erf.fire.") + k + " has no effect with erf.fire.prescribed_wind = true,"
+                        " which samples no atmospheric column: remove it");
+               }
+               amrex::Print() << "[FIRE] WARNING: erf.fire." << k << " is ignored with erf.fire.prescribed_wind = true\n";
+           }
+       }
        if (exposure.enable) {
            if (!structures.enable) {
                amrex::Abort("erf.fire.exposure.enable needs erf.fire.structures.enable");
@@ -2035,6 +2064,10 @@ struct FireParams
                amrex::Abort("erf.fire.balbi.wind_source must be "
                             "\"midflame\" or \"reference\"");
            }
+           // read by the Balbi rate alone
+           if (pp.contains("balbi.wind_source") && !uses_model("balbi")) {
+               fail("erf.fire.balbi.wind_source needs erf.fire.ros_model = balbi (or a hybrid member)");
+           }
        }
        pp.query("balbi.k_upward",                   bl.k_upward);
        pp.query("balbi.hf_ref_height",              bl.hf_ref_height);
@@ -2129,6 +2162,10 @@ struct FireParams
            if (ws == "reference")     { fb.wind_source = 0; }
            else if (ws == "midflame") { fb.wind_source = 1; }
            else { amrex::Abort("erf.fire.fbp.wind_source must be \"reference\" or \"midflame\""); }
+           // read by the FBP rate alone
+           if (pp.contains("fbp.wind_source") && !uses_model("fbp")) {
+               fail("erf.fire.fbp.wind_source needs erf.fire.ros_model = fbp (or a hybrid member)");
+           }
        }
        if (uses_model("fbp")) {
            if (fbp_type_from_name(fb.fuel_type) < 0) {

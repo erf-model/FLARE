@@ -358,7 +358,8 @@ The distinction matters because the WAF is a Rothermel construct: it reduces the
    * - :cpp:`erf.fire.balbi.wind_source`
      - "midflame"
      - -
-     - Wind consumed: "midflame" or "reference"
+     - Wind consumed: "midflame" or "reference"; needs the Balbi rate
+       (ros_model or a hybrid member)
    * - :cpp:`erf.fire.balbi.heat_flux_coupling`
      - false
      - -

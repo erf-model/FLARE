@@ -269,6 +269,36 @@ TEST(FireModelReferences, ValleyDeflectionTurnsByTheWindSlopeAngle)
 }
 
 // --------------------------------------------------------------------------
+TEST(FireModelReferences, ZeroDeflectionKeepsTheWindDirection)
+{
+    // erf.fire.k_deflect = 0 is accepted (>= 0): the same valley cell keeps
+    // the wind's direction and takes only the valley speed factor
+    OneCell c;
+    MultiFab wind(c.ba, c.dm, 2, 0), slopes(c.ba, c.dm, 2, 0), curv(c.ba, c.dm, 1, 0);
+    set2(wind, Real(-1.0), Real(-3.0));
+    set2(slopes, Real(0.2), Real(0.0));
+    curv.setVal(-0.02);
+    apply_farsite_terrain_wind(wind, slopes, curv, Real(1.5), Real(0.6), Real(0.8), Real(0.0));
+    const double ux = host_value(wind, 0, 0, 0), uy = host_value(wind, 0, 0, 1);
+    EXPECT_NEAR(std::atan2(uy, ux), std::atan2(-3.0, -1.0), 1e-6) << "direction";
+    const double factor = 0.8 + (1.0 - 0.8) * (1.0 - 0.2);
+    EXPECT_NEAR(std::sqrt(ux*ux + uy*uy), factor * std::sqrt(10.0), REAL_RTOL * 10.0) << "valley speed factor";
+}
+
+// --------------------------------------------------------------------------
+TEST(FireModelReferences, UnshelteredWafPassesOneAboveThirteenPointFiveMetres)
+{
+    // Andrews (2012, eq. 1): WAF = 1.83 / ln((20 + 0.36 h) / (0.13 h)), h in ft.
+    // WAF = 1 at h = 20 / (0.13 e^1.83 - 0.36) = 44.404 ft = 13.534 m, the
+    // limit FireLayer applies to a custom fuel depth with erf.fire.use_waf.
+    const double h1 = 20.0 / (0.13 * std::exp(1.83) - 0.36);
+    EXPECT_NEAR(h1 * 0.3048, 13.534, 1e-3);
+    EXPECT_NEAR(compute_waf_unsheltered(Real(1.0)), 0.362, 1e-3) << "1 ft grass bed";
+    EXPECT_LT(compute_waf_unsheltered(Real(13.5 / 0.3048)), Real(1.0)) << "13.5 m";
+    EXPECT_GT(compute_waf_unsheltered(Real(13.6 / 0.3048)), Real(1.0)) << "13.6 m";
+}
+
+// --------------------------------------------------------------------------
 TEST(FireModelReferences, MoistureDriverTemperatureIsTheAirTemperature)
 {
     // Dry air, rho = 1 kg/m3, theta = 300 K: the air temperature satisfies

@@ -135,7 +135,8 @@ sampled roof is above the cell's wind height, and the four weights are
 renormalised, so the fire reads the wind of the open columns only. A cell
 whose four columns are all closed keeps the plain weights; it is inside a
 footprint and masked anyway. Off by default; needs
-:cpp:`erf.fire.structures.enable` and has no effect with ``"nearest"``.
+:cpp:`erf.fire.structures.enable` and ``wind_interp = "bilinear"``; with
+``"nearest"``, which takes one column, the run aborts.
 
 **Roughness per column.** By default every log profile applied to the sampled
 wind uses the one roughness :cpp:`erf.fire.wind_sample_z0`. With
