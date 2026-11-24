@@ -42,13 +42,13 @@ struct SpotCase
 {
     BoxArray ba; DistributionMapping dm; Geometry geom;
     MultiFab phi, data, wind, intensity, fuel;
-    SpotCase (int max_x, int max_y)
+    SpotCase (int max_x, int max_y, int per_x = 0)
     {
         Box domain(IntVect(0, 0, 0), IntVect(NX - 1, NY - 1, 0));
         ba = BoxArray(domain);
         ba.maxSize(IntVect(max_x, max_y, 1));
         dm = DistributionMapping(ba);
-        geom = Geometry(domain, RealBox(0.0, 0.0, 0.0, NX * DX, NY * DX, 1.0), CoordSys::cartesian, {0, 0, 0});
+        geom = Geometry(domain, RealBox(0.0, 0.0, 0.0, NX * DX, NY * DX, 1.0), CoordSys::cartesian, {per_x, 0, 0});
         phi.define(ba, dm, 1, 1); data.define(ba, dm, 4, 0); wind.define(ba, dm, 2, 0);
         intensity.define(ba, dm, 1, 0); fuel.define(ba, dm, 1, 0);
         phi.setVal(1.0_rt); data.setVal(0.0_rt); wind.setVal(U, 0, 1); wind.setVal(0.0_rt, 1, 1);
@@ -152,7 +152,7 @@ TEST(EmberDrift, LoftingHeightIsAlbinisEquationTwo)
     // f(U) = 3.72 s, E = 186 000 kJ/m, H = 75 m.
     Real A = 0.0, B = 0.0;
     ASSERT_TRUE(albini_thermal_fit(4, A, B));
-    EXPECT_NEAR(A, 83.9, 1e-12); EXPECT_NEAR(B, -1.040, 1e-12);
+    EXPECT_NEAR(A, 83.9, TOLP); EXPECT_NEAR(B, -1.040, TOLP);
     EXPECT_NEAR(albini_thermal_strength(50000.0, 20.0, A, B) / 50000.0, 3.72, 0.005);
     EXPECT_NEAR(albini_lofting_height(50000.0, 20.0, A, B), 74.6, 0.1);
     // Table 4's short grass (B = -1.456) at example 1
@@ -448,4 +448,192 @@ TEST(EmberDrift, OnASlopeTheBrandLandsWhereItMeetsTheGround)
         EXPECT_GT(dmin, E) << "slope " << slope << ": forward Euler overshoots";
         EXPECT_LT(dmax, E + bound) << "slope " << slope << ": exact " << E;
     }
+}
+
+namespace {
+/// Launch from column i_src (rows 8-11) only, on the uniform wind (u, 0)
+void launch_column (SpotCase& c, int i_src, Real u)
+{
+    c.wind.setVal(u, 0, 1);
+    c.phi.setVal(1.0_rt);
+    c.intensity.setVal(0.0_rt);
+    for (MFIter mfi(c.phi); mfi.isValid(); ++mfi) {
+        auto p = c.phi.array(mfi);
+        auto I = c.intensity.array(mfi);
+        const Box& bx = mfi.validbox();
+        for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j)
+            for (int i = bx.smallEnd(0); i <= bx.bigEnd(0); ++i)
+                if (i == i_src && j >= 8 && j <= 11) { p(i, j, 0) = -1.0_rt; I(i, j, 0) = I_B; }
+    }
+}
+
+/// Set the x wind of column i alone
+void set_column_u (SpotCase& c, int i_col, Real u)
+{
+    for (MFIter mfi(c.wind); mfi.isValid(); ++mfi) {
+        auto w = c.wind.array(mfi);
+        const Box& bx = mfi.validbox();
+        if (i_col < bx.smallEnd(0) || i_col > bx.bigEnd(0)) { continue; }
+        for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j) { w(i_col, j, 0, 0) = u; }
+    }
+}
+
+/// The x step of the last forward Euler step on flat ground, per unit u
+Real euler_last_step (Real H_z)
+{
+    const Real dz = H_z / N_TRAJ, dt = dz / V_T;
+    return albini_wind_profile_factor(dz, Z_REF, Z0) * dt;
+}
+
+/// Smallest and largest landing distance recorded in column i_src, and the count
+void column_distances (const MultiFab& data, int i_src, Real& dmin, Real& dmax, int& n)
+{
+    dmin = 1.0e30; dmax = -1.0e30; n = 0;
+    for (MFIter mfi(data); mfi.isValid(); ++mfi) {
+        auto d = data.const_array(mfi);
+        const Box& bx = mfi.validbox();
+        for (int j = amrex::max(8, bx.smallEnd(1)); j <= amrex::min(11, bx.bigEnd(1)); ++j)
+            if (i_src >= bx.smallEnd(0) && i_src <= bx.bigEnd(0) && d(i_src, j, 0, 1) > 0.0_rt) {
+                dmin = amrex::min(dmin, d(i_src, j, 0, 2));
+                dmax = amrex::max(dmax, d(i_src, j, 0, 2));
+                ++n;
+            }
+    }
+    ParallelDescriptor::ReduceRealMin(dmin);
+    ParallelDescriptor::ReduceRealMax(dmax);
+    ParallelDescriptor::ReduceIntSum(n);
+}
+} // namespace
+
+TEST(EmberDrift, ABrandInTheOuterHalfCellLands)
+{
+    // Brands from the first column (centre x = 5 m) drift 0.5 % of the 2 m/s
+    // flight, about 3.1 m, towards the x = 0 face: they land inside the domain,
+    // in the outer half of the edge cell (near x = 1.9 m), where the wind is
+    // the edge cell's. (Until Nov 2026 a brand past the outermost cell centre
+    // left the domain.) Column 99 blows three times as hard: without a periodic
+    // x the stencil must not reach it, and with one it must (the seam blends
+    // columns 99 and 0), so the brands drift further.
+    const Real u = -0.01_rt;
+    const Real D = euler_drift(case_height(13)) * (-u / U);
+    ASSERT_LT(D, 0.5_rt * DX);
+    {
+        SpotCase r(25, 10);
+        launch_column(r, 0, u);
+        set_column_u(r, NX - 1, 3.0_rt * u);
+        const FireParams::SpottingParams sp = r.params();
+        compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                                nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0);
+        Real dmin, dmax; int n;
+        column_distances(r.data, 0, dmin, dmax, n);
+        EXPECT_EQ(n, 4) << "every brand of the edge column landed";
+        EXPECT_NEAR(dmin, D, TOLP * 1.0e3 * D);
+        EXPECT_NEAR(dmax, D, TOLP * 1.0e3 * D);
+    }
+    SpotCase r(25, 10, 1);
+    launch_column(r, 0, u);
+    set_column_u(r, NX - 1, 3.0_rt * u);
+    const FireParams::SpottingParams sp = r.params();
+    compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                            nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0);
+    Real dmin, dmax; int n;
+    column_distances(r.data, 0, dmin, dmax, n);
+    EXPECT_EQ(n, 4);
+    EXPECT_GT(dmin, 1.05_rt * D) << "periodic x: the seam stencil reads column 99";
+    EXPECT_LT(dmax, 3.0_rt * D);
+}
+
+TEST(EmberDrift, ABrandThatLandsPastAFaceIsLost)
+{
+    // Brands from the first column drift 5 m plus half their last step towards
+    // the x = 0 face: they start the last step inside the domain and meet the
+    // ground half a step outside it, so they are lost. With a periodic x they
+    // land on the other side.
+    const Real H = case_height(13);
+    const Real per_u = euler_drift(H) / U;              // drift per unit wind
+    const Real target = 0.5_rt * DX + 0.5_rt * euler_last_step(H) * (0.5_rt * DX / per_u);
+    const Real u = -target / per_u;
+    {
+        SpotCase r(25, 10);
+        launch_column(r, 0, u);
+        const FireParams::SpottingParams sp = r.params();
+        compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                                nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0);
+        Real dmin, dmax; int n;
+        column_distances(r.data, 0, dmin, dmax, n);
+        EXPECT_EQ(n, 0) << "no periodic x: the brands land outside the domain";
+    }
+    SpotCase r(25, 10, 1);
+    launch_column(r, 0, u);
+    const FireParams::SpottingParams sp = r.params();
+    compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                            nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0);
+    Real dmin, dmax; int n;
+    column_distances(r.data, 0, dmin, dmax, n);
+    EXPECT_EQ(n, 4) << "periodic x: the brands land across the seam";
+    EXPECT_NEAR(dmin, target, TOLP * 1.0e3 * target);
+}
+
+TEST(EmberDrift, TheSpotDiscReachesAcrossASeam)
+{
+    // Brands from the second column (centre x = 15 m) drift 18 m and land at
+    // x = -3 m, wrapped to 997 m. The 10 m disc reaches the first column
+    // (centre x = 5 m, 8 m away across the seam) as well as column 99.
+    const Real u = -18.0_rt / (euler_drift(case_height(13)) / U);
+    SpotCase r(25, 10, 1);
+    launch_column(r, 1, u);
+    const FireParams::SpottingParams sp = r.params();
+    compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                            nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0);
+    MultiFab one = r.gathered();
+    int n0 = 0, n99 = 0;
+    for (MFIter mfi(one); mfi.isValid(); ++mfi) {
+        auto p = one.const_array(mfi);
+        for (int j = 8; j <= 11; ++j) {
+            if (p(0, j, 0) < 0.0_rt) { ++n0; }
+            if (p(NX - 1, j, 0) < 0.0_rt) { ++n99; }
+        }
+    }
+    ParallelDescriptor::ReduceIntSum(n0);
+    ParallelDescriptor::ReduceIntSum(n99);
+    EXPECT_EQ(n99, 4) << "the disc stamps column 99";
+    EXPECT_EQ(n0, 4) << "the disc reaches column 0 across the seam";
+}
+
+TEST(EmberDrift, APeriodicSeamWrapsTheBrand)
+{
+    // Brands from x = 25-45 m drift about 627 m towards -x. Without a periodic
+    // x they leave the domain at x = 0; with it they cross the seam, fly on
+    // the wind on the other side and land at x = 398-418 m (one 1000 m period
+    // on), with the landing distance of the unwrapped flight. (Until Nov 2026
+    // they left the domain at the seam.)
+    const Real D = euler_drift(case_height(13));
+    {
+        SpotCase r(25, 10, 0);
+        r.wind.setVal(-U, 0, 1);
+        const FireParams::SpottingParams sp = r.params();
+        compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                                nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0);
+        Real dmin, dmax; int n;
+        launch_distances(r.data, dmin, dmax, n);
+        EXPECT_EQ(n, 0) << "no periodic x: the brands leave the domain";
+    }
+    SpotCase r(25, 10, 1);
+    r.wind.setVal(-U, 0, 1);
+    const FireParams::SpottingParams sp = r.params();
+    compute_albini_spotting(r.phi, r.data, r.wind, r.intensity, r.geom, sp, 1,
+                            nullptr, nullptr, 0.5_rt, nullptr, "13", 13, Z_REF, Z0);
+    Real dmin, dmax; int n;
+    launch_distances(r.data, dmin, dmax, n);
+    const Real tol = (sizeof(Real) == 8 ? 1.0e-9 : 1.0e-4) * D;
+    EXPECT_EQ(n, 12) << "periodic x: every brand landed";
+    EXPECT_NEAR(dmin, D, tol);
+    EXPECT_NEAR(dmax, D, tol);
+    MultiFab one = r.gathered();
+    Real xmin, xmax; int nb;
+    landing_x_range(one, xmin, xmax, nb);
+    const Real L = NX * DX;
+    EXPECT_GE(nb, 4) << "the landings stamped cells";
+    EXPECT_GE(xmin, 25.0 + L - D - sp.spot_radius - DX);
+    EXPECT_LE(xmax, 45.0 + L - D + sp.spot_radius + DX);
 }

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Run the FBP variants and check them.
 #
 #   [MPIRUN="mpirun -np 4"] ./run_fbp.sh /path/to/erf_exec [extra erf args...]
@@ -27,9 +27,9 @@ cells() { grep 'active fire cells' "run_$1.log" | tail -1 | awk '{print $NF}'; }
 
 printf "%-20s %10s %14s %14s %7s\n" variant wind_s1 ROS_s1 ROS_reference cells
 printf "%-20s %10s %14s %14s %7s\n" -------------------- ---------- -------------- -------------- -------
-ref_c2=$(python3 fbp_reference.py C2 90 60 "$(wind1 fbp_c2)")
-ref_o1b=$(python3 fbp_reference.py O1B 92 40 "$(wind1 fbp_o1b)" 80)
-ref_m1=$(python3 fbp_reference.py M1 90 60 "$(wind1 fbp_m1)" 60 60)
+ref_c2=$(${PYTHON:-python3} fbp_reference.py C2 90 60 "$(wind1 fbp_c2)")
+ref_o1b=$(${PYTHON:-python3} fbp_reference.py O1B 92 40 "$(wind1 fbp_o1b)" 80)
+ref_m1=$(${PYTHON:-python3} fbp_reference.py M1 90 60 "$(wind1 fbp_m1)" 60 60)
 for v in $VARIANTS; do
     case $v in fbp_c2|fbp_c2_directional) r=$ref_c2;; fbp_o1b) r=$ref_o1b;; fbp_m1) r=$ref_m1;; *) r=-;; esac
     printf "%-20s %10s %14s %14s %7s\n" "$v" "$(wind1 $v)" "$(ros1 $v | cut -c1-14)" "$(echo $r | cut -c1-14)" "$(cells $v)"
@@ -38,7 +38,9 @@ echo
 
 status=0
 check() { if [ "$2" = "1" ]; then echo "  $1: PASS"; else echo "  $1: FAIL"; status=1; fi; }
-rel() { awk -v a="$1" -v b="$2" 'BEGIN { d = (a - b) / b; if (d < 0) d = -d; printf "%.2e", d }'; }
+# a value the log did not print fails the check (an empty string would compare as 0)
+rel() { awk -v a="$1" -v b="$2" 'BEGIN { if (a == "" || b == "" || b + 0 == 0) { print "1e30"; exit }
+                                         d = (a - b) / b; if (d < 0) d = -d; printf "%.2e", d }'; }
 ok()  { awk -v d="$1" -v t="$2" 'BEGIN { print (d <= t) ? 1 : 0 }'; }
 
 for pair in "fbp_c2 $ref_c2 C-2" "fbp_o1b $ref_o1b O-1b" "fbp_m1 $ref_m1 M-1"; do
@@ -48,7 +50,7 @@ for pair in "fbp_c2 $ref_c2 C-2" "fbp_o1b $ref_o1b O-1b" "fbp_m1 $ref_m1 M-1"; d
 done
 d=$(rel "$(ros1 fbp_c2_directional)" "$(ros1 fbp_c2)")
 check "directional C-2 head rate at step 1 equals the isotropic one (rel. diff $d)" "$(ok $d 1e-8)"
-r=$(awk -v a="$(cells fbp_c2)" -v b="$(cells fbp_c2_directional)" 'BEGIN { print (b < a) ? 1 : 0 }')
+r=$(awk -v a="$(cells fbp_c2)" -v b="$(cells fbp_c2_directional)" 'BEGIN { print (a != "" && b != "" && b + 0 < a + 0) ? 1 : 0 }')
 check "directional C-2 burns less area than isotropic ($(cells fbp_c2_directional) vs $(cells fbp_c2) cells)" "$r"
 
 [ $status -eq 0 ] && echo "ALL PASS" || echo "SOME CHECKS FAILED"

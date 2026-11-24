@@ -109,8 +109,8 @@ struct FbpComputed
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real fbp_ffmc_function(amrex::Real ffmc) noexcept
 {
-    const amrex::Real m = 147.2 * (101.0 - ffmc) / (59.5 + ffmc);
-    return 91.9 * std::exp(-0.1386 * m) * (1.0 + std::pow(m, 5.31) / 4.93e7);
+    const amrex::Real m = amrex::Real(147.2) * (amrex::Real(101.0) - ffmc) / (amrex::Real(59.5) + ffmc);
+    return amrex::Real(91.9) * std::exp(-amrex::Real(0.1386) * m) * (amrex::Real(1.0) + std::pow(m, amrex::Real(5.31)) / amrex::Real(4.93e7));
 }
 
 /// Initial spread index from f(F) and the 10 m wind [km/h].
@@ -121,10 +121,10 @@ amrex::Real fbp_ffmc_function(amrex::Real ffmc) noexcept
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real fbp_isi(amrex::Real fF, amrex::Real W_kmh) noexcept
 {
-    const amrex::Real fW = (W_kmh > 40.0)
-        ? 12.0 * (1.0 - std::exp(-0.0818 * (W_kmh - 28.0)))
-        : std::exp(0.05039 * W_kmh);
-    return 0.208 * fF * fW;
+    const amrex::Real fW = (W_kmh > amrex::Real(40.0))
+        ? amrex::Real(12.0) * (amrex::Real(1.0) - std::exp(-amrex::Real(0.0818) * (W_kmh - amrex::Real(28.0))))
+        : std::exp(amrex::Real(0.05039) * W_kmh);
+    return amrex::Real(0.208) * fF * fW;
 }
 
 /// Grass curing factor of the degree of curing C [%] (Wotton et al. 2009)
@@ -132,7 +132,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real fbp_curing_factor(amrex::Real C) noexcept
 {
     C = amrex::max(amrex::Real(0.0), amrex::min(C, amrex::Real(100.0)));
-    return (C < 58.8) ? 0.005 * (std::exp(0.061 * C) - 1.0) : 0.176 + 0.02 * (C - 58.8);
+    return (C < amrex::Real(58.8)) ? amrex::Real(0.005) * (std::exp(amrex::Real(0.061) * C) - amrex::Real(1.0)) : amrex::Real(0.176) + amrex::Real(0.02) * (C - amrex::Real(58.8));
 }
 
 /// Buildup effect for BUI and the type's q, BUI0
@@ -142,10 +142,10 @@ amrex::Real fbp_buildup_effect(int type, amrex::Real bui) noexcept
     const FbpCoeffs k = fbp_coeffs(type);
     // operands floored before the early return: the optimiser evaluates the
     // unselected 1/bui and log(q) even when the function returns 1
-    const amrex::Real arg = 50.0 * std::log(amrex::max(k.q, std::numeric_limits<amrex::Real>::min()))
-                          * (1.0 / amrex::max(bui, amrex::Real(1.0e-30)) - 1.0 / k.bui0);
+    const amrex::Real arg = amrex::Real(50.0) * std::log(amrex::max(k.q, std::numeric_limits<amrex::Real>::min()))
+                          * (amrex::Real(1.0) / amrex::max(bui, amrex::Real(1.0e-30)) - amrex::Real(1.0) / k.bui0);
     const amrex::Real be  = std::exp(amrex::max(amrex::Real(-80.0), amrex::min(arg, amrex::Real(80.0))));
-    if (bui <= 0.0 || k.q >= 1.0) return 1.0;
+    if (bui <= amrex::Real(0.0) || k.q >= amrex::Real(1.0)) return amrex::Real(1.0);
     return be;
 }
 
@@ -153,7 +153,7 @@ amrex::Real fbp_buildup_effect(int type, amrex::Real bui) noexcept
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real fbp_rsi_basic(const FbpCoeffs& k, amrex::Real isi) noexcept
 {
-    return k.a * std::pow(amrex::max(amrex::Real(0.0), static_cast<amrex::Real>(1.0 - std::exp(-k.b * isi))), k.c);
+    return k.a * std::pow(amrex::max(amrex::Real(0.0), static_cast<amrex::Real>(amrex::Real(1.0) - std::exp(-k.b * isi))), k.c);
 }
 
 /// Surface rate of spread [m/min] of a type at an ISI, before the buildup effect
@@ -161,14 +161,14 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real fbp_rsi(const FbpComputed& s, amrex::Real isi) noexcept
 {
     switch (s.type) {
-        case FBP_M1: return (s.pc / 100.0) * fbp_rsi_basic(fbp_coeffs(FBP_C2), isi)
-                          + (1.0 - s.pc / 100.0) * fbp_rsi_basic(fbp_coeffs(FBP_D1), isi);
-        case FBP_M2: return (s.pc / 100.0) * fbp_rsi_basic(fbp_coeffs(FBP_C2), isi)
-                          + 0.2 * (1.0 - s.pc / 100.0) * fbp_rsi_basic(fbp_coeffs(FBP_D1), isi);
-        case FBP_M3: return (s.pdf / 100.0) * fbp_rsi_basic(fbp_coeffs(FBP_M3), isi)
-                          + (1.0 - s.pdf / 100.0) * fbp_rsi_basic(fbp_coeffs(FBP_D1), isi);
-        case FBP_M4: return (s.pdf / 100.0) * fbp_rsi_basic(fbp_coeffs(FBP_M4), isi)
-                          + 0.2 * (1.0 - s.pdf / 100.0) * fbp_rsi_basic(fbp_coeffs(FBP_D1), isi);
+        case FBP_M1: return (s.pc / amrex::Real(100.0)) * fbp_rsi_basic(fbp_coeffs(FBP_C2), isi)
+                          + (amrex::Real(1.0) - s.pc / amrex::Real(100.0)) * fbp_rsi_basic(fbp_coeffs(FBP_D1), isi);
+        case FBP_M2: return (s.pc / amrex::Real(100.0)) * fbp_rsi_basic(fbp_coeffs(FBP_C2), isi)
+                          + amrex::Real(0.2) * (amrex::Real(1.0) - s.pc / amrex::Real(100.0)) * fbp_rsi_basic(fbp_coeffs(FBP_D1), isi);
+        case FBP_M3: return (s.pdf / amrex::Real(100.0)) * fbp_rsi_basic(fbp_coeffs(FBP_M3), isi)
+                          + (amrex::Real(1.0) - s.pdf / amrex::Real(100.0)) * fbp_rsi_basic(fbp_coeffs(FBP_D1), isi);
+        case FBP_M4: return (s.pdf / amrex::Real(100.0)) * fbp_rsi_basic(fbp_coeffs(FBP_M4), isi)
+                          + amrex::Real(0.2) * (amrex::Real(1.0) - s.pdf / amrex::Real(100.0)) * fbp_rsi_basic(fbp_coeffs(FBP_D1), isi);
         case FBP_O1A:
         case FBP_O1B: return s.cf * fbp_rsi_basic(fbp_coeffs(s.type), isi);
         default:      return fbp_rsi_basic(fbp_coeffs(s.type), isi);
@@ -182,9 +182,9 @@ amrex::Real fbp_isf_basic(const FbpCoeffs& k, amrex::Real rsf) noexcept
     // floored operands before the early return (the unselected pow of a
     // negative base or rsf/0 would be speculated under the fpe traps)
     const amrex::Real base = amrex::max(rsf, amrex::Real(0.0)) / amrex::max(k.a, amrex::Real(1.0e-30));
-    const amrex::Real r = amrex::min(static_cast<amrex::Real>(std::pow(base, 1.0 / k.c)),  amrex::Real(0.999));
-    if (k.a <= 0.0 || rsf <= 0.0) return 0.0;
-    return std::log(1.0 - r) / (-k.b);
+    const amrex::Real r = amrex::min(static_cast<amrex::Real>(std::pow(base, amrex::Real(1.0) / k.c)),  amrex::Real(0.999));
+    if (k.a <= amrex::Real(0.0) || rsf <= amrex::Real(0.0)) return amrex::Real(0.0);
+    return std::log(amrex::Real(1.0) - r) / (-k.b);
 }
 
 /**
@@ -198,9 +198,9 @@ amrex::Real fbp_slope_equivalent_wind(const FbpComputed& s, amrex::Real slope) n
 {
     // |slope| inside the pow: on backing and flat cells slope <= 0 and the
     // unselected pow(negative, 1.2) would be speculated under the fpe traps
-    const amrex::Real gs = amrex::min(static_cast<amrex::Real>(100.0 * std::abs(slope)),  amrex::Real(70.0));     // percent, capped as the system does
-    const amrex::Real sf = std::exp(3.533 * std::pow(gs / 100.0, 1.2));
-    if (!s.use_slope || slope <= 0.0) return 0.0;
+    const amrex::Real gs = amrex::min(static_cast<amrex::Real>(amrex::Real(100.0) * std::abs(slope)),  amrex::Real(70.0));     // percent, capped as the system does
+    const amrex::Real sf = std::exp(amrex::Real(3.533) * std::pow(gs / amrex::Real(100.0), amrex::Real(1.2)));
+    if (!s.use_slope || slope <= amrex::Real(0.0)) return amrex::Real(0.0);
     const amrex::Real isz = fbp_isi(s.fF, 0.0);                              // zero-wind ISI
     amrex::Real isf;
     switch (s.type) {
@@ -208,8 +208,8 @@ amrex::Real fbp_slope_equivalent_wind(const FbpComputed& s, amrex::Real slope) n
         case FBP_M2: {
             // Wotton et al. (2009) eqs. 42a/42b: M2 weights the D1 share by 0.2,
             // as its rate does (fbp_rsi); M1 by the full (1 - w)
-            const amrex::Real w = s.pc / 100.0;
-            const amrex::Real wd = (s.type == FBP_M2) ? 0.2 * (1.0 - w) : (1.0 - w);
+            const amrex::Real w = s.pc / amrex::Real(100.0);
+            const amrex::Real wd = (s.type == FBP_M2) ? amrex::Real(0.2) * (amrex::Real(1.0) - w) : (amrex::Real(1.0) - w);
             const amrex::Real rsf_c2 = fbp_rsi_basic(fbp_coeffs(FBP_C2), isz) * sf;
             const amrex::Real rsf_d1 = fbp_rsi_basic(fbp_coeffs(FBP_D1), isz) * sf;
             isf = w * fbp_isf_basic(fbp_coeffs(FBP_C2), rsf_c2) + wd * fbp_isf_basic(fbp_coeffs(FBP_D1), rsf_d1);
@@ -217,10 +217,10 @@ amrex::Real fbp_slope_equivalent_wind(const FbpComputed& s, amrex::Real slope) n
         }
         case FBP_M3:
         case FBP_M4: {
-            const amrex::Real w = s.pdf / 100.0;
+            const amrex::Real w = s.pdf / amrex::Real(100.0);
             const amrex::Real rsf_m  = fbp_rsi_basic(fbp_coeffs(s.type), isz) * sf;
             const amrex::Real rsf_d1 = fbp_rsi_basic(fbp_coeffs(FBP_D1), isz) * sf;
-            isf = w * fbp_isf_basic(fbp_coeffs(s.type), rsf_m) + (1.0 - w) * fbp_isf_basic(fbp_coeffs(FBP_D1), rsf_d1);
+            isf = w * fbp_isf_basic(fbp_coeffs(s.type), rsf_m) + (amrex::Real(1.0) - w) * fbp_isf_basic(fbp_coeffs(FBP_D1), rsf_d1);
             break;
         }
         case FBP_O1A:
@@ -235,17 +235,17 @@ amrex::Real fbp_slope_equivalent_wind(const FbpComputed& s, amrex::Real slope) n
             isf = fbp_isf_basic(k, fbp_rsi_basic(k, isz) * sf);
         }
     }
-    if (isf <= 0.0) return 0.0;
-    const amrex::Real ratio = isf / (0.208 * s.fF);
-    amrex::Real wse = std::log(amrex::max(ratio, amrex::Real(1.0e-12))) / 0.05039;
-    if (wse > 40.0) {
+    if (isf <= amrex::Real(0.0)) return amrex::Real(0.0);
+    const amrex::Real ratio = isf / (amrex::Real(0.208) * s.fF);
+    amrex::Real wse = std::log(amrex::max(ratio, amrex::Real(1.0e-12))) / amrex::Real(0.05039);
+    if (wse > amrex::Real(40.0)) {
         // Wotton et al. (2009) eq. 43b for equivalent winds above 40 km/h
-        const amrex::Real arg = 1.0 - isf / (2.496 * s.fF);
+        const amrex::Real arg = amrex::Real(1.0) - isf / (amrex::Real(2.496) * s.fF);
         // log of the clamped argument BEFORE the select: the optimiser
         // evaluates the unselected arm, and log(arg <= 0) would raise
         // FE_INVALID / FE_DIVBYZERO under the fpe traps.
         const amrex::Real log_arg = std::log(amrex::max(arg, std::numeric_limits<amrex::Real>::min()));
-        wse = (arg > 0.0) ? 28.0 - log_arg / 0.0818 : 112.0;
+        wse = (arg > amrex::Real(0.0)) ? amrex::Real(28.0) - log_arg / amrex::Real(0.0818) : amrex::Real(112.0);
     }
     return amrex::max(wse, amrex::Real(0.0));
 }
@@ -256,9 +256,9 @@ amrex::Real fbp_slope_equivalent_wind(const FbpComputed& s, amrex::Real slope) n
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real fbp_ros(const FbpComputed& s, amrex::Real U_mps, amrex::Real slope) noexcept
 {
-    const amrex::Real W = 3.6 * amrex::max(U_mps, amrex::Real(0.0)) + fbp_slope_equivalent_wind(s, slope);
+    const amrex::Real W = amrex::Real(3.6) * amrex::max(U_mps, amrex::Real(0.0)) + fbp_slope_equivalent_wind(s, slope);
     const amrex::Real isi = fbp_isi(s.fF, W);
-    return fbp_rsi(s, isi) * s.be / 60.0;
+    return fbp_rsi(s, isi) * s.be / amrex::Real(60.0);
 }
 
 /**
@@ -293,14 +293,14 @@ amrex::Real fbp_ros_vector(const FbpComputed& st, amrex::Real u, amrex::Real v,
     // unit upslope vector from the floored magnitude, before the select (a
     // flat cell gives 0/0 in the unselected arm, which the optimiser evaluates)
     const amrex::Real inv_S = amrex::Real(1.0) / amrex::max(S, amrex::Real(1.0e-12));
-    amrex::Real wx = 3.6 * u, wy = 3.6 * v;                                 // the wind [km/h]
-    if (S > 1.0e-12) { wx += wse * sx * inv_S;     wy += wse * sy * inv_S; }   // WSE along the upslope
+    amrex::Real wx = amrex::Real(3.6) * u, wy = amrex::Real(3.6) * v;                                 // the wind [km/h]
+    if (S > amrex::Real(1.0e-12)) { wx += wse * sx * inv_S;     wy += wse * sy * inv_S; }   // WSE along the upslope
     const amrex::Real W = std::sqrt(wx * wx + wy * wy);
     const amrex::Real inv_W = amrex::Real(1.0) / amrex::max(W, amrex::Real(1.0e-12));
-    hx = (W > 1.0e-12) ? wx * inv_W : amrex::Real(1.0);
-    hy = (W > 1.0e-12) ? wy * inv_W : amrex::Real(0.0);
+    hx = (W > amrex::Real(1.0e-12)) ? wx * inv_W : amrex::Real(1.0);
+    hy = (W > amrex::Real(1.0e-12)) ? wy * inv_W : amrex::Real(0.0);
     const amrex::Real isi = fbp_isi(st.fF, W);
-    return fbp_rsi(st, isi) * st.be / 60.0;
+    return fbp_rsi(st, isi) * st.be / amrex::Real(60.0);
 }
 
 /**
@@ -318,7 +318,7 @@ amrex::Real fbp_ros_scalar_bound(const FbpComputed& st, amrex::Real u, amrex::Re
 {
     const amrex::Real S = std::sqrt(sx * sx + sy * sy);
     const amrex::Real W = amrex::Real(3.6) * std::sqrt(u * u + v * v) + fbp_slope_equivalent_wind(st, S);
-    return fbp_rsi(st, fbp_isi(st.fF, W)) * st.be / 60.0;
+    return fbp_rsi(st, fbp_isi(st.fF, W)) * st.be / amrex::Real(60.0);
 }
 
 /// Largest fbp_ros_scalar_bound over the fire grid, reduced over ranks

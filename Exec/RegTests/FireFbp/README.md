@@ -30,3 +30,12 @@ burns less area. The unit test `ERF_GTestFbp` checks the invariants of the
 equations: the buildup effect at BUI = BUI0, the curing factor at 100 %,
 the mixedwood limits, and the slope-equivalent wind reproducing the
 zero-wind rate on the slope.
+
+## CTest
+
+`FireFbp` runs `run_fbp.sh` on 2 ranks with `max_step=40` (5 s of the
+60 s decks: the head rates are checked at step 1 and the burned area at the
+last step); the script's exit status is the verdict. It is registered only
+in MPI builds that are not Windows. Until November 2026 the CTest `FireFbp_c2` ran the C-2 deck alone
+and checked nothing of its answer. `FireWindHeights` (`run_wind_heights.sh`)
+uses the same folder.

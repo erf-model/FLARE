@@ -11,6 +11,7 @@
 #include <ERF_HybridRos.H>
 #include <ERF_FireTerrainReader.H>
 #include <ERF_FireBoundaryGuard.H>
+#include <ERF_FireRegionGhostFill.H>
 #include <ERF_HostFabView.H>
 #include <fstream>
 #include <sstream>
@@ -2617,11 +2618,14 @@ void FireLayer::build_open_fraction(const amrex::Geometry& geom_atm,
             hr(i, j, k) = (f > 1.0e-6_rt) ? hs(i, j, k) / amrex::max(f, 1.0e-6_rt) : 0.0_rt;
         });
     }
-    // The bilinear wind stencil reads the column past a non-periodic face for
-    // the outermost fire cells; FillBoundary leaves that ghost at the setVal
-    // defaults (open, no roof), so copy the edge column into it instead.
-    fire_fill_boundary(*m_open_frac_atm, geom_atm);
-    fire_fill_boundary(*m_roof_h_atm, geom_atm);
+    // The bilinear wind stencil reads the column past the edge of the fire
+    // region for the outermost fire cells. FillBoundary leaves that ghost
+    // column at the setVal defaults (open, no roof) across a non-periodic face
+    // and, on a fine level covering part of the domain, at the edge of the
+    // region; copy the edge column into it instead (until Nov 2026 only the
+    // faces of the domain were filled). Neither field is ever -1.
+    fire_fill_region_ghosts(*m_open_frac_atm, geom_atm, -1.0_rt);
+    fire_fill_region_ghosts(*m_roof_h_atm, geom_atm, -1.0_rt);
     if (m_params.fire_debug) {
         amrex::Print() << "[FIRE DEBUG] Open-fraction heat placement: min open fraction "
                        << m_open_frac_atm->min(0) << ", max roof height "

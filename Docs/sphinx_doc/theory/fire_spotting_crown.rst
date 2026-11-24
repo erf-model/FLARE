@@ -118,6 +118,20 @@ same random draws on every rank whatever the decomposition:
    high relief, or a very large :math:`N`) stops the run with a message
    naming :cpp:`n_traj_steps` and :cpp:`I_B_min`.
 
+   A brand stays in flight up to the faces of the fire grid. In the outer
+   half of an edge cell the wind, ground and roughness are those of the edge
+   cell; a brand that crosses a non-periodic face is lost, in flight or in
+   the step in which it meets the ground. Across a periodic face the brand
+   flies on from the other side: the fields are read at its position wrapped
+   into the domain, the landing distance (and the cap of the source's fuel)
+   is that of the unwrapped flight, the landing cell is found from the
+   wrapped position, and the spot disc is measured to the nearest image of
+   the landing, so a disc next to the seam ignites cells on both sides of
+   it. Until November 2026 a brand past the outermost cell centre was
+   dropped half a cell before the face, every face, periodic or not, was
+   treated as an exit, and a brand that crossed a face in its last step
+   landed in the edge cell.
+
    With :cpp:`erf.fire.spotting.drift_wind = frozen` (and
    :cpp:`erf.fire.frozen_wind.file` set) the brand drifts instead on
    :math:`u, v` of the frozen 3-D GUST-CFD field at its height
@@ -127,7 +141,9 @@ same random draws on every rank whatever the decomposition:
    (or the column holding the brand is used, with
    :cpp:`erf.fire.wind_interp = nearest`), the same sampling as the
    reference wind; at GUST's lateral edges the edge column is used (no
-   periodic wrap). Below the first cell centre the lowest centre's wind is
+   periodic wrap: the brand's position is wrapped as above, but the frozen
+   stencil does not blend the two edge columns across a periodic seam, so
+   in the outer half of an edge cell it takes the edge column's wind). Below the first cell centre the lowest centre's wind is
    used, or the log profile of roughness :cpp:`erf.fire.wind_sample_z0`
    with :cpp:`erf.fire.wind_below_first_cell = log`. The reference height
    :cpp:`erf.fire.wind_sample_ht` and the per-fuel reference heights do not

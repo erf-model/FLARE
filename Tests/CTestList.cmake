@@ -279,10 +279,12 @@ endfunction(add_test_fire_check)
 # Fire suite driven by its own run script: copy SUITE_DIR (and erf_plotfile.py from
 # Canonical_RANS) and run SCRIPT with the executable, MPIRUN set for NRANKS ranks. The
 # script's exit status is the verdict; it runs the variants and their checks itself.
+# ARGS are passed to the script after the executable (the scripts hand them to every
+# run, e.g. max_step=40).
 function(add_test_fire_script TEST_NAME SUITE_DIR SCRIPT)
     set(options )
     set(oneValueArgs "NRANKS")
-    set(multiValueArgs )
+    set(multiValueArgs "ARGS")
     cmake_parse_arguments(ADD_TEST_FIRE_SCRIPT "${options}" "${oneValueArgs}"
         "${multiValueArgs}" ${ARGN})
 
@@ -304,9 +306,11 @@ function(add_test_fire_script TEST_NAME SUITE_DIR SCRIPT)
     set(MPI_COMMANDS "${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${NP} ${MPIEXEC_PREFLAGS}")
 
     resolve_test_exe("" "${ERF_TEST_EXE}" TEST_EXE)
+    string(REPLACE ";" " " SCRIPT_ARGS "${ADD_TEST_FIRE_SCRIPT_ARGS}")
     set(test_log "${CURRENT_TEST_BINARY_DIR}/${TEST_NAME}.log")
-    # the script removes its own earlier output before running
-    set(test_command sh -c "cd ${CURRENT_TEST_BINARY_DIR} && MPIRUN='${MPI_COMMANDS}' PYTHON=${ERF_RANS_PYTHON} FCOMPARE=${FCOMPARE_EXE} sh ${CURRENT_TEST_BINARY_DIR}/${SCRIPT} ${TEST_EXE} > ${test_log} 2>&1 || ( cat ${test_log} && false ) && cat ${test_log}")
+    # the script removes or overwrites its own earlier output; SKIP_RUN=0 so an
+    # exported SKIP_RUN=1 cannot make it check stale logs
+    set(test_command sh -c "cd ${CURRENT_TEST_BINARY_DIR} && SKIP_RUN=0 MPIRUN='${MPI_COMMANDS}' PYTHON=${ERF_RANS_PYTHON} FCOMPARE=${FCOMPARE_EXE} sh ${CURRENT_TEST_BINARY_DIR}/${SCRIPT} ${TEST_EXE} ${SCRIPT_ARGS} > ${test_log} 2>&1 || ( cat ${test_log} && false ) && cat ${test_log}")
 
     add_test(NAME ${TEST_NAME} COMMAND ${test_command})
     set_tests_properties(${TEST_NAME}
@@ -425,7 +429,6 @@ add_test_fire(FireBurnout_base              FireBurnout           inputs_base   
 add_test_fire(FireDirectionalShape_ellipse  FireDirectionalShape  inputs_ellipse             40)
 add_test_fire(FireEmcModel_van_wagner       FireEmcModel          inputs_van_wagner          40)
 add_test_fire(FireExposure_noib             FireExposure          inputs_noib                40)
-add_test_fire(FireFbp_c2                    FireFbp               inputs_fbp_c2              40)
 add_test_fire(FireFluxPartition_cfbm        FireFluxPartition     inputs_cfbm                40)
 add_test_fire(FireHeatPlacement_add_noib    FireHeatPlacement     inputs_add_noib            40)
 add_test_fire(FireHybridObstacles_noib      FireHybridObstacles   inputs_hybrid_noib         40)
@@ -469,7 +472,6 @@ add_test_fire(FireStickMoisture_stick       FireStickMoisture     inputs_stick  
 add_test_fire(FireStructureIgnition_on      FireStructureIgnition inputs_on                  40 NRANKS 1)
 add_test_fire(FirePrecipSource_atmosphere   FirePrecipSource      inputs_atmosphere          40 NRANKS 1)
 add_test_fire(FireLiveMoisture_fixed        FireLiveMoisture      inputs_fixed               40)
-add_test_fire(FireWindSampling_sample20     FireWindSampling      inputs_sample20            40)
 add_test_fire(FirePrescribed_ros_circle     FirePrescribed        inputs_ros_circle          40)
 add_test_fire(FirePrescribed_heat_patch     FirePrescribed        inputs_heat_patch          40)
 add_test_fire(FireFarsiteDefault            FarsiteDefault        inputs                     40)
@@ -628,6 +630,20 @@ add_test_fire_restart_abort(FireRestartMoreRanks_abort FireRestart inputs_levels
 # nine boxes over two ranks (a restart that dropped the flux injects no fire heat in
 # its first step)
 add_test_fire_script(FireRestart_coupled     FireRestart           run_coupled_restart.sh NRANKS 2)
+endif()
+# FBP: the C-2, O-1b and M-1 head rates at step 1 against the independent
+# fbp_reference.py to 1e-8, and the directional C-2 deck against the isotropic one
+# (until Nov 2026 FireFbp_c2 ran one deck with no check of its answer); 40 steps of each
+# deck (5 s) instead of the 60 s of the README run
+if(ERF_ENABLE_MPI AND NOT WIN32)
+add_test_fire_script(FireFbp                  FireFbp               run_fbp.sh NRANKS 2 ARGS max_step=40)
+endif()
+# the sampled reference wind (erf.fire.wind_sample_ht = 20) is ln(6.1/0.1)/ln(20/0.1)
+# times the wind taken at 20 m, every step, and the deck with the default key written
+# out reproduces the historical one (until Nov 2026 FireWindSampling_sample20 ran one
+# deck with no check of its answer); 40 steps of each deck
+if(ERF_ENABLE_MPI AND NOT WIN32)
+add_test_fire_script(FireWindSampling         FireWindSampling      run_wind.sh NRANKS 2 ARGS max_step=40)
 endif()
 # the fire grid on a refined level (erf.fire.anchor_level, the finest level by default):
 # the same front as a single-level run at that resolution, the level-0 heat budget after

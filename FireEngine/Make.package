@@ -48,6 +48,7 @@ CEXE_headers += ERF_FuelMap.H
 CEXE_headers += ERF_LcpReader.H
 CEXE_headers += ERF_FireBreak.H
 CEXE_headers += ERF_FireBoundaryGuard.H
+CEXE_headers += ERF_FireRegionGhostFill.H
 CEXE_headers += ERF_FuelBlending.H
 CEXE_headers += ERF_FireAcceleration.H
 CEXE_headers += ERF_BalbiModel.H

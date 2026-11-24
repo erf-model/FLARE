@@ -20,9 +20,11 @@ The flight, as documented for erf.fire.spotting.drift_wind:
   - the fire ground is the GUST column ground (mean of its four k = 0
     nodes in gust_hill_plt/Level_0/z_phys_nd) of the column holding the fire
     cell centre (the ERF and GUST meshes coincide in this case); between
-    fire cell centres it is bilinear, clamped at the edges
-  - each step: the brand leaves the run if its cell-centre index leaves the
-    interior of the fire grid; else it moves by (u, v) dt and falls v_t dt,
+    fire cell centres it is bilinear, clamped at non-periodic edges
+  - each step: the brand leaves the run if it is past a non-periodic face of
+    the fire grid (before Nov 2026: past the outermost cell centre); across a
+    periodic seam the fields are read at the position wrapped into the grid,
+    with the stencil wrapped too; else it moves by (u, v) dt and falls v_t dt,
     and it lands when it is at or below the ground under it; when its height
     above the ground went from a0 > 0 to a1 < 0 in the step, it lands at the
     fraction a0 / (a0 - a1) of the step
@@ -174,6 +176,30 @@ def main():
           for j in range(ny)] for i in range(nx)]
     zmin = min(min(r) for r in T)
 
+    # periodicity of the fire grid (it spans the domain, so it is the deck's);
+    # read from inputs_base only, so a run that overrides geometry.is_periodic
+    # on the command line would not be mirrored
+    per = [False, False]
+    with open("inputs_base") as fh:
+        for line in fh:
+            key, _, val = line.split("#")[0].partition("=")
+            if key.strip() == "geometry.is_periodic":
+                per = [v == "1" for v in val.split()[:2]]
+
+    def wrap(x, lo, n, d, p):
+        if not p:
+            return x
+        L = n * d
+        r = x - L * math.floor((x - lo) / L)
+        if r >= lo + L:     # round-off, as albini_wrap
+            r -= L
+        if r < lo:
+            r += L
+        return r
+
+    def idx(i, n, p):
+        return i % n if p else max(0, min(n - 1, i))
+
     def bilin(f, x, y):
         fx = (x - x0) / dx - 0.5
         fy = (y - y0) / dy - 0.5
@@ -181,14 +207,15 @@ def main():
         wx, wy = fx - i0, fy - j0
 
         def at(i, j):
-            return f[max(0, min(nx - 1, i))][max(0, min(ny - 1, j))]
+            return f[idx(i, nx, per[0])][idx(j, ny, per[1])]
         return ((1 - wx) * (1 - wy) * at(i0, j0) + wx * (1 - wy) * at(i0 + 1, j0)
                 + (1 - wx) * wy * at(i0, j0 + 1) + wx * wy * at(i0 + 1, j0 + 1))
 
     def inside(x, y):
-        i0 = math.floor((x - x0) / dx - 0.5)
-        j0 = math.floor((y - y0) / dy - 0.5)
-        return 0 <= i0 < nx - 1 and 0 <= j0 < ny - 1
+        # up to the faces (past the outermost centres the stencil is clamped);
+        # a periodic direction has none
+        return ((per[0] or 0.0 <= (x - x0) / dx < nx)
+                and (per[1] or 0.0 <= (y - y0) / dy < ny))
 
     def profile_factor(h):
         z0s = max(Z0, 1.0e-6)
@@ -211,22 +238,24 @@ def main():
         landed = False
         steps[0] = 0
         for ns in range(ALOFT_FACTOR * n_fall if uvw else n_fall):
-            if not inside(px, py):
+            # px, py unwrapped (the distance is the drift); fields read wrapped
+            qx, qy = wrap(px, x0, nx, dx, per[0]), wrap(py, y0, ny, dy, per[1])
+            if not inside(qx, qy):
                 return None
             steps[0] += 1
-            h = zb + zw - bilin(T, px, py)
+            h = zb + zw - bilin(T, qx, qy)
             px0, py0 = px, py
             if drift in ("frozen", "frozen_uvw"):
-                u, v, wz = frozen_wind(px, py, h, interp, below)
+                u, v, wz = frozen_wind(qx, qy, h, interp, below)
             else:
                 f = profile_factor(h)
-                u, v, wz = f * bilin(WU, px, py), f * bilin(WV, px, py), 0.0
+                u, v, wz = f * bilin(WU, qx, qy), f * bilin(WV, qx, qy), 0.0
             px += u * dt
             py += v * dt
             if uvw:
                 zw += wz * dt
             zb -= dz
-            a1 = zb + zw - bilin(T, px, py)
+            a1 = zb + zw - bilin(T, wrap(px, x0, nx, dx, per[0]), wrap(py, y0, ny, dy, per[1]))
             if (a1 <= (tol if zw != 0.0 else 0.0)
                     or (uvw and ns + 1 >= n_fall and zw <= 0.0)):
                 if a1 < 0.0 < h:
@@ -237,6 +266,8 @@ def main():
                 break
         if uvw and not landed:
             return "aloft"
+        if not inside(px, py):     # met the ground past a non-periodic face
+            return None
         return min(math.hypot(px - cx, py - cy), CAP)
 
     other = {"frozen": "profile", "profile": "frozen", "frozen_uvw": "frozen"}[opt.drift]
