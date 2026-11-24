@@ -4,6 +4,9 @@
 // - VersionAndErrorNamesAreKnown.
 // - FPTrapMaskMasksTheTrapsAndRestoresThem: no trap inside, the traps and the earlier flags back after, the
 //   flags raised inside discarded; nested masks.
+// - AFlagTheMaskGivesBackIsClearedWhenTheTrapsComeOn: an invalid flag left by a test without traps, given back
+//   by the mask (on x86-64 glibc into the x87 status word too), is cleared when a later scope switches the
+//   traps on, so that it cannot stop the test binary with SIGFPE (the shuffled unit run in FLARE's CI).
 // - TheSpanStartsAndStepsUnderEveryTrap: init (with the initial-condition solve, whose overflow trapped in
 //   MoorDyn-C 2.7.1) and steps under amrex's three traps, the same answer as without them over three spans,
 //   the traps still on.
@@ -36,6 +39,7 @@
 
 #include <gtest/gtest.h>
 
+#include "ERF_GTestFPTraps.H"
 #include "ERF_GTestTempDir.H"
 #include "ERF_GTestThrowOnAbort.H"
 #include "ERF_MoorDynSystem.H"
@@ -169,11 +173,12 @@ double norm (const std::array<double,3>& v) { return std::sqrt(v[0]*v[0] + v[1]*
 } // namespace
 
 // the three traps AMReX sets (amrex.fpe_trap_invalid, _zero, _overflow) switched on, or off, for a scope,
-// the earlier traps restored after it; all_on() is false where AMReX cannot set traps (not Linux glibc or macOS)
+// the earlier traps restored after it; all_on() is false where AMReX cannot set traps (not Linux glibc or macOS).
+// The flags are cleared before the traps change (erf_gtest::set_fp_traps).
 struct Traps {
     amrex::FPExcept prev;
     explicit Traps (bool on)
-        : prev(on ? amrex::enableFPExcept(amrex::FPExcept::all) : amrex::disableFPExcept(amrex::FPExcept::all)) {}
+        : prev(erf_gtest::set_fp_traps(on ? amrex::FPExcept::all : amrex::FPExcept::none)) {}
     ~Traps () { std::feclearexcept(FE_ALL_EXCEPT); amrex::setFPExcept(prev); }
     Traps (const Traps&) = delete;
     Traps& operator= (const Traps&) = delete;
@@ -210,6 +215,39 @@ TEST(MoorDynSystem, FPTrapMaskMasksTheTrapsAndRestoresThem)
     EXPECT_EQ(std::fetestexcept(FE_OVERFLOW | FE_DIVBYZERO | FE_INVALID), 0)
         << "the flags raised under the mask are discarded, or a re-enabled trap could fire in unrelated code";
     EXPECT_NE(std::fetestexcept(FE_UNDERFLOW), 0) << "the flags raised before the mask are kept";
+    std::feclearexcept(FE_ALL_EXCEPT);
+}
+
+TEST(MoorDynSystem, AFlagTheMaskGivesBackIsClearedWhenTheTrapsComeOn)
+{
+    // The order the shuffled unit run met in CI: a test with the traps off computes 0/0 and leaves FE_INVALID
+    // raised; a MoorDyn call under FPTrapMask gives that flag back through fesetexceptflag (on x86-64 glibc into
+    // the x87 status word as well as the SSE one); a later test switches the traps on. Without the clearing in
+    // erf_gtest::set_fp_traps the next amrex::getFPExcept there stopped the binary with SIGFPE on x86-64; on
+    // Apple arm64 the flag stays raised and the expectations below fail.
+    const auto leave_invalid_flag = [] {
+        std::feclearexcept(FE_ALL_EXCEPT);
+        volatile double zero = 0.0;
+        volatile double r = zero / zero;
+        EXPECT_TRUE(std::isnan(r));
+        { const erf_moordyn::FPTrapMask mask; }
+        EXPECT_NE(std::fetestexcept(FE_INVALID), 0) << "the mask gives back the flags raised before it";
+    };
+    const Traps off(false);
+    leave_invalid_flag();
+    {
+        const Traps on(true);
+        if (!Traps::all_on()) { GTEST_SKIP() << "amrex cannot set floating-point traps on this platform"; }
+        EXPECT_EQ(std::fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW), 0)
+            << "Traps(true) clears the flags raised before it";
+    }
+    leave_invalid_flag();
+    {
+        const erf_gtest::FPTrapsOn on;
+        EXPECT_TRUE(erf_gtest::FPTrapsOn::active());
+        EXPECT_EQ(std::fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW), 0)
+            << "erf_gtest::FPTrapsOn clears the flags raised before it";
+    }
     std::feclearexcept(FE_ALL_EXCEPT);
 }
 
