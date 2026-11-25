@@ -219,7 +219,9 @@ jobs:
           }
         }
 
-    # The flags follow cuda-ci.yml, without MPI (as in the MSVC job).
+    # The flags follow cuda-ci.yml, without MPI (as in the MSVC job). The architecture is
+    # given as CMAKE_CUDA_ARCHITECTURES=80, as in gust-abl: PowerShell splits
+    # -DAMReX_CUDA_ARCH=8.0 at the dot, and AMReX has deprecated that key for CMake.
     - name: Configure and build
       shell: pwsh
       run: |
@@ -228,7 +230,7 @@ jobs:
           -DCMAKE_SYSTEM_VERSION=10.0.22621.0 `
           -DCMAKE_CXX_COMPILER=cl `
           -DCMAKE_CUDA_COMPILER=nvcc `
-          -DAMReX_CUDA_ARCH=8.0 `
+          -DCMAKE_CUDA_ARCHITECTURES=80 `
           -DAMReX_CUDA_ERROR_CROSS_EXECUTION_SPACE_CALL=ON `
           -DAMReX_CUDA_ERROR_CAPTURE_THIS=ON `
           -DERF_ENABLE_MPI:BOOL=OFF `
