@@ -1,0 +1,4 @@
+# North-south ignition line at x = 12.5 m, run past both y walls so the front
+# is straight across the domain and its normal points along +x east of it
+12.5 -100.0
+12.5 600.0

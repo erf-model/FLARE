@@ -46,7 +46,7 @@ TEST(FireModelSummary, AnEmptyDeckNamesEveryPhysics)
 {
     FireParams fp;
     const auto m = by_key(fp);
-    for (const char* k : {"ros_model", "reaction_velocity_formula", "wrf_bmst_compat", "rothermel_per_fuel",
+    for (const char* k : {"ros_model", "reaction_velocity_formula", "wrf_bmst_compat",
                           "rothermel_cell_moisture", "use_wind_limit", "wind_limit", "propagation_method",
                           "farsite.shape", "farsite.front_update", "wind_interp", "wind_ref_ht", "wind_sample_ht",
                           "wind_below_first_cell", "use_waf", "waf_formula", "use_terrain_wind", "prescribed_wind",
@@ -91,7 +91,26 @@ TEST(FireModelSummary, OptionsFollowTheModelInUse)
     EXPECT_EQ(m.at("directional_shape"), "ellipse");
     EXPECT_EQ(m.count("reaction_velocity_formula"), 0u) << "Rothermel's options only when Rothermel runs";
     EXPECT_EQ(m.count("wind_limit"), 0u) << "the midflame wind limit is Rothermel's and BEHAVE's";
+    EXPECT_EQ(m.count("rothermel_per_fuel"), 0u) << "the per-fuel table is Rothermel's and BEHAVE's";
     EXPECT_EQ(m.count("farsite.shape"), 0u) << "FARSITE's options only on the FARSITE path";
+}
+
+// BEHAVE reads erf.fire.rothermel_per_fuel on a fuel map, so the summary lists
+// it with BEHAVE as well as with Rothermel
+TEST(FireModelSummary, BehaveListsThePerFuelTable)
+{
+    ScopedKeys deck;
+    deck.add("ros_model", std::string("behave"));
+    deck.add("rothermel_per_fuel", std::string("true"));
+    {
+        FireParams fp;
+        EXPECT_EQ(by_key(fp).count("rothermel_per_fuel"), 0u) << "without a fuel map the key has no effect";
+    }
+    deck.add("fuel_map.file", std::string("fuel_map.asc"));
+    FireParams fp;
+    const auto m = by_key(fp);
+    EXPECT_EQ(m.at("rothermel_per_fuel"), "true");
+    EXPECT_EQ(m.count("reaction_velocity_formula"), 0u) << "Rothermel's own options only when Rothermel runs";
 }
 
 // An option that does not act in the run is not listed, and a value the code

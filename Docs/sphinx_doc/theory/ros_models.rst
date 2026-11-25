@@ -485,9 +485,26 @@ ratio of dead to live load (``ERF_BehaveModel.H``):
 and :math:`M_{x,\mathrm{live}} = 2.9\, W' (1 - M'_f / M_{x,\mathrm{dead}}) - 0.226`
 (Rothermel 1972, Eq. 88; the live sum used :math:`e^{-138/\sigma}` before
 October 2026, which lowered :math:`W'` by about 25 % and damped live fuel
-too strongly), evaluated here with the category-mean SAVs. The fuel-bed SAV
-of the reaction velocity is the dead category's, not the area-weighted mean
-over both categories that BehavePlus uses. The net load of each category is
+too strongly). Both sums run over the size classes, each with its own SAV,
+and the fine dead moisture :math:`M'_f` is weighted by the same
+:math:`w\, e^{-138/\sigma}` per class. The fuel-bed SAV of the reaction
+velocity, the packing ratio and the wind and slope factors is the
+characteristic SAV :math:`\sigma = \sum_i f_i \sigma_i` over the dead and
+live categories, :math:`f_i` the category area shares (Andrews 2018,
+Eq. 72), as BehavePlus uses. Until November 2026 FLARE used the dead
+category's SAV there and the category-mean SAVs in :math:`W'` and
+:math:`M'_f`. The change moves fuels with a live load both ways. At 3/4/5 %
+dead and 60 % live moisture in a 6.5 m/s midflame wind, fuels with a fine
+live load and a coarser dead load spread faster: Scott-Burgan SH5 at
+1.76 m/s against 0.65 m/s (characteristic SAV 1252 against 700 ft⁻¹), SH7
+and SH8 about 3 times faster. Shrub and timber-understory fuels with a
+coarse dead load spread slower, because the 10-h load no longer counts at
+the fine category-mean SAV in :math:`W'`: SH3 at 0.30 and SH1 at 0.43 of
+the old rate, TU1, TU5, SH2 and SH4 at 0.76-0.80. Grass fuels change by
+about 1 % (GR2 0.960 to 0.949 m/s), and fuels with dead loads only are unchanged to rounding
+(``ERF_GTestBehaveFuelMap``). The characteristic SAV and the per-class
+sums are used under both :cpp:`erf.fire.behave.net_load` forms; there is no
+option for the earlier form. The net load of each category is
 Rothermel's surface-area-weighted load (eq. 53) with Albini's (1976) size
 classes (Andrews 2018, eq. 61): :math:`w_n = \sum_j g_j\, w_{n,j}` with
 :math:`g_j` the surface-area fraction summed over the classes of the same
@@ -501,13 +518,29 @@ sum of the classes and the sink used one :math:`\varepsilon` of the dead
 SAV and the load-weighted moisture, which overstated the reaction intensity
 of multi-class fuels by the inverse of the 1-h area share, 3.3x for FM10 and
 5.2x for FM13 (the zero-wind rate 3.0x and 4.3x, the heat sink changing with
-it); that form is kept as
-:cpp:`erf.fire.behave.net_load = "sum"` (``ERF_GTestBehaveNetLoad``). With
+it); that net load and sink are kept as
+:cpp:`erf.fire.behave.net_load = "sum"` (``ERF_GTestBehaveNetLoad``), with
+the characteristic SAV above. With
 :cpp:`erf.fire.moisture_dynamic = true` the state is rebuilt in every fire
 cell from that cell's moistures, and the directional level-set path reads a
 state rebuilt each step from the domain-average moistures; otherwise it is
 computed once from the deck's. How the live moistures evolve is set by
 :cpp:`erf.fire.moisture_live_model` (see the fuel moisture section).
+
+**Per-fuel state on a fuel map.** With :cpp:`erf.fire.rothermel_per_fuel =
+true` and a spatial fuel map, BEHAVE builds one state per fuel table slot,
+from that slot's untransferred parameters at the current moistures (code 0
+and zero-load slots give zero spread). The isotropic kernel, the per-cell
+moisture path and the level-set (directional) path read each cell's own
+fuel; a code outside the table keeps the uniform
+:cpp:`erf.fire.fuel_model_id`, as Rothermel does. With
+:cpp:`moisture_dynamic` the table is rebuilt each step from the
+domain-average moistures, and the per-cell path builds the state of the
+cell's own fuel from the cell's moistures. The level-set path reads the
+table, so there each fuel spreads at the domain-average moistures. Without the flag BEHAVE spreads
+with the uniform fuel on every cell, as before.
+``Exec/RegTests/FireBehaveFuelMap`` checks the rates on an SH5 and GR2 map
+against closed-form multi-class values.
 
 **Live herbaceous transfer.** A share :math:`T` of the live herbaceous load
 :math:`w_{lh}` moves to the dead herbaceous class, linear in the live
@@ -616,7 +649,7 @@ Arrival-time probes
 Per-fuel Rothermel coefficients
 ```````````````````````````````
 
-By default the Rothermel kernel uses the coefficients of the domain :cpp:`erf.fire.fuel_model_id` on every cell, even when a spatial fuel map is loaded; only the heat flux and the Balbi kernels look the map up per cell. Setting :cpp:`erf.fire.rothermel_per_fuel = true` builds a per-code coefficient table (code 0 gives zero spread, codes 1-13 the Anderson models at the current dead fuel moistures, rebuilt each step when :cpp:`moisture_dynamic` is on) and evaluates the Rothermel rate of spread with the coefficients of each cell's own fuel code. Without a fuel map the flag has no effect.
+By default the Rothermel kernel uses the coefficients of the domain :cpp:`erf.fire.fuel_model_id` on every cell, even when a spatial fuel map is loaded; only the heat flux and the Balbi kernels look the map up per cell. Setting :cpp:`erf.fire.rothermel_per_fuel = true` builds a per-code coefficient table (code 0 gives zero spread, codes 1-13 the Anderson models at the current dead fuel moistures, rebuilt each step when :cpp:`moisture_dynamic` is on) and evaluates the Rothermel rate of spread with the coefficients of each cell's own fuel code. Without a fuel map the flag has no effect. With :cpp:`erf.fire.ros_model = "behave"` (or a BEHAVE hybrid member) the same flag builds a per-code BEHAVE state table and BEHAVE spreads each cell with its own fuel (see the BEHAVE section).
 
 Model Selection Guide
 ---------------------
@@ -659,7 +692,7 @@ Input Parameters
    * - :cpp:`erf.fire.rothermel_per_fuel`
      - Boolean
      - false
-     - Rothermel: evaluate per-cell coefficients from the spatial fuel map
+     - Rothermel and BEHAVE: evaluate the per-cell coefficients (state) from the spatial fuel map
    * - :cpp:`erf.fire.hybrid.primary`
      - String
      - "rothermel"
@@ -778,7 +811,7 @@ Limitations
 
 - All four ROS models use the same effective midflame wind (:cpp:`fire_wind_eff`) after global WAF and terrain corrections. The WAF is derived from the global :cpp:`fuel_model_id` fuel bed depth, not from per-cell fuel bed depth when a spatial fuel map is loaded.
 
-- Unless :cpp:`erf.fire.rothermel_per_fuel = true`, the Rothermel kernel spreads with the domain :cpp:`fuel_model_id` on every cell of a spatial fuel map; a hybrid with the ``fuel`` selector and a Rothermel primary should set that flag so the primary honours the map.
+- Unless :cpp:`erf.fire.rothermel_per_fuel = true`, the Rothermel kernel spreads with the domain :cpp:`fuel_model_id` on every cell of a spatial fuel map; a hybrid with the ``fuel`` selector and a Rothermel or BEHAVE member should set that flag so the member honours the map.
 
 - The hybrid ``structure`` selector only chooses which model spreads near a building. It does not stop the fire at the footprint; treating structures as non-burnable and placing their heat correctly is separate work.
 
@@ -924,9 +957,9 @@ How far the code reaches depends on how it is used. As the uniform model,
 :cpp:`erf.fire.fuel_model_id`, it is a published model's equal: all six
 rate-of-spread models build their uniform state from the same
 ``FuelModelParams`` and respond to it. Per cell from a fuel map, only the
-models with a per-fuel coefficient table evaluate it — Rothermel under
-:cpp:`erf.fire.rothermel_per_fuel`, on the isotropic and the level-set
-paths alike, and Balbi. BEHAVE, MacArthur, Cheney-Gould and FBP hold one
+models with a per-fuel coefficient table evaluate it — Rothermel and BEHAVE
+under :cpp:`erf.fire.rothermel_per_fuel`, on the isotropic and the level-set
+paths alike, and Balbi. MacArthur, Cheney-Gould and FBP hold one
 uniform state for the whole grid whatever the map says, so a code in a
 raster does not change their rate; that is a limit of those models'
 plumbing rather than of the fuel table. The heat flux, the per-cell fuel

@@ -52,6 +52,15 @@ hysteresis (the dead classes dry toward the upper equilibrium curve):
 | `fixed_dir020`   | 20    | 0.20000           | 0.07988  | 853.1            | 0.1859                        |
 | `fixed_dir025`   | 20    | 0.25000           | 0.07988  | 853.1            | 0.1864                        |
 
+The rates in this table predate the BEHAVE characteristic-SAV change of
+2026-11 (per-class W' and M'_f, see the BEHAVE section of the theory
+docs). Fuel 2 has a live herbaceous load, so the rates of all variants
+change with it, and the gold file of the `FireLiveMoisture_fixed` CTest
+changes: after 40 steps the rate of spread goes from 0.3173 to
+0.2977 m/s (-6.2 %) and the burned area from 868.75 to 856.25 m2. The
+checks in `check_live.py` compare runs with each other and
+do not depend on the rate itself.
+
 The legacy live classes fall from 0.90 to the 0.40 clamp on the first step.
 BEHAVE then moves 89 % of the live herbaceous load to the dead class instead
 of 1/3 (default window 0.30-1.20), so the legacy fire spreads 22 % faster

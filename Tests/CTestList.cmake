@@ -754,6 +754,13 @@ endif()
 add_test_fire_check(FireMergingFronts_coalescing FireMergingFronts inputs_coalescing 40 check_merging_fronts.py)
 add_test_fire_check(FireMergingFronts_junction   FireMergingFronts inputs_junction   40 check_merging_fronts.py)
 add_test_fire_check(FireMergingFronts_parallel   FireMergingFronts inputs_parallel   40 check_merging_fronts.py)
+# erf.fire.ros_model = "behave" with erf.fire.rothermel_per_fuel on a two-fuel
+# Scott-Burgan map (SH5 west, GR2 east): every cell has the closed-form
+# multi-class Rothermel rate of its own fuel (SH5 1.758, GR2 0.949 m/s at
+# 6.5 m/s), and a straight front in each half arrives at (x - x0)/R, on the
+# isotropic and the level-set (directional) paths. Two ranks, one box each.
+add_test_fire_check(FireBehaveFuelMap_isotropic   FireBehaveFuelMap inputs_isotropic   240 check_behave_fuel_map.py NRANKS 2)
+add_test_fire_check(FireBehaveFuelMap_directional FireBehaveFuelMap inputs_directional 240 check_behave_fuel_map.py NRANKS 2)
 # erf.fire.farsite_winds: FARSITE/FlamMap gridded winds (_vel/_ang ESRI ASCII
 # grids and a .atm file, the layout WindNinja writes), on two ranks over three
 # boxes so the gather sees an uneven split. Prescribed u = 3, v = 4 m/s gives

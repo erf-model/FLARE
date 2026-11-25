@@ -1,0 +1,7 @@
+FILE = inputs_base
+
+# The level-set front advected along its normal with each cell's own BEHAVE
+# state (fill_directional_ros)
+erf.fire.directional_ros = true
+
+erf.fire.plot_file = "plt_fire_directional_"

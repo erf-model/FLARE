@@ -1,0 +1,89 @@
+# FireBehaveFuelMap: settings shared by the decks in this folder.
+#
+# BEHAVE (erf.fire.ros_model = "behave") on a two-fuel Scott-Burgan map:
+# SH5 (code 145) on the western half, x < 500 m, and GR2 (code 102) on the
+# eastern half. erf.fire.rothermel_per_fuel = true gives each cell its own
+# fuel; erf.fire.fuel_model_id = 102 is the uniform fuel the map replaces.
+#
+# A still atmosphere under a prescribed 6.5 m/s wind along +x with the wind
+# adjustment factor off, so every fire cell sees a 6.5 m/s midflame wind, on
+# flat ground. The moistures are uniform and fixed: 3/4/5 % dead, 60 % live
+# (two thirds of GR2's herbaceous load cured over the 0.30-1.20 window).
+# check_behave_fuel_map.py compares the rates with closed-form multi-class
+# Rothermel values (see README.md).
+
+geometry.prob_lo = 0.0 0.0 0.0
+geometry.prob_hi = 1000.0 500.0 200.0
+amr.n_cell = 20 10 4           # 50 m atmosphere cells
+geometry.is_periodic = 0 0 0
+amr.max_level = 0
+amr.max_grid_size = 10         # two boxes in x, for two ranks; lengths divide by the grid ratio
+amr.max_grid_size_z = 4        # the fire module forbids z-decomposition
+
+xlo.type = "SlipWall"
+xhi.type = "SlipWall"
+ylo.type = "SlipWall"
+yhi.type = "SlipWall"
+zlo.type = "surface_layer"     # the fire module needs the surface layer at the ground
+zhi.type = "SlipWall"
+erf.most.z0 = 0.1
+erf.most.surf_temp = 300.0
+erf.most.surf_heating_rate = 0.0
+
+# The surface layer needs a diffusion operator; zero coefficients keep it idle.
+erf.molec_diff_type = "ConstantAlpha"
+erf.dynamic_viscosity = 0.0
+erf.alpha_T = 0.0
+erf.alpha_C = 0.0
+erf.les_type = "None"
+
+erf.init_type = "uniform"
+erf.use_gravity = false
+erf.use_coriolis = false
+erf.theta_ref = 300.0
+erf.fixed_dt = 0.5
+erf.substepping_cfl = 0.5
+max_step = 240                 # 120 s
+erf.v = 0
+amr.v = 0
+erf.sum_interval = -1
+erf.check_int = -1
+erf.plot_int_1 = -1
+erf.fire.plot_int = 20         # step 20 for the rates, the last step for the arrival times
+
+erf.fire.enable = true
+erf.fire.grid_ratio = 2                 # 25 m fire cells, one per map cell
+erf.fire.propagation_method = "levelset"
+erf.fire.coupling_type = "passive"      # one-way: the atmosphere never sees the fire
+erf.fire.ros_model = "behave"
+
+erf.fire.fuel_map.file = "fuel_map_sh5_gr2.asc"
+erf.fire.fuel_map.format = "ascii"
+erf.fire.fuel_map.fuel_set = "scott_burgan40"
+erf.fire.fuel_map.load_from_map = true
+erf.fire.rothermel_per_fuel = true
+erf.fire.fuel_model_id = 102            # GR2: the uniform fuel the map replaces
+
+erf.fire.moisture_1hr = 0.03
+erf.fire.moisture_10hr = 0.04
+erf.fire.moisture_100hr = 0.05
+erf.fire.moisture_live = 0.60
+erf.fire.moisture_dynamic = false
+
+# Two straight lines across the domain, one at the western wall in SH5 and
+# one at x = 512.5 m in GR2: phi is the distance to the nearer line, so east
+# of each line the front normal is +x, along the wind, in every cell, and the
+# directional rate there is the head rate. Each front then crosses its own
+# fuel at that fuel's head rate.
+erf.fire.ignition_r = 0.0
+erf.fire.ignition.polygon_file = "ignition_line.csv" "ignition_line_gr2.csv"
+erf.fire.ignition.polygon_type = "polyline"
+erf.fire.ignition.polyline_width = 12.5
+
+erf.fire.prescribed_wind   = true
+erf.fire.prescribed_wind_x = 6.5
+erf.fire.prescribed_wind_y = 0.0
+erf.fire.use_waf = false
+erf.fire.use_wind_limit = true          # Rothermel's 0.9 I_R; it binds for GR2
+erf.fire.use_terrain_wind = false
+erf.fire.write_fire_stats_csv = false

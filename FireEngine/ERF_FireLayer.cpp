@@ -764,6 +764,18 @@ void FireLayer::initialize(const ERF& erf,
         }
     }
 
+    // Per-cell BEHAVE states on a spatial fuel map, under the same switch as
+    // the Rothermel table. Without this the BEHAVE kernels spread with
+    // erf.fire.fuel_model_id on every cell of the map.
+    if (m_params.rothermel_per_fuel && m_has_spatial_fuel && m_params.uses_model("behave")) {
+        rebuild_behave_table(m_params.moisture_1hr, m_params.moisture_10hr, m_params.moisture_100hr,
+                             m_params.moisture_live, m_params.moisture_live);
+        if (m_params.fire_debug) {
+            amrex::Print() << "[FIRE DEBUG] BEHAVE: per-cell states from the spatial fuel map ("
+                           << m_d_bs_table.size() << " codes), isotropic and level-set paths\n";
+        }
+    }
+
     // Hybrid ROS: allocate the per-cell weight and the secondary scratch field,
     // then fill the weight from the selector. The weight is static in step 1
     // (region and fuel selectors), so it is built once here.
@@ -1108,6 +1120,10 @@ void FireLayer::advance(const FireForcing& forcing)
                                                 m_params.use_wind_limit,
                                                 m_params.wind_limit_mode,
                                                 m_params.behave.net_load_mode);
+            // the per-fuel states the level-set path reads, at the same means
+            if (!m_d_bs_table.empty()) {
+                rebuild_behave_table(avg1, avg10, avg100, avg_lh, avg_lw);
+            }
         }
     }
 
@@ -1437,10 +1453,12 @@ void FireLayer::advance(const FireForcing& forcing)
                 };
                 set_member(m_params.hybrid.primary,   spec.primary_model,   spec.primary_state);
                 set_member(m_params.hybrid.secondary, spec.secondary_model, spec.secondary_state);
-                const bool hyb_per_fuel = !m_d_rc_table.empty() && fire_fuel_model;
+                // a BEHAVE member carries its own table in its state
+                const bool hyb_per_fuel = (!m_d_rc_table.empty() || !m_d_bs_table.empty()) && fire_fuel_model;
+                const bool hyb_rc = hyb_per_fuel && !m_d_rc_table.empty();
                 spec.fuel_model  = hyb_per_fuel ? fire_fuel_model.get() : nullptr;
-                spec.rc_tbl      = hyb_per_fuel ? m_d_rc_table.data() : nullptr;
-                spec.rc_tbl_size = hyb_per_fuel ? static_cast<int>(m_d_rc_table.size()) : 0;
+                spec.rc_tbl      = hyb_rc ? m_d_rc_table.data() : nullptr;
+                spec.rc_tbl_size = hyb_rc ? static_cast<int>(m_d_rc_table.size()) : 0;
                 spec.fuel_set    = m_params.fuel_map.fuel_set_id();
                 spec.wind_eff   = fire_wind_eff.get();
                 spec.wind_ref   = fire_wind_ref_10m.get();   // read by FBP and Cheney-Gould only
@@ -1479,7 +1497,9 @@ void FireLayer::advance(const FireForcing& forcing)
                 // propagated with the uniform erf.fire.fuel_model_id however
                 // the fuel map varied, while fire_ros still plotted per-cell
                 // rates that nothing advected with.
-                const bool dir_per_fuel = !m_d_rc_table.empty() && fire_fuel_model;
+                // BEHAVE's table rides in dir_state (make_directional_state).
+                const bool dir_per_fuel = (!m_d_rc_table.empty() || !m_d_bs_table.empty()) && fire_fuel_model;
+                const bool dir_rc = dir_per_fuel && !m_d_rc_table.empty();
                 if (m_params.directional_split_hamiltonian) {
                     advect_levelset_directional_rk3_split(*fire_phi,
                                                     fbp_ref ? *fire_wind_ref_10m : *fire_wind_eff,
@@ -1488,8 +1508,8 @@ void FireLayer::advance(const FireForcing& forcing)
                                                     dir_state, fire_nonburnable.get(), wall_extrap,
                                                     ls_grad,
                                                     dir_per_fuel ? fire_fuel_model.get() : nullptr,
-                                                    dir_per_fuel ? m_d_rc_table.data() : nullptr,
-                                                    dir_per_fuel ? static_cast<int>(m_d_rc_table.size()) : 0,
+                                                    dir_rc ? m_d_rc_table.data() : nullptr,
+                                                    dir_rc ? static_cast<int>(m_d_rc_table.size()) : 0,
                                                     m_params.fuel_map.fuel_set_id(),
                                                     accel_factor.get(),
                                                     cell_mc.active() ? &cell_mc : nullptr,
@@ -1505,8 +1525,8 @@ void FireLayer::advance(const FireForcing& forcing)
                                                     accel_factor.get(),
                                                     m_params.directional_wind_coupling,
                                                     dir_per_fuel ? fire_fuel_model.get() : nullptr,
-                                                    dir_per_fuel ? m_d_rc_table.data() : nullptr,
-                                                    dir_per_fuel ? static_cast<int>(m_d_rc_table.size()) : 0,
+                                                    dir_rc ? m_d_rc_table.data() : nullptr,
+                                                    dir_rc ? static_cast<int>(m_d_rc_table.size()) : 0,
                                                     m_params.fuel_map.fuel_set_id(),
                                                     cell_mc.active() ? &cell_mc : nullptr,
                                                     &m_ls_scratch);
@@ -2666,7 +2686,14 @@ void FireLayer::fill_ros_for_model(const std::string& model,
                         m_params.moisture_dynamic,
                         m_params.use_wind_limit,
                         m_params.wind_limit_mode,
-                        m_params.behave.net_load_mode);
+                        m_params.behave.net_load_mode,
+                        // erf.fire.rothermel_per_fuel on a spatial map: the
+                        // cell's own fuel (empty tables keep the uniform one)
+                        m_d_bs_table.empty() ? nullptr : fire_fuel_model.get(),
+                        m_d_bs_table.empty() ? nullptr : m_d_bs_table.data(),
+                        m_d_behave_fp.empty() ? nullptr : m_d_behave_fp.data(),
+                        static_cast<int>(m_d_bs_table.size()),
+                        m_params.fuel_map.fuel_set_id());
     } else if (model == "macarthur") {
         fill_macarthur_ros(out, *fire_wind_eff, m_params.macarthur_ros_max);
     } else if (model == "fbp") {
@@ -2797,6 +2824,28 @@ void FireLayer::add_prescribed_heat_flux()
                        << " s: " << flux << " W/m2 over radius " << radius << " m at ("
                        << cx << ", " << cy << ")\n";
     }
+}
+
+void FireLayer::rebuild_behave_table(amrex::Real m1, amrex::Real m10, amrex::Real m100,
+                                     amrex::Real m_lh, amrex::Real m_lw)
+{
+    // BEHAVE starts from the untransferred fuel parameters (behave_fuel_params):
+    // the slot table m_h_fuel_params carries the deck's moisture_live curing
+    // transfer for the single-class paths, which BEHAVE would apply twice.
+    // Custom slots are the deck entries either way.
+    const auto h_fp = build_fuel_params_slot_table(m_params.fuel_map.fuel_set_id(), -1.0_rt, m_custom_fuel);
+    if (m_d_behave_fp.empty()) {
+        m_d_behave_fp.resize(h_fp.size());
+        amrex::Gpu::copy(amrex::Gpu::hostToDevice, h_fp.begin(), h_fp.end(), m_d_behave_fp.begin());
+    }
+    auto h_table = build_fuel_behave_table(h_fp.data(), m1, m10, m100, m_lh, m_lw,
+                                           m_params.behave.dynamic_transfer_lo,
+                                           m_params.behave.dynamic_transfer_hi,
+                                           m_params.use_wind_limit, m_params.wind_limit_mode,
+                                           m_params.behave.net_load_mode);
+    m_d_bs_table.resize(h_table.size());
+    amrex::Gpu::copy(amrex::Gpu::hostToDevice, h_table.begin(), h_table.end(), m_d_bs_table.begin());
+    amrex::Gpu::streamSynchronize();   // h_fp and h_table go out of scope here
 }
 
 void FireLayer::rebuild_rothermel_table(amrex::Real m1, amrex::Real m10, amrex::Real m100)
@@ -2974,6 +3023,9 @@ DirectionalRosState FireLayer::make_directional_state(const std::string& model) 
     if (model == "behave") {
         st.model = DIRECTIONAL_ROS_BEHAVE;
         st.bs    = m_bs_default;
+        // erf.fire.rothermel_per_fuel on a spatial map: the per-cell states
+        st.bs_tbl      = m_d_bs_table.empty() ? nullptr : m_d_bs_table.data();
+        st.bs_tbl_size = static_cast<int>(m_d_bs_table.size());
     } else if (model == "macarthur") {
         st.model = DIRECTIONAL_ROS_MACARTHUR;
         st.macarthur_ros_max = m_params.macarthur_ros_max;
