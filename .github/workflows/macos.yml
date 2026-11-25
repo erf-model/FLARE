@@ -1,0 +1,141 @@
+name: FLARE macOS
+
+# flare with the fire engine, the dust layer and the structures (MoorDyn stub), built with
+# Apple Clang and Open MPI: build, warnings in FLARE's sources, unit and regression tests.
+# It runs on merges to development and on demand. A pull request runs it only when it
+# changes this file or the warning filter: erf-model's hosted runners allow five macOS
+# jobs at a time across all of the organization's repositories.
+on:
+  push:
+    branches: [development]
+    paths:
+      - '**'
+      - '!Docs/**'
+      - '!**.md'
+      - '!**.rst'
+      - '!.github/workflows/**'
+      - '.github/workflows/macos.yml'
+      - '.github/actions/**'
+  pull_request:
+    branches: [development]
+    paths:
+      - '.github/workflows/macos.yml'
+      - '.github/tests/build_warnings.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.head_ref || (github.event_name == 'push' && 'latest') || github.sha }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/development' }}
+
+jobs:
+
+  macos-clang:
+    name: macOS Apple Clang, Open MPI - fire, dust, structures (stub)
+    permissions:
+      contents: read
+      packages: write
+    runs-on: macos-latest
+    timeout-minutes: 180
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+        persist-credentials: false
+
+    - name: Select cache configuration
+      shell: bash
+      env:
+        TRUNK_KEY: macos-latest-${{ runner.arch }}-appleclang-openmpi-double-flare
+      run: printf 'CCACHE_TRUNK_KEY=%s\n' "$TRUNK_KEY" >> "$GITHUB_ENV"
+
+    - name: Install Dependencies
+      run: Submodules/ERF/Submodules/AMReX/.github/workflows/dependencies/dependencies_mac.sh
+
+    - name: Restore Cache
+      id: ghcr-cache
+      uses: ./.github/actions/ccache-trunk
+      with:
+        mode: restore
+        key: ${{ env.CCACHE_TRUNK_KEY }}
+        path: ~/Library/Caches/ccache
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Configure CMake
+      run: |
+        cmake \
+          -Bbuild \
+          -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo \
+          -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -g1 -DNDEBUG" \
+          -DAMReX_ASSERTIONS:BOOL=ON \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DERF_ENABLE_MPI:BOOL=ON \
+          -DERF_ENABLE_FIRE:BOOL=ON \
+          -DERF_ENABLE_DUST:BOOL=ON \
+          -DERF_ENABLE_STRUCTURES:BOOL=ON \
+          -DERF_MOORDYN_USE_STUB:BOOL=ON \
+          -DERF_ENABLE_ALL_WARNINGS:BOOL=ON \
+          -DERF_TEST_NRANKS:STRING=2 \
+          -DFLARE_ENABLE_TESTS:BOOL=ON \
+          "${{github.workspace}}"
+
+    - name: Build
+      shell: bash
+      run: |
+        export CCACHE_COMPRESS=1
+        export CCACHE_COMPRESSLEVEL=10
+        export CCACHE_SLOPPINESS=time_macros
+        ccache -z
+        build_start=$(date +%s)
+
+        cmake --build build --parallel "$(sysctl -n hw.ncpu)" \
+          2>&1 | tee -a "${{ runner.temp }}/build-output.txt"
+
+        echo '```' >> "$GITHUB_STEP_SUMMARY"
+        # Keep only what this build used; see ci.yml.
+        ccache --evict-older-than "$(( $(date +%s) - build_start + 120 ))s"
+        ccache -s | tee -a "$GITHUB_STEP_SUMMARY"
+        echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Save Cache
+      if: always() && github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+      uses: ./.github/actions/ccache-trunk
+      with:
+        mode: save
+        key: ${{ env.CCACHE_TRUNK_KEY }}
+        path: ~/Library/Caches/ccache
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    # Warnings in FLARE's own sources fail the job, as in ci.yml.
+    - name: Report
+      run: |
+        build_log="${{ runner.temp }}/build-output.txt"
+        test -r "$build_log"
+        python3 .github/tests/build_warnings.py --root "${{github.workspace}}" "$build_log" \
+          > "${{ runner.temp }}/build-output-warnings.txt"
+        cat "${{ runner.temp }}/build-output-warnings.txt"
+        return=$(tail -n 1 "${{ runner.temp }}/build-output-warnings.txt" | awk '{print $2}')
+        test "${return}" -eq 0
+
+    - name: Unit Tests
+      run: ctest -L unit -j 3 --output-on-failure --no-tests=error
+      working-directory: build
+
+    - name: Regression Tests
+      run: ctest -L regression -j 1 --output-on-failure --no-tests=error
+      working-directory: build
+
+    - name: Upload CTest logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: flare-macos-test-results
+        if-no-files-found: warn
+        path: |
+          build/test-results/**
+          build/Testing/Temporary/LastTest.log
+          build/Testing/Temporary/LastTestsFailed.log
