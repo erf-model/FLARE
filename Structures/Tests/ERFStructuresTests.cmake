@@ -986,6 +986,35 @@ if(ERF_ENABLE_STRUCTURES AND ERF_ENABLE_MPI AND ERF_ENABLE_FCOMPARE AND NOT WIN3
       message(STATUS "BrokenWire_ThroughERF needs Python 3 and is not registered")
     endif()
   endif()
+  # The single span of Ma, Bocchini and Christou 2020 (Struct. Saf. 82:101890, Section 3) in a
+  # steady uniform crosswind (Structures/Exec/SingleSpanMa2020/run_check.py): Drake on 300 m at a
+  # sag of 1/50, still air with conductors.prescribed_velocity of 20, 60 and 100 m/s. The end
+  # tensions over the last 20 s of 120 s must lie within 0.01 % of the lumped chain at rest with
+  # MoorDyn's drag and buoyancy conventions (they agree to 0.0005 %; a drag coefficient 0.5 % high is
+  # off by 0.05 to 0.33 %, a weight on g = 9.80665 by 0.02 %), within 1.5 % of the elastic catenary
+  # under the full drag, and the swing within 0.05 degrees of atan(f / w). MoorDyn-C only.
+  if(NOT ERF_MOORDYN_USE_STUB)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+      resolve_test_exe("" "${ERF_TEST_EXE}" _ss_exe)
+      string(REPLACE ";" " " _ss_pre "${MPIEXEC_PREFLAGS}")
+      # the still-air decks are anelastic with an FFT pressure solve; without FFT they use MLMG
+      set(_ss_fft "")
+      if(NOT ERF_ENABLE_FFT)
+        set(_ss_fft "--without-fft")
+      endif()
+      # the runs are removed after a pass and kept after a failure
+      add_test(NAME SingleSpanMa2020_MeanTension
+               COMMAND "${Python3_EXECUTABLE}" -I "${PROJECT_SOURCE_DIR}/Structures/Exec/SingleSpanMa2020/run_check.py"
+                       --exe "${_ss_exe}" --out "${CMAKE_CURRENT_BINARY_DIR}/test_files/SingleSpanMa2020_MeanTension"
+                       --launcher "${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1 ${_ss_pre}" ${_ss_fft})
+      set_tests_properties(SingleSpanMa2020_MeanTension PROPERTIES LABELS "regression;conductors" TIMEOUT 600 PROCESSORS 1
+                           PASS_REGULAR_EXPRESSION "SingleSpanMa2020: all checks hold"
+                           FAIL_REGULAR_EXPRESSION "SingleSpanMa2020: FAIL")
+    else()
+      message(STATUS "SingleSpanMa2020_MeanTension needs Python 3 and is not registered")
+    endif()
+  endif()
   # Damage states through the fragility tools (Structures/Exec/CascadeStripes/run_case.py): the
   # ensemble driver runs Conductors_RandomGusts at 10 and 25 m/s with two gust seeds each, one shared
   # spin-up of the flow alone per stripe and the line failures on; the towers' footings hold a
