@@ -38,6 +38,7 @@
 #include <ERF_Rothermel.H>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 /**
  * @struct BehaveState
@@ -271,23 +272,40 @@ BehaveState compute_behave_state(
     // =====================================================================
     // Step 3: Live moisture of extinction
     // =====================================================================
-    // Dead/live loading ratio W' of Rothermel (1972) Eq. 88 (Albini 1976,
-    // Andrews 2018 Eq. 59), evaluated with the category-mean SAVs rather
-    // than per class. Reference: WRF-SFIRE fire_ros_behave, lines ~421-430
+    // Dead/live loading ratio W' and the fine dead moisture M'_f of
+    // Rothermel (1972) Eq. 88 (Albini 1976; Andrews 2018 Eqs. 59-60), summed
+    // over the size classes: W' = sum_dead w_j exp(-138/sigma_j) /
+    // sum_live w_j exp(-500/sigma_j), and M'_f the dead moisture weighted by
+    // w_j exp(-138/sigma_j). The two exponents differ because live fuel needs a
+    // thicker heated layer to ignite. Until November 2026 this code evaluated
+    // both with the category-mean SAVs (WRF-SFIRE fire_ros_behave, lines
+    // ~421-430), which gave SB40 SH5 a live extinction moisture of 4.86
+    // against 3.64 at 3 % dead moisture. Both net-load forms use the
+    // per-class sums.
 
     Real fuelmce = fp.Mx;  // Dead fuel moisture of extinction (from FuelModelParams)
 
-    // Effective heating numbers: exp(-138/sigma) for the dead category and
-    // exp(-500/sigma) for the live one (Rothermel Eq. 88; the two exponents
-    // differ because live fuel needs a thicker heated layer to ignite)
-    Real exp_dead = w_dead * std::exp(-138.0 / amrex::max(static_cast<amrex::Real>(sigma_dead), static_cast<amrex::Real>(1.0)));
-    Real exp_live = w_live * std::exp(-500.0 / amrex::max(static_cast<amrex::Real>(sigma_live), static_cast<amrex::Real>(1.0)));
+    auto heat_no_dead = [](Real w, Real s) -> Real {
+        return (w > 0.0) ? w * std::exp(-138.0 / amrex::max(s, Real(1.0))) : Real(0.0);
+    };
+    auto heat_no_live = [](Real w, Real s) -> Real {
+        return (w > 0.0) ? w * std::exp(-500.0 / amrex::max(s, Real(1.0))) : Real(0.0);
+    };
+    const Real hn_d1   = heat_no_dead(fp.w_d1, fp.sigma_d1);
+    const Real hn_d10  = heat_no_dead(fp.w_d10, sigma_d10);
+    const Real hn_d100 = heat_no_dead(fp.w_d100, sigma_d100);
+    const Real hn_dh   = heat_no_dead(fuelload_herba_dead, fp.sigma_lh);
+    const Real exp_dead = hn_d1 + hn_d10 + hn_d100 + hn_dh;
+    const Real exp_live = heat_no_live(fuelload_herba_live, fp.sigma_lh) + heat_no_live(fp.w_lw, fp.sigma_lw);
 
     Real W_prima = (exp_live > 1.0e-12) ? (exp_dead / amrex::max(exp_live, tiny)) : 0.0;
 
-    // Weighted dead fuel moisture; the dead herbaceous class takes the 1-h moisture
-    Real fmc_dead = f_d1 * mc_1hr + f_d10 * mc_10hr + f_d100 * mc_100hr + f_dh * mc_1hr;
-    Real M_prima_f = fmc_dead;
+    // Fine dead moisture; the dead herbaceous class takes the 1-h moisture
+    const Real hn_dead = hn_d1 + hn_d10 + hn_d100 + hn_dh;
+    const Real M_prima_f = (hn_dead > 1.0e-12)
+        ? (hn_d1 * mc_1hr + hn_d10 * mc_10hr + hn_d100 * mc_100hr + hn_dh * mc_1hr)
+              / amrex::max(hn_dead, tiny)
+        : Real(0.0);
 
     // Live moisture of extinction from Rothermel live fuel path
     Real fuelmce_live = 2.9 * W_prima * (1.0 - M_prima_f / fuelmce) - 0.226;
@@ -300,7 +318,7 @@ BehaveState compute_behave_state(
     //   where r = min(1, M / M_x)
     // Reference: WRF-SFIRE lines ~431–445
 
-    fmc_dead = f_d1 * mc_1hr + f_d10 * mc_10hr + f_d100 * mc_100hr + f_dh * mc_1hr;
+    const Real fmc_dead = f_d1 * mc_1hr + f_d10 * mc_10hr + f_d100 * mc_100hr + f_dh * mc_1hr;
     Real fmc_live = f_lh * mc_herba + f_lw * mc_woody;
 
     Real r_dead = amrex::min(static_cast<amrex::Real>(1.0), static_cast<amrex::Real>(fmc_dead / fuelmce));
@@ -365,8 +383,17 @@ BehaveState compute_behave_state(
     // =====================================================================
     // Step 7: Reaction velocity parameters
     // =====================================================================
-    // Use dead fuel SAV as characteristic value (weighted across dead classes)
-    Real sigma = sigma_dead;
+    // Characteristic SAV of the fuel bed, Rothermel (1972) Eq. 71 (Andrews
+    // 2018 Eq. 72): sigma = sum_i f_i sigma_i, the category SAVs weighted by
+    // the category surface-area shares f_i = A_i / A_T, dead and live. Until
+    // November 2026 this code used sigma_dead alone, which for a fuel with a
+    // coarse dead and a fine live load (SB40 SH5: 700 against 1252 1/ft) cut
+    // the rate of spread 2.7x (0.65 against 1.76 m/s at 3 % dead and 60 %
+    // live moisture and a 6.5 m/s mid-flame wind).
+    const Real A_T_sigma = A_d_total + A_l_total;
+    Real sigma = (A_T_sigma > 1.0e-12)
+        ? (A_d_total * sigma_dead + A_l_total * sigma_live) / amrex::max(A_T_sigma, tiny)
+        : sigma_dead;
     sigma = amrex::max(static_cast<amrex::Real>(sigma), static_cast<amrex::Real>(100.0));  // Minimum SAV guard
 
     Real beta_op = 3.348 * std::pow(sigma, -0.8189);
@@ -414,7 +441,8 @@ BehaveState compute_behave_state(
         const Real f_dead_A = (A_d_total + A_l_total > 1.0e-12) ? A_d_total / A_T : 1.0;
         bs.heat_sink = rho_b * (f_dead_A * sink_dead + (1.0 - f_dead_A) * sink_live);
     } else {
-        Real eps_h = std::exp(-138.0 / sigma);
+        // the "sum" form's single heat-sink factor of the dead-category SAV
+        Real eps_h = std::exp(-138.0 / amrex::max(sigma_dead, Real(100.0)));
         bs.heat_sink = rho_b * eps_h * Q_ig;
     }
 
@@ -505,6 +533,40 @@ amrex::Real behave_ros_cell(
 }
 
 /**
+ * @brief Per-fuel BEHAVE states, one per fuel slot (erf.fire.rothermel_per_fuel
+ *        on a spatial fuel map).
+ *
+ * Built like build_fuel_rothermel_table: slot 0 and any slot with no fuel get
+ * the zeroed BehaveState, whose r_0 = 0 gives zero spread (compute_behave_state
+ * on a zero load would divide by the packing ratio). The kernels look a cell's
+ * entry up with fuel_table_index(code, fuel_set).
+ *
+ * @param[in] fp_tbl  FUEL_SLOT_COUNT fuel parameters with the herbaceous load
+ *                    untransferred (build_fuel_params_slot_table with M_live < 0)
+ * @param[in] mc_1hr, mc_10hr, mc_100hr, mc_herba, mc_woody  moistures [fraction]
+ * @param[in] transfer_lo, transfer_hi, use_wind_limit, wind_limit_mode, net_load_mode
+ *                    as for compute_behave_state
+ * @return FUEL_SLOT_COUNT BehaveState entries
+ */
+inline std::vector<BehaveState> build_fuel_behave_table(
+    const FuelModelParams* fp_tbl,
+    amrex::Real mc_1hr, amrex::Real mc_10hr, amrex::Real mc_100hr,
+    amrex::Real mc_herba, amrex::Real mc_woody,
+    amrex::Real transfer_lo, amrex::Real transfer_hi,
+    bool use_wind_limit, int wind_limit_mode, int net_load_mode)
+{
+    std::vector<BehaveState> table(FUEL_SLOT_COUNT, BehaveState{});
+    for (int slot = 1; slot < FUEL_SLOT_COUNT; ++slot) {
+        const FuelModelParams& fp = fp_tbl[slot];
+        if (!(fuel_total_load_kg_m2(fp) > 0.0)) { continue; }
+        table[slot] = compute_behave_state(fp, mc_1hr, mc_10hr, mc_100hr, mc_herba, mc_woody,
+                                           transfer_lo, transfer_hi, use_wind_limit,
+                                           wind_limit_mode, net_load_mode);
+    }
+    return table;
+}
+
+/**
  * @brief Fill fire_ros MultiFab using BEHAVE multi-class Rothermel model.
  *
  * @param[out] fire_ros        ROS field [m/s] on fire grid
@@ -518,6 +580,16 @@ amrex::Real behave_ros_cell(
  * @param[in]  use_wind_limit  Wind limit of the per-cell states (erf.fire.use_wind_limit)
  * @param[in]  wind_limit_mode Which limit (erf.fire.wind_limit), fire_wind_limit::*
  * @param[in]  net_load_mode   behave_net_load::weighted or ::sum (erf.fire.behave.net_load)
+ * @param[in]  fuel_model      Per-cell fuel code (erf.fire.rothermel_per_fuel on a
+ *                             spatial map), or nullptr for the uniform fuel
+ * @param[in]  bs_tbl          Device table of per-slot states (build_fuel_behave_table)
+ * @param[in]  fp_tbl          Device table of per-slot untransferred fuel parameters,
+ *                             for the per-cell moisture path
+ * @param[in]  tbl_size        Entries in both tables
+ * @param[in]  fuel_set        FUEL_SET_ANDERSON13 or FUEL_SET_SCOTT_BURGAN40
+ *
+ * A cell whose code is outside the table (fuel_table_index < 0) keeps the
+ * uniform fuel, as on the Rothermel path.
  */
 inline void fill_behave_ros(
     amrex::MultiFab& fire_ros,
@@ -531,8 +603,16 @@ inline void fill_behave_ros(
     bool moisture_dynamic = false,
     bool use_wind_limit = true,
     int wind_limit_mode = fire_wind_limit::rothermel,
-    int net_load_mode = behave_net_load::weighted)
+    int net_load_mode = behave_net_load::weighted,
+    const amrex::MultiFab* fuel_model = nullptr,
+    const BehaveState* bs_tbl = nullptr,
+    const FuelModelParams* fp_tbl = nullptr,
+    int tbl_size = 0,
+    int fuel_set = FUEL_SET_ANDERSON13)
 {
+    const bool per_fuel = (fuel_model != nullptr) && (bs_tbl != nullptr)
+                          && (fp_tbl != nullptr) && (tbl_size > 0);
+
     // When moisture_dynamic and fire_fuel_mc is provided, compute per-cell
     // BehaveState using per-cell moisture. Otherwise use bs_default for all cells.
 
@@ -543,12 +623,18 @@ inline void fill_behave_ros(
             auto ros = fire_ros.array(mfi);
             auto wind = fire_wind_eff.const_array(mfi);
             auto slopes = fire_slopes.const_array(mfi);
+            const auto codes = per_fuel ? fuel_model->const_array(mfi) : amrex::Array4<const amrex::Real>{};
 
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (const amrex::IntVect& iv) {
                 int i = iv[0], j = iv[1];
+                BehaveState bs = bs_default;
+                if (per_fuel) {
+                    const int idx = fuel_table_index(static_cast<int>(codes(i,j,0) + 0.5), fuel_set);
+                    if (idx >= 0 && idx < tbl_size) { bs = bs_tbl[idx]; }
+                }
                 ros(i, j, 0) = behave_ros_cell(wind(i,j,0,0), wind(i,j,0,1),
                                                slopes(i,j,0,0), slopes(i,j,0,1),
-                                               bs_default);
+                                               bs);
             });
         }
     } else {
@@ -574,11 +660,28 @@ inline void fill_behave_ros(
             auto wind = fire_wind_eff.const_array(mfi);
             auto slopes = fire_slopes.const_array(mfi);
             auto mc = fire_fuel_mc->const_array(mfi);
+            const auto codes = per_fuel ? fuel_model->const_array(mfi) : amrex::Array4<const amrex::Real>{};
 
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (const amrex::IntVect& iv) {
                 int i = iv[0], j = iv[1];
 
-                const BehaveState bs = compute_behave_state(fp,
+                FuelModelParams fp_cell = fp;
+                if (per_fuel) {
+                    const int idx = fuel_table_index(static_cast<int>(codes(i,j,0) + 0.5), fuel_set);
+                    if (idx >= 0 && idx < tbl_size) {
+                        fp_cell = fp_tbl[idx];
+                        // slot 0 (non-burnable) and a slot with no fuel (an
+                        // undefined custom code) do not spread, as in the
+                        // table; compute_behave_state would divide by a zero
+                        // packing ratio
+                        if (idx == 0 || !(fuel_total_load_kg_m2(fp_cell) > 0.0)) {
+                            ros(i, j, 0) = 0.0;
+                            return;
+                        }
+                    }
+                }
+
+                const BehaveState bs = compute_behave_state(fp_cell,
                     mc(i,j,0,0), mc(i,j,0,1), mc(i,j,0,2),
                     mc(i,j,0,3), mc(i,j,0,4),
                     transfer_lo, transfer_hi, use_wind_limit, wind_limit_mode, net_load_mode);

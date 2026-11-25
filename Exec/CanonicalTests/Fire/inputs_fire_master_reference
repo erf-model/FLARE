@@ -423,8 +423,10 @@ erf.fire.levelset.visc_transition_cells = 2.0   # width of the linear blend from
 # "prescribed"   a rate set in the deck, for verification (see PRESCRIBED below)
 erf.fire.ros_model = "rothermel"
 
-# Evaluate Rothermel coefficients per cell from the spatial fuel map instead
-# of the domain fuel_model_id. No effect without erf.fire.fuel_map.file.
+# Evaluate Rothermel coefficients (or, with ros_model = "behave" or a BEHAVE
+# hybrid member, the BEHAVE state) per cell from the spatial fuel map instead
+# of the domain fuel_model_id. No effect (a warning) without
+# erf.fire.fuel_map.file or a Rothermel/BEHAVE model.
 erf.fire.rothermel_per_fuel = false
 
 # With moisture_dynamic, rebuild the Rothermel coefficients in every cell from

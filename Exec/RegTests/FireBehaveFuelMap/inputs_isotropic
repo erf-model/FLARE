@@ -1,0 +1,6 @@
+FILE = inputs_base
+
+# The isotropic BEHAVE kernel (fill_behave_ros): fire_ros on every cell
+erf.fire.directional_ros = false
+
+erf.fire.plot_file = "plt_fire_isotropic_"

@@ -973,6 +973,14 @@ private:
     // spatial fuel map, in which case the Rothermel kernel looks it up per cell.
     amrex::Gpu::DeviceVector<RothermelComputed> m_d_rc_table;
 
+    // Per-fuel BEHAVE tables; empty unless rothermel_per_fuel is set on a
+    // spatial fuel map with BEHAVE in use. m_d_behave_fp holds the fuel
+    // parameters with the herbaceous load untransferred (BEHAVE cures it
+    // itself), which the per-cell moisture kernel starts from; m_d_bs_table
+    // the states at the uniform (or domain-mean) moistures.
+    amrex::Gpu::DeviceVector<FuelModelParams> m_d_behave_fp;
+    amrex::Gpu::DeviceVector<BehaveState>     m_d_bs_table;
+
     // Hybrid ROS (ros_model = "hybrid"): per-cell weight of the secondary
     // model in [0,1] and the scratch field the secondary model writes into.
     std::unique_ptr<amrex::MultiFab>         fire_ros_weight;
@@ -1046,6 +1054,10 @@ private:
 
     // Arrival-time probes already reported.
     std::vector<bool>                        m_probe_reported;
+
+    /// Rebuild m_d_bs_table at the given moistures (and m_d_behave_fp on the first call).
+    void rebuild_behave_table(amrex::Real m1, amrex::Real m10, amrex::Real m100,
+                              amrex::Real m_lh, amrex::Real m_lw);
 
     /// Rebuild m_d_rc_table at the given dead fuel moistures.
     void rebuild_rothermel_table(amrex::Real m1, amrex::Real m10, amrex::Real m100);

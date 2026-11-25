@@ -2210,6 +2210,13 @@ struct FireParams
            amrex::Print() << "[FIRE] WARNING: erf.fire.rothermel_cell_moisture is read by the Rothermel kernels only;"
                           << " erf.fire.ros_model = " << ros_model << " ignores it\n";
        }
+       // a warning, not an abort: existing decks set the key with other models
+       if (rothermel_per_fuel && (fuel_map.fuel_map_file.empty()
+                                  || !(uses_model("rothermel") || uses_model("behave")))) {
+           amrex::Print() << "[FIRE] WARNING: erf.fire.rothermel_per_fuel = true has no effect without"
+                          << " erf.fire.fuel_map.file and erf.fire.ros_model = rothermel or behave"
+                          << " (or a hybrid member); erf.fire.ros_model = " << ros_model << "\n";
+       }
        if (uses_model("behave") && !(bh.dynamic_transfer_hi > bh.dynamic_transfer_lo)) {
            amrex::Abort("erf.fire.behave.dynamic_transfer_hi must be greater than dynamic_transfer_lo");
        }

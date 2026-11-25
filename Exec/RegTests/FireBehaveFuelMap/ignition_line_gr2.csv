@@ -1,0 +1,4 @@
+# North-south ignition line at x = 512.5 m, the first GR2 column, run past
+# both y walls: a second straight front, in the GR2 half, normal along +x
+512.5 -100.0
+512.5 600.0

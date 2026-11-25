@@ -74,12 +74,16 @@ inline std::vector<FireModelLine> fire_model_summary (const FireParams& fp)
     if (fp.uses_model("rothermel")) {
         add("  Rothermel reaction velocity", "reaction_velocity_formula", fp.reaction_velocity_formula);
         add("  Rothermel WRF moisture deflation", "wrf_bmst_compat", on_off(fp.wrf_bmst_compat));
-        add("  Rothermel per-fuel coefficients", "rothermel_per_fuel", on_off(fp.rothermel_per_fuel));
         if (fp.moisture_dynamic) {
             add("  Rothermel per-cell moisture", "rothermel_cell_moisture", on_off(fp.rothermel_cell_moisture));
         }
     }
     if (fp.uses_model("rothermel") || fp.uses_model("behave")) {
+        // the per-fuel table on a fuel map is Rothermel's and BEHAVE's;
+        // without a map the key has no effect, so the line is left out
+        if (!fp.fuel_map.fuel_map_file.empty()) {
+            add("  per-fuel coefficients (fuel map)", "rothermel_per_fuel", on_off(fp.rothermel_per_fuel));
+        }
         add("  midflame wind limit", "use_wind_limit", on_off(fp.use_wind_limit));
         if (fp.use_wind_limit) {
             add("  wind limit form", "wind_limit",

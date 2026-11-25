@@ -6486,9 +6486,11 @@ Fuel and moisture
 | **erf.fire.fuel_map.load_from_map**            | Start each cell with its own model's fuel load instead of  | Boolean                        | false                  |
 |                                                | the uniform model's                                        |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
-| **erf.fire.rothermel_per_fuel**                | Evaluate Rothermel coefficients per cell from the fuel map | Boolean                        | false                  |
-|                                                | instead of fuel_model_id, on the isotropic and the         |                                |                        |
-|                                                | level-set paths alike                                      |                                |                        |
+| **erf.fire.rothermel_per_fuel**                | Evaluate the Rothermel coefficients, or the BEHAVE state   | Boolean                        | false                  |
+|                                                | with ros_model = "behave" or a BEHAVE hybrid member, per   |                                |                        |
+|                                                | cell from the fuel map instead of fuel_model_id, on the    |                                |                        |
+|                                                | isotropic and the level-set paths alike; no effect (a      |                                |                        |
+|                                                | warning) without a fuel map or a Rothermel/BEHAVE model    |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.custom_fuel.codes**                 | Fuel codes described in the deck instead of a published    | Ints                           | none                   |
 |                                                | set; each must be in 1000-1015                             |                                |                        |
@@ -6908,8 +6910,9 @@ Rate of spread
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 | **erf.fire.behave.net_load**                   | Net fuel load of a BEHAVE category: "weighted" is          | "weighted", "sum"              | "weighted"             |
 |                                                | Rothermel's surface-area-weighted load with Albini's size  |                                |                        |
-|                                                | classes; "sum" the plain sum of the classes (the form      |                                |                        |
-|                                                | before 2026-10, 3.3x FM10's reaction intensity)            |                                |                        |
+|                                                | classes; "sum" the plain sum of the classes with one       |                                |                        |
+|                                                | dead-SAV heat-sink factor (the form before 2026-10, 3.3x   |                                |                        |
+|                                                | FM10's reaction intensity)                                 |                                |                        |
 +------------------------------------------------+------------------------------------------------------------+--------------------------------+------------------------+
 
 

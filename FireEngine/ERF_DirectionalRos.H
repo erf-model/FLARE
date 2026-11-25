@@ -147,6 +147,12 @@ struct DirectionalRosState
     FbpComputed         fbp{};
 
     amrex::Real macarthur_ros_max = 6.0;   ///< erf.fire.macarthur.ros_max; <= 0 none
+
+    /// erf.fire.rothermel_per_fuel on a spatial fuel map under BEHAVE: device
+    /// table of per-slot states (build_fuel_behave_table) that replaces bs in
+    /// each cell with the cell's own fuel; nullptr for the uniform fuel
+    const BehaveState* bs_tbl = nullptr;
+    int bs_tbl_size = 0;
 };
 
 /// Model selectors, matching DirectionalRosState::model
@@ -421,15 +427,19 @@ inline void fill_directional_ros(amrex::MultiFab& R_mf,
     const amrex::Real dy = geom.CellSize(1);
 
     // erf.fire.rothermel_per_fuel on a spatial fuel map: the coefficients come
-    // from the cell's own fuel model rather than erf.fire.fuel_model_id. Only
-    // Rothermel has a per-fuel coefficient table, so only its branch varies.
+    // from the cell's own fuel model rather than erf.fire.fuel_model_id.
+    // Rothermel reads the rc table passed here, BEHAVE the state table the
+    // DirectionalRosState carries; every other model keeps the uniform fuel.
     const bool per_fuel = (rc_tbl != nullptr) && (rc_tbl_size > 0)
                         && (fuel_model != nullptr) && (st.model == DIRECTIONAL_ROS_ROTHERMEL);
+    const bool per_fuel_bh = (st.bs_tbl != nullptr) && (st.bs_tbl_size > 0)
+                           && (fuel_model != nullptr) && (st.model == DIRECTIONAL_ROS_BEHAVE);
     // erf.fire.rothermel_cell_moisture: the coefficients of the cell's own
     // dead moistures, from the packed field built once per step
     const bool per_cell_mc = (cell_mc != nullptr) && cell_mc->active()
                            && (st.model == DIRECTIONAL_ROS_ROTHERMEL);
-    const bool has_codes = (fuel_model != nullptr) && (st.model == DIRECTIONAL_ROS_ROTHERMEL);
+    const bool has_codes = (fuel_model != nullptr)
+                         && (st.model == DIRECTIONAL_ROS_ROTHERMEL || per_fuel_bh);
 
     for (amrex::MFIter mfi(R_mf); mfi.isValid(); ++mfi) {
         const amrex::Box& bx = mfi.validbox();
@@ -475,6 +485,10 @@ inline void fill_directional_ros(amrex::MultiFab& R_mf,
                 const int code = static_cast<int>(fuel_arr(i, j, k) + amrex::Real(0.5));
                 const int idx  = fuel_table_index(code, fuel_set);
                 if (idx >= 0 && idx < rc_tbl_size) { st_cell.rc = rc_tbl[idx]; }
+            } else if (per_fuel_bh) {
+                const int code = static_cast<int>(fuel_arr(i, j, k) + amrex::Real(0.5));
+                const int idx  = fuel_table_index(code, fuel_set);
+                if (idx >= 0 && idx < st.bs_tbl_size) { st_cell.bs = st.bs_tbl[idx]; }
             }
 
             // Unit normal from a floored gradient, computed before any select:
