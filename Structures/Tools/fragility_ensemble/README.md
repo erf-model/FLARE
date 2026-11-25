@@ -55,8 +55,9 @@ How a member's wind is set:
   `reference_height` from the inflow profile when there is one, otherwise from the sounding. In a
   direction that is not periodic the face the wind enters becomes the `Inflow`, the face it leaves
   the `Outflow`, and a pair of faces the wind blows along become side faces; an inflow face's `KE`
-  is multiplied by (stripe / base speed)^2 (ERF uses `KE` only together with `<face>.density`;
-  the driver prints a note when the density is missing).
+  is multiplied by (stripe / base speed)^2 (a fully compressible run uses `KE` only together with
+  `<face>.density`, and the driver prints a note when the density is missing; an anelastic or
+  pseudo-incompressible run applies `KE` with the interior density and needs no `<face>.density`).
 - **Prescribed wind** (`conductors.prescribed_velocity`): that velocity is scaled and turned in the
   deck; the flow and its boundaries are not changed.
 

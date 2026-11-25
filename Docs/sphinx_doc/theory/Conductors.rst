@@ -233,6 +233,18 @@ of slack and 20 segments in air of density 1.2 kg/m^3 (the unit tests
   tension: the pulls MoorDyn gives on the two fixed points add up to
   4812.82 N downwards against the line's weight of 4812.96 N, and each
   pulls 13 234 N along the chord against the catenary's 13 251 N (0.13 %).
+* through ERF, the single span of Ma, Bocchini and Christou (2020, Section 3;
+  ``Structures/Exec/SingleSpanMa2020``): Drake (15.95 N/m) on 300 m at a sag
+  of 1/50, :math:`C_D = 1`, air of 1.226 kg/m^3, 80 segments, a uniform
+  crosswind handed to every node. The end tension matches a lumped chain at
+  rest with MoorDyn's conventions (drag on the unstretched length, weight
+  less the displaced air's) to 0.0005 % at 20, 60 and 100 m/s (31 766,
+  76 506 and 148 787 N), and lies 0.07 %, 0.63 % and 1.28 % below the
+  elastic catenary under the resultant of the weight and the full drag,
+  which takes the whole wind as normal to the sloping cable. The swing is
+  :math:`\arctan(f/w)` within 0.02 degrees. The CTest
+  ``SingleSpanMa2020_MeanTension`` allows 0.01 % against the chain and 1.5 %
+  against the catenary.
 
 The blowout and swing period agree within 0.1 %, the string swing within
 0.3 % and the still-air sag within 0.11 %; the tests allow 1 % (0.5 % for the
@@ -2312,6 +2324,10 @@ one ensemble that was run.
 * Liu, C., and Yan, Z. (2022). Fragility analysis of wind-induced collapse
   of a transmission tower considering corrosion. *Buildings* 12, 1500.
   doi:10.3390/buildings12101500. Open access (CC BY 4.0).
+* Ma, L., Bocchini, P., and Christou, V. (2020). Fragility models of
+  electrical conductors in power transmission networks subjected to
+  hurricanes. *Structural Safety* 82, 101890.
+  doi:10.1016/j.strusafe.2019.101890.
 * Mazaheri, P., and Alipour, A. (2025). Fragility functions for weather
   events to enhance resiliency of transmission lines: from experiments to
   statistics. *Electrical Transmission and Substation Structures 2025*,

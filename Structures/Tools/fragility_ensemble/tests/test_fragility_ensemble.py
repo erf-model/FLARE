@@ -358,8 +358,29 @@ class DryRun(Case):
         self.assertIn("NOTE m002_s60_d0_seed3: (|u|/dx + |v|/dy) erf.fixed_dt reaches 1.05 on level 0 "
                       "(largest wind 105 m/s)", out)
         self.assertNotIn("NOTE m001", out)
-        self.assertIn("NOTE the inflow face's KE is scaled with the stripe, but ERF uses it only together with "
-                      "<face>.density", out)
+        self.assertIn("NOTE the inflow face's KE is scaled with the stripe, but a fully compressible ERF run uses "
+                      "it only together with <face>.density", out)
+
+    def test_an_anelastic_or_pseudo_incompressible_deck_gets_no_inflow_k_note(self):
+        # ERF applies such a face's KE with the interior density, so <face>.density is not needed
+        for line in ("erf.anelastic = 1", "erf.compressibility_type = PseudoIncompressible",
+                     "erf.compressibility_type = Anelastic FullyCompressible",
+                     "amr.max_level = 1\nerf.compressibility_type = FullyCompressible Anelastic"):
+            d = self.stage("base_inflow")
+            with open(os.path.join(d, "span.i"), "a") as f:
+                f.write(line + "\n")
+            plan = self.edit_plan(d, speeds=[10], directions=[0], seeds=[3])
+            code, out, _ = call(["run", "--plan", plan, "--dry-run"])
+            self.assertEqual(code, 0)
+            self.assertNotIn("inflow face's KE", out, line)
+        # ERF reads levels 0..amr.max_level only (default 0): a second token past it is not read
+        for line in ("erf.compressibility_type = FullyCompressible", "erf.compressibility_type = FullyCompressible Anelastic"):
+            d = self.stage("base_inflow")
+            with open(os.path.join(d, "span.i"), "a") as f:
+                f.write(line + "\n")
+            code, out, _ = call(["run", "--plan", self.edit_plan(d, speeds=[10], directions=[0], seeds=[3]), "--dry-run"])
+            self.assertEqual(code, 0)
+            self.assertIn("inflow face's KE", out, line)
 
 
 class Refused(Case):

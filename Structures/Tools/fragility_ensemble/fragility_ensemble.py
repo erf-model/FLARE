@@ -920,14 +920,35 @@ class Ensemble:
                 stop("output_dir: cannot write %s (%s)" % (d, e.strerror))
         return written
 
+    def fully_compressible(self):
+        """True when the base deck runs every level up to amr.max_level fully compressible (ERF's default;
+        erf.anelastic is the deprecated form of erf.compressibility_type). ERF (Initialization/ERF_InitBCs.cpp)
+        honours a face's KE without its density when any of these levels is not fully compressible; one
+        token sets every level and tokens past max_level are not read."""
+        try:
+            nlev = int((self.deck.tokens("amr.max_level") or ["0"])[0]) + 1
+        except ValueError:
+            nlev = 1
+        anelastic = self.deck.tokens("erf.anelastic")
+        if anelastic:
+            flags = [t.strip('"').lower() in ("0", "false") for t in anelastic]
+        else:
+            kinds = self.deck.tokens("erf.compressibility_type") or ["FullyCompressible"]
+            flags = [t.strip('"').lower() == "fullycompressible" for t in kinds]
+        if len(flags) == 1:
+            flags = flags * nlev
+        return all(flags[:nlev])
+
     def notes(self):
         """What a user should know before the runs start."""
         out = []
         if self.mode == "sounding" and "inflow" in self.template:
             sub = self.template["inflow"][1]
-            if "KE" in sub and "density" not in sub:
-                out.append("NOTE the inflow face's KE is scaled with the stripe, but ERF uses it only together with "
-                           "<face>.density; without it the inflow k is zero-gradient")
+            # ERF (Initialization/ERF_InitBCs.cpp) applies an anelastic or pseudo-incompressible face's KE as a
+            # primitive value with the interior density; a fully compressible face needs <face>.density for it
+            if "KE" in sub and "density" not in sub and self.fully_compressible():
+                out.append("NOTE the inflow face's KE is scaled with the stripe, but a fully compressible ERF run uses "
+                           "it only together with <face>.density; without it the inflow k is zero-gradient")
         for m in self.members:
             if m["courant"] is not None and m["courant"] > 1.0:
                 out.append("NOTE %s: (|u|/dx + |v|/dy) erf.fixed_dt reaches %s on level 0 (largest wind %s m/s); give "
