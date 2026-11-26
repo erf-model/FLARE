@@ -44,12 +44,17 @@ run = os.path.abspath(a.run)
 dom = os.path.join(RT, f"{CASE}_domain.json")
 
 def movie_every(run, frame_s=120.0):
-    """Movie stride: one frame per frame_s of the run's erf.fire.plot_per (60 s in the deck, 30 s in older runs)."""
+    """Movie stride: one frame per frame_s of the run's erf.fire.plot_per (the last setting, as ParmParse reads it)."""
+    per = None
     for line in open(os.path.join(run, "inputs")):
         k, _, v = line.split("#")[0].partition("=")
         if k.strip() == "erf.fire.plot_per":
-            return max(1, round(frame_s / float(v)))
-    sys.exit("post: erf.fire.plot_per not found in the run's inputs")
+            per = float(v.split()[0])
+    if per is None:
+        sys.exit("post: erf.fire.plot_per not found in the run's inputs")
+    if not per > 0:
+        sys.exit(f"post: erf.fire.plot_per must be > 0 for the movie (found {per:g})")
+    return max(1, round(frame_s / per))
 
 
 if a.step == "prepare":

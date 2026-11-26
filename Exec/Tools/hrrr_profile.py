@@ -44,8 +44,15 @@ if not 10.0 < a.z_min < 1000.0:
     ap.error("--z-min must be in (10, 1000) m")
 if not 0.0 < a.z0 < 2.0:
     ap.error("--z0 must be in (0, 2) m")
+try:
+    pd.Timestamp(a.date)
+except ValueError:
+    ap.error(f"--date must be a date YYYY-MM-DD (found {a.date!r})")
 
 info = json.load(open(a.domain))
+for x, y in a.point_xy:
+    if not (0.0 <= x <= info["domain_m"] and 0.0 <= y <= info["domain_m"]):
+        ap.error(f"--point-xy {x:g} {y:g} must lie inside the domain, [0, {info['domain_m']:g}] m in x and y")
 zone = info["utm_zone"]
 utm = f"EPSG:{(32600 if zone.upper().endswith('N') else 32700) + int(zone[:-1])}"
 fwd = Transformer.from_crs("EPSG:4326", utm, always_xy=True)
@@ -97,9 +104,14 @@ for lon, lat in pts:
         ij = nearest(ds, lon, lat)
         lov, lat1 = gridinfo(ds)
         p = np.atleast_1d(ds["isobaricInhPa"].values)
+        if "p" in c and not np.array_equal(c["p"], p):
+            raise SystemExit("HRRR prs messages come on different sets of isobaric levels; cannot merge them")
         for v in ds.data_vars:
             c[v] = np.atleast_1d(ds[v].values[(..., ) + ij])
         c["p"] = p
+    miss = [v for v in ("gh", "t", "q", "u", "v", "p") if v not in c]
+    if miss:
+        raise SystemExit(f"HRRR prs analysis: missing isobaric field(s) {miss}")
     alpha = math.sin(math.radians(lat1)) * math.radians(lon - (lov - 360 if lov > 180 else lov))
     ug, vg = c["u"], c["v"]
     c["u_earth"] = ug * math.cos(alpha) + vg * math.sin(alpha)
@@ -112,6 +124,8 @@ for lon, lat in pts:
             s[f"{v}_{lev}"] = float(ds[v].values[ij])
     c["sfc"] = s
     u10, v10 = s.get("u10_heightAboveGround"), s.get("v10_heightAboveGround")
+    if u10 is None or v10 is None:
+        raise SystemExit(f"HRRR sfc analysis: no 10 m wind (UGRD/VGRD 10 m above ground) at {lon:.4f}, {lat:.4f}")
     c["u10e"] = u10 * math.cos(alpha) + v10 * math.sin(alpha)
     c["v10e"] = -u10 * math.sin(alpha) + v10 * math.cos(alpha)
     cols.append(c)
@@ -124,7 +138,7 @@ for c in cols:
     zs = c["sfc"]["orog_surface"] if "orog_surface" in c["sfc"] else c["sfc"]["gh_surface"]
     ps = c["sfc"]["sp_surface"]
     z = c["gh"] - zs
-    keep = z > a.z_min
+    keep = z >= a.z_min
     o = np.argsort(z[keep])
     zz = z[keep][o]
     if zz.size == 0 or zz[-1] < a.top_km * 1000.0:

@@ -33,7 +33,7 @@ The setup:
 | Atmosphere | anelastic, FFT pressure solve, YSU boundary layer with 2D Smagorinsky, Rayleigh damping in the top 1.5 km |
 | Inflow | north and east faces, HRRR 2025-01-07 19 UTC (pressure levels from 20 m above the ground up, the 10 m wind below them, a log law with z0 = 0.1 m to 2 m); outflow on the west and south faces |
 | Fire | level set on a grid 10 times finer (30 m cells) on the fire terrain, BEHAVE multi-class spread per fuel cell, Andrews WAF, lagged two-way coupling, spotting |
-| Ignition | one 100 m circle at (9000, 8000) m, lit at 600 s after a 10 min wind spin-up |
+| Ignition | one fire of 100 m radius at (9000, 8000) m, lit at 600 s after a 10 min wind spin-up |
 | Run length | 6900 s: 10 min spin-up, then 105 min of fire |
 | L1 | 18 spans of Drake ACSR, 92-511 m long, lattice towers 30-33 m high with steel temperature |
 | L2 | 17 spans of Drake ACSR, 208-541 m long, rigid point towers 30-48 m high (wire temperature only) |
@@ -82,44 +82,61 @@ We thank the providers of the open data this case is built from:
 - **Terrain:** NASA Shuttle Radar Topography Mission 1 arc-second elevation (SRTM1), public domain, fetched with
   the `elevation` Python package and made into the two terrain files by `gen_palisades.py`; source and steps in
   `Exec/CanonicalTests/Fire/Real_Terrain/Palisades_Fire/README.md`. Not redistributed.
-- **Imagery** under the maps (optional, `case.py post`): U.S. Geological Survey, The National Map, public
+- **Imagery** under the maps (`case.py post` needs it): U.S. Geological Survey, The National Map, public
   domain, fetched by `Exec/Tools/make_map_movie.py --fetch usgs`. Not redistributed.
 - **Fuel moisture:** Los Angeles County Fire Department, Daily Fire Danger Analysis, forecast for 7 January
-  2025 (Malibu Hills RAWS: 66 F, 22 % RH, 8 % 10 h dead fuel moisture; Santa Monica Mountains live fuel moisture
-  62 %). Cited, not redistributed. We
-  thank LACoFD for publishing it.
-- **Observations:** Li et al. (2026), *AGU Advances*, doi:10.1029/2025AV002064, for the satellite spread speed
-  (1.0 to 3.7 km/h, 0.6 to 2.3 mph) and the observed relative humidity below 20 %.
+  2025, https://fire.lacounty.gov/wp-content/uploads/2025/01/FDA-01-07-2025.pdf (Malibu Hills RAWS: 66 F,
+  22 % RH, 8 % 10 h dead fuel moisture; Santa Monica Mountains live fuel moisture 62 %). Cited only; nothing is
+  redistributed. We thank LACoFD for publishing it.
+- **Observations:** F. Li et al., "Fire Spread, Intensity, and Emissions Observations by Multiple Satellites:
+  The Southern California Wildfires of January 2025", *AGU Advances* (2026),
+  https://doi.org/10.1029/2025AV002064, for the satellite spread speed (1.0 to 3.7 km/h, 0.6 to 2.3 mph) and the
+  observed relative humidity below 20 %. Cited only; nothing is redistributed.
 
-Sources of the methods: Cohen, J. D. and Deeming, J. E. (1985), *The National Fire-Danger Rating System:
-basic equations*, USDA Forest Service General Technical Report PSW-82, for the equilibrium moisture; IEEE Std
-738-2023 (doi:10.1109/IEEESTD.2023.10382442, cited, not reproduced) for the Drake conductor and its heat
-balance; EN 1993-1-2 for the steel; Rothermel (1972) and Andrews (2012) for the spread, as listed in
-`Structures/Exec/FireUnderLine/README.md`.
+Sources of the methods: Cohen, J. D. and Deeming, J. E. (1985), *The National Fire-Danger Rating System: basic
+equations*, USDA Forest Service General Technical Report PSW-82, for the equilibrium moisture; IEEE Std 738-2023
+(doi:10.1109/IEEESTD.2023.10382442, cited, not reproduced) for the Drake conductor and its heat balance; EN
+1993-1-2 for the steel; Rothermel (1972) and Andrews (2012) for the spread, as listed in
+`Structures/Exec/FireUnderLine/README.md`; Scott and Burgan (2005), *Standard Fire Behavior Fuel Models: A
+Comprehensive Set for Use with Rothermel's Surface Fire Spread Model*, USDA Forest Service RMRS-GTR-153, for the
+FBFM40 fuel models; Andrews (2018), RMRS-GTR-371, for the BEHAVE multi-class spread (see
+`Exec/RegTests/FireBehaveFuelMap/README.md`).
 
 ## How to run
 
 Needs Python 3 with numpy, rasterio, pyproj, matplotlib, yt and scipy, ffmpeg for the movie (skipped
-without it), and a FLARE build with MoorDyn-C (the conductor model). Herbie and pandas are needed only to
+without it), and FLARE built with `-DERF_ENABLE_STRUCTURES=ON` against MoorDyn-C
+(`Structures/setup_moordyn.sh`; the conductor model), `-DERF_ENABLE_FFT=ON` (the deck sets `erf.use_fft = 1`)
+and MPI. Herbie and pandas are needed only to
 remake the HRRR files; `gen_palisades.py` lists its own needs.
 
 ```bash
 python3 case.py prepare                        # runs gen_palisades.py in run/ if the terrain is missing
 cd run && mpiexec -n 4 <FLARE build>/flare inputs
-cd .. && python3 case.py post --basemap <RGB GeoTIFF over the domain>
+python3 ../../../../Exec/Tools/make_map_movie.py --fetch usgs   # once: basemap_palisades_z14.tif (USGS imagery) and a map movie
+cd .. && python3 case.py post --basemap run/basemap_palisades_z14.tif
 ```
+
+`post` needs a basemap (any RGB GeoTIFF over the domain); `make_map_movie.py --fetch usgs` downloads the USGS
+imagery tiles once and writes it.
 
 `prepare` also checks that the deck's conductor block and `lines_meta.json` are the ones `fire_lines_towers.py`
 builds from `lines_config.json` over the terrain; it stops if either differs. A line's last span may be shorter
 than `min_span_m`, and when no node meets `min_span_m` and the clearance the tool takes the next node and prints a
-warning. The 550 m and 8 m limits hold for every span, and the tool stops if one cannot meet them. The towers
+warning (15 times on this steep terrain; the towers are then raised where a span still clears by less than 8 m). The 550 m and 8 m limits
+hold for every span, and the tool stops if one cannot meet them. The towers
 stand on the run's mesh surface (the terrain file at the bottom grid nodes, which the tool rebuilds from the deck),
 and the 8 m is measured over the higher of that surface and the terrain file; see the note under Expected results.
+The terrain files are not committed: `prepare` makes them with `gen_palisades.py` from the SRTM1 tiles. The tower
+clearances depend on them, so on another machine (another tile copy, or other rasterio or scipy versions) the
+check can stop with "towers differ" even though nothing is wrong. Then remake the conductor block and
+`lines_meta.json` over the new terrain as described below and look at the clearances it prints before using them.
 `post` writes into `run/figs/`: the burned-area map with the lines coloured by their peak temperature, a movie
 (needs ffmpeg), the line and tower temperatures against time, per-span and per-tower CSV files,
 `summary.json`, the fragility figure and the head distance.
 
-To remake the inputs from the sources (not needed to run the case), in `run/` after `prepare`:
+To remake the inputs from the sources (not needed to run the case), in `run/` after `prepare` (the `T` path
+assumes the default `--run`):
 
 ```bash
 cd run
@@ -144,7 +161,11 @@ results below were made with.
 
 ## Expected results
 
-From the run made with this deck (4 ranks, 2 h 29 min wall time):
+From the run made with this deck (4 ranks, 2 h 29 min wall time). That run wrote the fire plotfiles every 30 s
+(`erf.fire.plot_per = 30`); the deck now writes them every 60 s to halve the output. The setting only sets the
+output cadence, so the numbers below do not depend on it. The deck also spells three inputs by their current names
+(`erf.compressibility_type`, `erf.timestepping_type`, `erf.most.pot_surf_temp`) where the run used the
+deprecated ones; ERF maps them to the same settings.
 
 | Quantity | Run | Observed |
 |---|---|---|
@@ -159,7 +180,7 @@ steady: the head moves 2.2 km in the first 30 min (4.4 km/h, above the range), t
 lines, so no span is reached and the line and tower temperatures stay near the air temperature. The head
 distance is the farthest burned cell from the ignition point in any direction, compared with the distance to
 one observed place; it does not check the direction of spread. It is measured from the centre of the 100 m
-ignition circle. `head_ros_median_ms` in `summary.json` is the median front speed from `fire_stats.csv`, not
+radius ignition. `head_ros_median_ms` in `summary.json` is the median front speed from `fire_stats.csv`, not
 the head distance over time; it is not compared.
 
 Clearance: the towers stand on the run's terrain-following mesh surface (`terrain_palisades.txt` at nodes 300 m
@@ -178,8 +199,11 @@ checked as follows instead:
 
 - `case.py prepare` rebuilds the conductor block and the tower file from `lines_config.json`; it stops unless
   both match the committed `inputs` and `lines_meta.json` exactly.
-- `Exec/Tools/test_fire_lines_towers.py` checks the terrain read of `fire_lines_towers.py` on a plane over a
-  non-square grid; it fails on a transposed read.
+- `Exec/Tools/test_fire_lines_towers.py` (CTest `FireLinesTowers_Tool`, registered when Python has numpy)
+  checks `fire_lines_towers.py`: the terrain read on a plane over a non-square grid, the mesh surface, the
+  clearance over flat ground against the closed form $30 - 2.5 - W L^2/(8T)$, the picks along a straight line,
+  the tower raising over a higher surface, and the stops on a repeated node and on fewer than 3 towers. It fails
+  on a transposed read, a flipped sag, a missing insulator offset and a missing guard.
 - The deck runs 4 steps from a fresh `run/` with `amrex.parmparse.verbose = 1` and reports no unused inputs.
 - `case.py post` on the finished run gives per-span, per-tower, head-distance and summary files identical to
   those behind the numbers above.

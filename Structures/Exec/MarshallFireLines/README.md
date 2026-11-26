@@ -4,7 +4,7 @@
 
 A demonstration of the full FLARE chain on a real fire: the Marshall Fire of 30 December 2021 in Boulder
 County, Colorado, run from public data with two real transmission lines in the domain. It shows what a user
-can set up from open sources in about an hour of work and about an hour of computing on 4 ranks:
+can set up from open sources, with about an hour of computing on 4 ranks:
 
 - **Weather:** one HRRR analysis hour (18 UTC), the mean of three columns on the upwind (west) face, as the
   sounding and the inflow profile (`Exec/Tools/hrrr_profile.py`).
@@ -30,7 +30,7 @@ The setup:
 | Atmosphere | anelastic, FFT pressure solve, YSU boundary layer with 2D Smagorinsky, Rayleigh damping in the top 3 km |
 | Inflow | west and north faces, HRRR 2021-12-30 18 UTC (pressure levels from 20 m above the ground up, the 10 m wind below them, a log law with z0 = 0.1 m to 2 m); outflow on the east and south faces |
 | Fire | level set on a grid 8 times finer (40 m cells), Rothermel per fuel cell, Andrews WAF, lagged two-way coupling, spotting |
-| Ignition | one 100 m circle at (5000, 11000) m, lit at 600 s after a 10 min wind spin-up |
+| Ignition | one fire of 100 m radius at (5000, 11000) m, lit at 600 s after a 10 min wind spin-up |
 | Run length | 5400 s: 10 min spin-up, then 80 min of fire |
 | L1 | 6 spans of Drake ACSR, 253-511 m long, lattice towers 30 m high with steel temperature |
 | L2 | 14 spans of Drake ACSR, 240-510 m long, rigid point towers (wire temperature only) to keep the run short |
@@ -67,32 +67,42 @@ We thank the providers of the open data this case is built from:
   39.8538 to 40.0848 N, 105.2901 to 104.9908 W (query in `osm_power_lines.py`). `osm_lines.json` and
   `lines_meta.json` are derived databases and are available under the Open Database License (ODbL) 1.0; please
   credit "(c) OpenStreetMap contributors" wherever the lines are shown.
-- **Terrain:** the committed Real_Terrain file; its source is given in
-  `Exec/CanonicalTests/Fire/Real_Terrain/Marshall_Fire/README.md`.
-- **Imagery** under the maps (optional, `case.py post`): U.S. Geological Survey, The National Map, public
+- **Terrain:** NASA Shuttle Radar Topography Mission 1 arc-second elevation (SRTM1), public domain, made into
+  the committed `terrain_marshall.txt` by `gen_marshall.py`; source and steps in
+  `Exec/CanonicalTests/Fire/Real_Terrain/Marshall_Fire/README.md`. Only that derived file is redistributed.
+- **Imagery** under the maps (`case.py post` needs it): U.S. Geological Survey, The National Map, public
   domain, fetched by `Exec/Tools/make_map_movie.py --fetch usgs`. Not redistributed.
 - **Reference** for the wind bias: R. G. Fovell, M. J. Brewer and R. J. Garmong, "The December 2021 Marshall
   Fire: Predictability and Gust Forecasts from Operational Models", Atmosphere 13, 765 (2022),
   https://doi.org/10.3390/atmos13050765, open access under CC BY 4.0. Cited only; nothing is redistributed.
 - **Observation:** The Colorado Sun, Marshall Fire timeline, 6 January 2022,
-https://coloradosun.com/2022/01/06/marshall-fire-boulder-county-timeline/: the fire reached the Superior
-Costco, about 5.5 km (3.4 miles) from the origin area, about 75 min after it started.
+  https://coloradosun.com/2022/01/06/marshall-fire-boulder-county-timeline/: the fire reached the Superior
+  Costco, about 5.5 km (3.4 miles) from the origin area, about 75 min after it started. Cited only; nothing is
+  redistributed.
 
 Sources of the methods: IEEE Std 738-2023 (doi:10.1109/IEEESTD.2023.10382442, cited, not reproduced) for the
 Drake conductor and its heat balance; EN 1993-1-2 for the steel; Rothermel (1972) and Andrews (2012) for the
-spread, as listed in `Structures/Exec/FireUnderLine/README.md`.
+spread, as listed in `Structures/Exec/FireUnderLine/README.md`; Scott and Burgan (2005), *Standard Fire Behavior
+Fuel Models: A Comprehensive Set for Use with Rothermel's Surface Fire Spread Model*, USDA Forest Service
+RMRS-GTR-153, for the FBFM40 fuel models.
 
 ## How to run
 
 Needs Python 3 with numpy, rasterio, pyproj, matplotlib, yt and scipy, ffmpeg for the movie (skipped
-without it), and a FLARE build with MoorDyn-C (the conductor model). Herbie and pandas are needed only to
+without it), and FLARE built with `-DERF_ENABLE_STRUCTURES=ON` against MoorDyn-C
+(`Structures/setup_moordyn.sh`; the conductor model), `-DERF_ENABLE_FFT=ON` (the deck sets `erf.use_fft = 1`)
+and MPI. Herbie and pandas are needed only to
 remake the HRRR files.
 
 ```bash
 python3 case.py prepare                        # run/ with the deck, terrain, small files and the LANDFIRE fuel map
 cd run && mpiexec -n 4 <FLARE build>/flare inputs
-cd .. && python3 case.py post --basemap <RGB GeoTIFF over the domain>
+python3 ../../../../Exec/Tools/make_map_movie.py --fetch usgs   # once: basemap_marshall_z14.tif (USGS imagery) and a map movie
+cd .. && python3 case.py post --basemap run/basemap_marshall_z14.tif
 ```
+
+`post` needs a basemap (any RGB GeoTIFF over the domain); `make_map_movie.py --fetch usgs` downloads the USGS
+imagery tiles once (about 5 MB) and writes it.
 
 `prepare` also checks that the deck's conductor block and `lines_meta.json` are the ones `fire_lines_towers.py`
 builds from `lines_config.json` over the terrain; it stops if either differs. A line's last span may be shorter
@@ -104,7 +114,8 @@ and the 8 m is measured over the higher of that surface and the terrain file; se
 (needs ffmpeg), the line and tower temperatures against time, per-span and per-tower CSV files,
 `summary.json`, the fragility figure and the head distance.
 
-To remake the inputs from the sources (not needed to run the case), in `run/` after `prepare`:
+To remake the inputs from the sources (not needed to run the case), in `run/` after `prepare` (the `T` path
+assumes the default `--run`):
 
 ```bash
 cd run
@@ -129,7 +140,11 @@ results below were made with.
 
 ## Expected results
 
-From the run made with this deck (4 ranks, 50 min wall time):
+From the run made with this deck (4 ranks, 50 min wall time). That run wrote the fire plotfiles every 30 s
+(`erf.fire.plot_per = 30`); the deck now writes them every 60 s to halve the output. The setting only sets the
+output cadence, so the numbers below do not depend on it. The deck also spells three inputs by their current names
+(`erf.compressibility_type`, `erf.timestepping_type`, `erf.most.pot_surf_temp`) where the run used the
+deprecated ones; ERF maps them to the same settings.
 
 | Quantity | Run | Observed |
 |---|---|---|
@@ -144,7 +159,7 @@ the edge of the town, which LANDFIRE maps as non-burnable. The head distance is 
 point in any direction, compared with the distance to one observed place; it does not check the direction of
 spread. No span passes the chosen 100 C wire flag and no tower the 400 C steel flag
 (`fire_lines_fragility.py`), so no fragility curve is fitted; the figure shows the margins instead. The head
-distance is measured from the centre of the 100 m ignition circle.
+distance is measured from the centre of the 100 m radius ignition.
 
 Why the head falls short. The run is not tuned to close the gap; the likely reasons are:
 
@@ -162,17 +177,18 @@ $R = R_0 (1 + \phi_w + \phi_s)$ with $\phi_w = C\,U^B (\beta/\beta_{op})^{-E}$ a
 (Rothermel 1972, eqs. 47-50; $U$ the midflame wind, $\sigma$ the surface-area-to-volume ratio in 1/ft). The
 wind limit is off in this deck (`erf.fire.use_wind_limit = false`). At the head the run's midflame wind is
 about 6 m/s over GR2 grass (median of the burning cells 20, 40 and 60 min after ignition), so
-$\phi_w \approx 100$ against a median $\phi_s$ of 0.2 to 0.4, and multiplying $U$ by $k$ multiplies $R$ by $k^B$
-to within about 1 %. For the grass fuels here ($\sigma$ = 1800 to 2000 /ft), $B$ = 1.45 to 1.53:
+$\phi_w \approx 100$ against a median $\phi_s$ of about 0.2 to 0.45, and multiplying $U$ by $k$ multiplies $R$ by $k^B$
+to within about 1 %. FLARE's single-class Rothermel uses the 1 h surface-area-to-volume ratio, $\sigma$ = 2000 /ft for GR2 and GS2 and
+2200 /ft for GR1, so $B$ = 1.53 to 1.61:
 
 | Wind multiplied by | Spread rate multiplied by |
 |---|---|
-| 1.10 | 1.15 to 1.16 |
-| 1.20 | 1.30 to 1.32 |
-| 1.36 | 1.56 to 1.60 |
+| 1.10 | 1.16 to 1.17 |
+| 1.20 | 1.32 to 1.34 |
+| 1.36 | 1.60 to 1.64 |
 
-If the head distance grew with the spread rate, a wind about 10 % higher, $(5.5/4.79)^{1/1.5} = 1.10$, would close
-the gap, and a wind 36 % higher would carry the head to 7.5 to 7.7 km, past the observed 5.5 km. This ignores
+If the head distance grew with the spread rate, a wind about 9 % higher, $(5.5/4.79)^{1/B}$ = 1.09 to 1.095, would close
+the gap, and a wind 36 % higher would carry the head to 7.7 to 7.9 km, past the observed 5.5 km. This ignores
 spotting, the town edge and the slope, so it gives the size of the effect only. It shows the result is
 sensitive to the wind: a small low bias in the mean wind over the fire's path is enough to explain the gap.
 
@@ -188,8 +204,11 @@ checked as follows instead:
 
 - `case.py prepare` rebuilds the conductor block and the tower file from `lines_config.json`; it stops unless
   both match the committed `inputs` and `lines_meta.json` exactly.
-- `Exec/Tools/test_fire_lines_towers.py` checks the terrain read of `fire_lines_towers.py` on a plane over a
-  non-square grid; it fails on a transposed read.
+- `Exec/Tools/test_fire_lines_towers.py` (CTest `FireLinesTowers_Tool`, registered when Python has numpy)
+  checks `fire_lines_towers.py`: the terrain read on a plane over a non-square grid, the mesh surface, the
+  clearance over flat ground against the closed form $30 - 2.5 - W L^2/(8T)$, the picks along a straight line,
+  the tower raising over a higher surface, and the stops on a repeated node and on fewer than 3 towers. It fails
+  on a transposed read, a flipped sag, a missing insulator offset and a missing guard.
 - The deck runs 4 steps from a fresh `run/` with `amrex.parmparse.verbose = 1` and reports no unused inputs.
 - `case.py post` on the finished run gives per-span, per-tower, head-distance and summary files identical to
   those behind the numbers above.

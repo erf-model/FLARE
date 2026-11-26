@@ -1,4 +1,4 @@
-# Marshall Fire, 30 December 2021: HRRR 18 UTC column, YSUNew, LANDFIRE fuel, real transmission lines.
+# Marshall Fire, 30 December 2021: HRRR 18 UTC column, YSU, LANDFIRE fuel, real transmission lines.
 # Conductor block: Exec/Tools/fire_lines_towers.py with lines_config.json (see README.md). Base: Exec/CanonicalTests/Fire/idealized_fire/inputs_marshall_ideal_ysunew.
 geometry.prob_lo = 0.0 0.0 0.0
 geometry.prob_hi = 25600.0 25600.0 11639.1
@@ -26,7 +26,7 @@ ylo.type = "Outflow"
 
 zlo.type = "surface_layer"
 erf.most.z0 = 0.1
-erf.most.surf_temp = 295.602
+erf.most.pot_surf_temp = 295.602
 erf.most.surf_heating_rate = 0.0
 zhi.type = "SlipWall"
 zhi.theta_grad = 0.003
@@ -60,8 +60,8 @@ erf.input_sounding_file = "sounding_hrrr.txt"
 erf.input_sounding_wind_above_ground  = true
 erf.input_sounding_theta_above_ground = true
 
-erf.anelastic = 1
-erf.anelastic_type = "MidPoint"
+erf.compressibility_type = Anelastic
+erf.timestepping_type    = MidPoint
 erf.use_fft   = 1
 erf.vert_implicit = true
 erf.cfl = 0.5
@@ -123,7 +123,7 @@ erf.fire.moisture_1hr   = 0.06   # chosen, as in inputs_marshall_ideal_ysunew (n
 erf.fire.moisture_10hr  = 0.07   # chosen
 erf.fire.moisture_100hr = 0.08   # chosen
 erf.fire.moisture_live  = 0.30   # chosen
-erf.fire.ignition_x = 5000.0
+erf.fire.ignition_x = 5000.0    # not used with the schedule file (ignition_r = 0); the same point as ignitions_spinup.csv
 erf.fire.ignition_y = 11000.0
 erf.fire.spotting.random_seed = 20211230
 

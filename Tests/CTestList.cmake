@@ -412,6 +412,25 @@ if(ERF_TEST_PYTHON)
       LABELS "unit;fire")
 endif()
 
+# fire_lines_towers.py (the tower picks of Structures/Exec/{Marshall,Palisades}FireLines):
+# terrain read, mesh surface, closed-form clearance, tower raising and guards. Plain
+# Python with numpy, no ERF run; registered only when the interpreter has numpy.
+if(ERF_TEST_PYTHON)
+  execute_process(COMMAND ${ERF_TEST_PYTHON} -c "import numpy"
+      RESULT_VARIABLE _flare_numpy_rc OUTPUT_QUIET ERROR_QUIET)
+  if(_flare_numpy_rc EQUAL 0)
+    add_test(NAME FireLinesTowers_Tool
+        COMMAND ${ERF_TEST_PYTHON} ${PROJECT_SOURCE_DIR}/Exec/Tools/test_fire_lines_towers.py)
+    set_tests_properties(FireLinesTowers_Tool
+        PROPERTIES
+        TIMEOUT 120
+        PROCESSORS 1
+        LABELS "unit;fire")
+  else()
+    message(STATUS "FireLinesTowers_Tool not registered: ${ERF_TEST_PYTHON} has no numpy")
+  endif()
+endif()
+
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     set(ERF_RANS_PYTHON "${Python3_EXECUTABLE}")

@@ -1,4 +1,4 @@
-# Palisades Fire, 7 January 2025: HRRR 19 UTC column, YSUNew, LANDFIRE 2024 fuel, real transmission lines.
+# Palisades Fire, 7 January 2025: HRRR 19 UTC column, YSU, LANDFIRE 2024 fuel, real transmission lines.
 # Conductor block: Exec/Tools/fire_lines_towers.py with lines_config.json (see README.md). Base: Exec/CanonicalTests/Fire/Real_Terrain/Palisades_Fire/inputs_palisades_fire.
 geometry.prob_lo = 0.0 0.0 0.0
 geometry.prob_hi = 24000.0 24000.0 6463.0
@@ -12,7 +12,7 @@ erf.grid_stretching_ratio = 1.03
 erf.terrain_type      = StaticFittedMesh
 erf.terrain_file_name = "terrain_palisades.txt"
 
-# HRRR analysis 2025-01-07 19 UTC at the ignition point (10.9 m/s at 6.1 m; LACoFD forecast 20-ft wind at Malibu Hills RAWS 26 mph = 11.6 m/s); the wind is from the north-northeast
+# HRRR analysis 2025-01-07 19 UTC at the ignition point (about 11 m/s at 6.1 m; LACoFD forecast 20-ft wind at Malibu Hills RAWS 26 mph = 11.6 m/s); the wind is from the north-northeast
 yhi.type = "Inflow"
 yhi.inflow_profile      = "file"
 yhi.inflow_profile_file = "inflow_hrrr.txt"
@@ -25,7 +25,7 @@ ylo.type = "Outflow"
 zlo.type = "surface_layer"
 erf.most.z0 = 0.1
 erf.most.zref = 20.0
-erf.most.surf_temp = 291.790
+erf.most.pot_surf_temp = 291.790
 erf.most.surf_heating_rate = 0.0
 zhi.type = "SlipWall"
 erf.rayleigh_damp_W   = true
@@ -58,8 +58,8 @@ erf.input_sounding_file = "sounding_hrrr.txt"
 erf.input_sounding_wind_above_ground  = true
 erf.input_sounding_theta_above_ground = true
 
-erf.anelastic = 1
-erf.anelastic_type = "MidPoint"
+erf.compressibility_type = Anelastic
+erf.timestepping_type    = MidPoint
 erf.use_fft   = 1
 erf.vert_implicit = true
 erf.cfl = 0.5
@@ -122,7 +122,7 @@ erf.fire.moisture_1hr   = 0.05   # NFDRS EMC (Cohen & Deeming 1985) at Malibu Hi
 erf.fire.moisture_10hr  = 0.08   # LACoFD Daily Fire Danger Analysis, 7 Jan 2025, Malibu Hills RAWS 10-h DFM
 erf.fire.moisture_100hr = 0.10   # chosen (not in the LACoFD table); above the 10-h value
 erf.fire.moisture_live  = 0.62   # LACoFD Daily Fire Danger Analysis, 7 Jan 2025, Santa Monica Mountains live fuel moisture
-erf.fire.ignition_x = 9000.0
+erf.fire.ignition_x = 9000.0    # not used with the schedule file (ignition_r = 0); the same point as ignitions_spinup.csv
 erf.fire.ignition_y = 8000.0
 erf.fire.spotting.random_seed = 20250107
 
@@ -154,7 +154,7 @@ conductors.thermal.cutoff_radius      = 300.0
 conductors.thermal.source_height      = 1.0
 conductors.thermal.elevation          = 300
 conductors.thermal.towers             = true
-# L1: OSM way 1350299776, None V, None
+# L1: OSM way 1350299776, voltage not tagged, name not tagged
 conductors.L1.end_a  = 6453.5 12482.1 30
 conductors.L1.towers = 6424.9 12187.7 30.7398  6442.9 12019.8 31.6369  6440.5 11887.9 31.6369  6435.1 11662.2 30  6212.3 11359.8 30  6285.9 10877.6 30  6396.6 10537.5 30  6493.0 10380.9 30  6813.8 9983.1 30  6859.9 9715.0 30  6844.0 9471.5 30  6944.5 8996.9 30  6998.9 8777.2 30  7019.6 8686.6 30  7122.4 8298.1 31.4093  7135.4 8206.9 32.8021  7234.6 8138.9 32.8021
 conductors.L1.end_b  = 7186.1 7694.2 30

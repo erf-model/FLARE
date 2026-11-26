@@ -15,8 +15,10 @@ fire_terrain.txt is erf.fire.terrain_file_name when it is a different file.
 
 For each line: keeps the longest run of OSM nodes inside box_m and, from each tower, picks the farthest node whose
 span is at most 550 m long, at least min_span_m long and clears the terrain by 8 m in still air (parabolic sag of
-Drake ACSR at 30 kN; within 0.2 m of the catenary for these spans). The last span of a line may be shorter than
-min_span_m. When no node meets min_span_m and the 8 m clearance, the next node is used and a warning is printed.
+Drake ACSR at 30 kN; within about 0.2 m of the catenary for these spans). The wire hangs 2.5 m (the insulator)
+below every tower top, end towers included, so the clearance at a line's ends is pessimistic by up to 2.5 m.
+The last span of a line may be shorter than min_span_m. When no node meets min_span_m and the 8 m clearance,
+the next node is used and a warning is printed.
 Ground: the run places the towers (and the fire's radiating sources) on its mesh surface, terrain.txt sampled at
 the bottom nodes of the amr.n_cell grid and bilinear between them; the tool builds the same surface. Towers are
 30 m above that surface. The 8 m clearance is measured over the higher of the mesh surface and terrain.txt; both
@@ -25,8 +27,10 @@ which can be much sharper than the mesh, is only reported (lines_meta.json clear
 Prints the conductor block (from the "TRANSMISSION LINES" banner to the end of the deck) and writes lines_meta.json.
 With --check, compares the block with the conductor block of the --deck, and the towers with the existing --meta
 file (which is then not written), and exits 1 if either differs.
-Exits with an error if a line's way is missing, fewer than 2 of its nodes are in the box, or a span is still
-longer than 550 m or clears the terrain by less than 8 m after the towers are raised.
+Exits with an error if a line's way is missing, fewer than 2 of its nodes are in the box, a span is shorter than
+1 m (a repeated OSM node), fewer than 3 towers are picked (ERF needs end_a, at least one tower and end_b), or a
+span is still longer than 550 m or clears the terrain by less than 8 m after the towers are raised.
+Unknown keys in lines_config.json are an error.
 The terrain file is the ERF format: nx, ny, the x and y coordinates, then z with y varying fastest.
 """
 import argparse, json, sys
@@ -87,22 +91,29 @@ def pick(lines, wid, box, min_span, T):
     q = p[max(runs, key=len)]
     if len(q) < 2:
         sys.exit(f"OSM way {wid}: fewer than 2 nodes inside box_m {box}")
+    d = np.hypot(*np.diff(q, axis=0).T)
+    if np.any(d < 1.0):
+        sys.exit(f"OSM way {wid}: nodes {int(np.argmax(d < 1.0))} and {int(np.argmax(d < 1.0)) + 1} inside box_m are "
+                 f"{d.min():.2f} m apart (a repeated node); spans must be at least 1 m long")
     # greedy: from each tower, the farthest OSM node whose span clears the terrain by 8 m and is at most
     # 550 m long; the next node when none does
     keep, i = [q[0]], 0
     while i < len(q) - 1:
-        j = i + 1
+        j, found = i + 1, False
         for k in range(i + 1, len(q)):
             Lk = np.hypot(*(q[k] - q[i]))
             if Lk > SPAN_MAX:
                 break
             if Lk >= min_span or k == len(q) - 1:
                 if clearance(T, np.array([q[i], q[k]]))[0][1] >= CLEAR_MIN:
-                    j = k
-        if j == i + 1 and np.hypot(*(q[j] - q[i])) < min_span and j < len(q) - 1:
+                    j, found = k, True
+        if not found:
             print(f"way {wid}: no span from node {i} meets min_span and the 8 m clearance; using the next node",
                   file=sys.stderr)
         keep.append(q[j]); i = j
+    if len(keep) < 3:
+        sys.exit(f"OSM way {wid}: only {len(keep)} towers picked inside box_m {box}; ERF needs at least 3 "
+                 f"(end_a, a tower, end_b): enlarge box_m or lower min_span_m")
     return l, np.array(keep)
 
 
@@ -202,7 +213,8 @@ def build(cfg, lines, T, T_fire=None):
         print(f"{nm} way {wid} {l['voltage']} {l['name']}: {len(pts) - 1} spans, span {min(s for s, _ in cl):.0f}-"
               f"{max(s for s, _ in cl):.0f} m, min clearance {min(k for _, k in cl):.1f} m, tower heights "
               f"{[round(x) for x in h]}", file=sys.stderr)
-        blocks.append(f"# {nm}: OSM way {wid}, {l['voltage']} V, {l['name']}\n" + line_block(nm, pts, h, frames))
+        volt = f"{l['voltage']} V" if l["voltage"] else "voltage not tagged"
+        blocks.append(f"# {nm}: OSM way {wid}, {volt}, {l['name'] or 'name not tagged'}\n" + line_block(nm, pts, h, frames))
         meta.append(dict(name=nm, way=wid, voltage=l["voltage"], osm_name=l["name"], pts=pts.tolist(), heights=h,
                          frames=frames, spans=[s for s, _ in cl], clearance=[k for _, k in cl]))
         if T_fire is not None:
@@ -235,10 +247,22 @@ if __name__ == "__main__":
     names = [c.get("name") for c in cfg["lines"]]
     if not names or len(set(names)) != len(names):
         sys.exit(f"{a.config}: lines must be a non-empty list with unique names")
+    extra = set(cfg) - {"air_density", "elevation_m", "lines"}
+    if extra:
+        sys.exit(f"{a.config}: unknown key(s) {sorted(extra)}")
     for c in cfg["lines"]:
+        if not isinstance(c, dict):
+            sys.exit(f"{a.config}: every entry of lines must be an object")
         for k in ("name", "osm_way", "box_m", "min_span_m", "frames"):
             if k not in c:
                 sys.exit(f"{a.config}: line {c.get('name', '?')}: missing key '{k}'")
+        extra = set(c) - {"name", "osm_way", "box_m", "min_span_m", "frames"}
+        if extra:
+            sys.exit(f"{a.config}: line {c['name']}: unknown key(s) {sorted(extra)}")
+        if not (isinstance(c["name"], str) and c["name"].isidentifier()):
+            sys.exit(f"{a.config}: line {c['name']!r}: name must be a string of letters, digits and _")
+        if not (isinstance(c["osm_way"], int) and not isinstance(c["osm_way"], bool) and c["osm_way"] > 0):
+            sys.exit(f"{a.config}: line {c['name']}: osm_way must be a positive integer")
         if not isinstance(c["frames"], bool):
             sys.exit(f"{a.config}: line {c['name']}: frames must be true or false")
         if not (isinstance(c["box_m"], list) and len(c["box_m"]) == 4 and all(num(v) for v in c["box_m"])):
