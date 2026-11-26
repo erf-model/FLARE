@@ -1,0 +1,3 @@
+{"air_density": 1.0, "elevation_m": 1700,
+ "lines": [{"name": "L1", "osm_way": 1467202772, "box_m": [8000, 11000, 9000, 13000], "min_span_m": 150.0, "frames": true},
+           {"name": "L2", "osm_way": 1133022326, "box_m": [7500, 11000, 9000, 14500], "min_span_m": 150.0, "frames": false}]}

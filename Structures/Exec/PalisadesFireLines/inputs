@@ -1,0 +1,196 @@
+# Palisades Fire, 7 January 2025: HRRR 19 UTC column, YSU, LANDFIRE 2024 fuel, real transmission lines.
+# Conductor block: Exec/Tools/fire_lines_towers.py with lines_config.json (see README.md). Base: Exec/CanonicalTests/Fire/Real_Terrain/Palisades_Fire/inputs_palisades_fire.
+geometry.prob_lo = 0.0 0.0 0.0
+geometry.prob_hi = 24000.0 24000.0 6463.0
+amr.n_cell = 80 80 102
+geometry.is_periodic = 0 0 0
+amr.max_level = 0
+amr.max_grid_size   = 40
+amr.max_grid_size_z = 102
+erf.initial_dz            = 10.0
+erf.grid_stretching_ratio = 1.03
+erf.terrain_type      = StaticFittedMesh
+erf.terrain_file_name = "terrain_palisades.txt"
+
+# HRRR analysis 2025-01-07 19 UTC at the ignition point (about 11 m/s at 6.1 m; LACoFD forecast 20-ft wind at Malibu Hills RAWS 26 mph = 11.6 m/s); the wind is from the north-northeast
+yhi.type = "Inflow"
+yhi.inflow_profile      = "file"
+yhi.inflow_profile_file = "inflow_hrrr.txt"
+xhi.type = "Inflow"
+xhi.inflow_profile      = "file"
+xhi.inflow_profile_file = "inflow_hrrr.txt"
+xlo.type = "Outflow"
+ylo.type = "Outflow"
+
+zlo.type = "surface_layer"
+erf.most.z0 = 0.1
+erf.most.zref = 20.0
+erf.most.pot_surf_temp = 291.790
+erf.most.surf_heating_rate = 0.0
+zhi.type = "SlipWall"
+erf.rayleigh_damp_W   = true
+erf.rayleigh_dampcoef = 0.2
+erf.rayleigh_zdamp    = 1500.0
+
+erf.molec_diff_type = "None"
+erf.les_type = "Smagorinsky2D"
+erf.Cs = 0.1
+erf.pbl_type = "YSU"        # the former YSUNew, renamed in ERF
+erf.most.pblh_calc = "YSU"
+erf.enable_ysu_cloud_pblh = true
+erf.enable_ysu_countergradient = true
+erf.enable_ysu_entrainment = true
+erf.enable_ysu_sat_limiter = false
+erf.enable_ysu_topdown = true
+erf.pbl_ysu_land_Ribcr = 0.25
+erf.pbl_ysu_use_consistent_coriolis = false
+erf.pbl_ysunew_highres_bounds = false
+erf.ysu_moistvars = false
+erf.ysu_qcloud_threshold = 1.0e-4
+erf.use_gravity = true
+erf.theta_ref   = 300.0
+erf.use_coriolis = false    # the HRRR column enters through the inflow faces; no geostrophic forcing
+
+erf.pbl_ysu_coriolis_freq = 8.16e-5
+erf.init_type = "input_sounding"
+erf.sounding_type = Ideal
+erf.input_sounding_file = "sounding_hrrr.txt"
+erf.input_sounding_wind_above_ground  = true
+erf.input_sounding_theta_above_ground = true
+
+erf.compressibility_type = Anelastic
+erf.timestepping_type    = MidPoint
+erf.use_fft   = 1
+erf.vert_implicit = true
+erf.cfl = 0.5
+erf.dycore_horiz_adv_type  = "Upwind_3rd"
+erf.dycore_vert_adv_type   = "Upwind_3rd"
+erf.dryscal_horiz_adv_type = "Upwind_3rd"
+erf.dryscal_vert_adv_type  = "Upwind_3rd"
+
+stop_time = 6900.0      # 10 min wind spin-up, then 105 min of fire; multi-class BEHAVE with the per-cell fuel map
+max_step  = 40000
+erf.sum_interval = 2000
+erf.v = 1
+amr.v = 1
+erf.check_int  = -1
+erf.plot_per_1  = 300.0
+erf.plot_vars_1 = theta x_velocity y_velocity z_velocity z_phys Kmv Khv Kmh
+erf.plot2d_per_1  = 60.0
+erf.plot2d_vars_1 = pblh u_star t_star
+
+erf.fire.enable = true
+erf.fire.fire_debug = false
+erf.fire.propagation_method = "levelset"
+erf.fire.coupling_type = "lagged"          # two way: the fire heats the air, the plume reaches the lines
+erf.fire.fire_atm_feedback = 1
+erf.fire.plot_file = plt_fire_
+erf.fire.plot_per  = 60.0    # divides stop_time (no fire plot is written at the stop); the post reads arrival time and the level set
+erf.fire.write_fire_stats_csv = true
+erf.fire.fire_stats_csv_file = "fire_stats.csv"
+erf.fire.fuel_map.format = "ascii"
+erf.fire.fuel_map.fuel_set = "scott_burgan40"
+erf.fire.fuel_map.load_from_map = true
+erf.fire.rothermel_per_fuel = true
+erf.fire.ros_model = "behave"     # multi-class BEHAVE spread (dead and live classes) on the per-cell fuel map
+erf.fire.fuel_model_id = 102
+erf.fire.moisture_dynamic = false
+erf.fire.ignition_r = 0.0
+erf.fire.ignition.schedule_file = "ignitions_spinup.csv"
+erf.fire.wind_ref_ht = 6.1
+erf.fire.wind_interp = "bilinear"
+erf.fire.use_waf = true
+erf.fire.waf_formula = "andrews"
+erf.fire.use_wind_limit = false
+erf.fire.use_terrain_wind = false
+erf.fire.directional_shape = "ellipse"
+erf.fire.directional_ellipse_lw = "anderson"
+erf.fire.spotting.enable = true
+erf.fire.spotting.thermal_fuel_model = 1
+erf.fire.spotting.spotting_interval = 200
+erf.fire.spotting.P_base = 0.002
+erf.fire.spotting.terminal_velocity = 1.5
+erf.fire.spotting.spot_radius = 30.0
+
+erf.check_file = chk_palisades
+erf.plot_file_1 = plt3d_palisades
+erf.plot2d_file_1 = plt2d_palisades
+erf.fire.terrain_file_name = "terrain_palisades_fire.txt"
+erf.fire.grid_ratio = 10                    # 30 m fire cells
+erf.fire.fuel_map.file = "fuel_palisades_fbfm40.asc"  # LANDFIRE LF2024 FBFM40
+erf.fire.moisture_1hr   = 0.05   # NFDRS EMC (Cohen & Deeming 1985) at Malibu Hills RAWS forecast RH 22 %, 66 F (LACoFD Daily Fire Danger Analysis, 7 Jan 2025): 4.8 %, rounded
+erf.fire.moisture_10hr  = 0.08   # LACoFD Daily Fire Danger Analysis, 7 Jan 2025, Malibu Hills RAWS 10-h DFM
+erf.fire.moisture_100hr = 0.10   # chosen (not in the LACoFD table); above the 10-h value
+erf.fire.moisture_live  = 0.62   # LACoFD Daily Fire Danger Analysis, 7 Jan 2025, Santa Monica Mountains live fuel moisture
+erf.fire.ignition_x = 9000.0    # not used with the schedule file (ignition_r = 0); the same point as ignitions_spinup.csv
+erf.fire.ignition_y = 8000.0
+erf.fire.spotting.random_seed = 20250107
+
+# ============================================================================
+# TRANSMISSION LINES (OpenStreetMap ways, (c) OpenStreetMap contributors, ODbL)
+# ============================================================================
+amrex.fpe_trap_invalid = 0          # MoorDyn's initial-condition solver overflows otherwise
+erf.structures.model   = conductors
+conductors.lines       = L1 L2
+conductors.tower_types = lattice
+conductors.diagnostics_dir = conductors
+conductors.diagnostics_int = 5
+conductors.node_output_int = 30
+conductors.air_density     = 1.17
+conductors.surface_offset  = 20000     # above the domain top
+conductors.drag_on_flow    = false
+conductors.lattice.base_width    = 6
+conductors.lattice.top_width     = 1.5
+conductors.lattice.solidity      = 0.2
+conductors.lattice.arm_length    = 12
+conductors.lattice.arm_depth     = 1.2
+conductors.lattice.frame_panels  = 4
+conductors.lattice.leg_angle     = 0.15 0.012
+conductors.lattice.brace_angle   = 0.10 0.008
+conductors.lattice.damping_ratio = 0.02
+conductors.thermal_model              = ieee738
+conductors.thermal.radiative_fraction = 0.3
+conductors.thermal.cutoff_radius      = 300.0
+conductors.thermal.source_height      = 1.0
+conductors.thermal.elevation          = 300
+conductors.thermal.towers             = true
+# L1: OSM way 1350299776, voltage not tagged, name not tagged
+conductors.L1.end_a  = 6453.5 12482.1 30
+conductors.L1.towers = 6424.9 12187.7 30.7398  6442.9 12019.8 31.6369  6440.5 11887.9 31.6369  6435.1 11662.2 30  6212.3 11359.8 30  6285.9 10877.6 30  6396.6 10537.5 30  6493.0 10380.9 30  6813.8 9983.1 30  6859.9 9715.0 30  6844.0 9471.5 30  6944.5 8996.9 30  6998.9 8777.2 30  7019.6 8686.6 30  7122.4 8298.1 31.4093  7135.4 8206.9 32.8021  7234.6 8138.9 32.8021
+conductors.L1.end_b  = 7186.1 7694.2 30
+conductors.L1.stringing_tension = 30000
+conductors.L1.diameter         = 0.0281     # Drake ACSR, IEEE Std 738-2023 4.6
+conductors.L1.mass_per_length  = 1.628
+conductors.L1.axial_stiffness  = 3.0e7
+conductors.L1.tower_type       = lattice    # frame towers: steel temperature
+conductors.L1.insulator_length = 2.5
+conductors.L1.insulator_mass   = 60.
+conductors.L1.segments         = 12
+conductors.L1.output_root      = L1
+conductors.L1.absorptivity     = 0.5
+conductors.L1.emissivity       = 0.5
+conductors.L1.heat_capacity    = 1310.0
+conductors.L1.thermal_expansion = 1.93e-5
+conductors.L1.current          = 600.0
+conductors.L1.resistance       = 7.283e-5 8.688e-5
+conductors.L1.resistance_temperatures = 25.0 75.0
+# L2: OSM way 398601720, 230000;230000;230000;0 V, Tarzana - Olympic + Electrode Line of HVDC Pacific DC Intertie
+conductors.L2.end_a  = 10767.4 12439.5 30
+conductors.L2.towers = 11005.6 12218.4 30.8906  11115.4 11900.7 40.5536  11201.4 11651.1 47.7741  11283.4 11412.0 47.7741  11503.0 11008.4 30  11652.2 10771.2 30  11846.3 10420.3 46.7967  11782.6 10090.2 46.7967  11686.4 9558.2 40.0594  11746.6 9167.3 40.0594  11814.5 8805.1 36.9314  11874.7 8465.7 32.7121  11886.3 8255.3 35.1742  11952.6 7964.6 35.1742  12192.9 7486.7 30  12366.9 6995.7 30
+conductors.L2.end_b  = 12445.1 6802.9 30
+conductors.L2.stringing_tension = 30000
+conductors.L2.diameter         = 0.0281     # Drake ACSR, IEEE Std 738-2023 4.6
+conductors.L2.mass_per_length  = 1.628
+conductors.L2.axial_stiffness  = 3.0e7
+# L2: rigid point towers (no frame, no steel temperature), to keep the run short
+conductors.L2.insulator_length = 2.5
+conductors.L2.insulator_mass   = 60.
+conductors.L2.segments         = 12
+conductors.L2.output_root      = L2
+conductors.L2.absorptivity     = 0.5
+conductors.L2.emissivity       = 0.5
+conductors.L2.heat_capacity    = 1310.0
+conductors.L2.thermal_expansion = 1.93e-5
+conductors.L2.current          = 600.0
+conductors.L2.resistance       = 7.283e-5 8.688e-5
+conductors.L2.resistance_temperatures = 25.0 75.0

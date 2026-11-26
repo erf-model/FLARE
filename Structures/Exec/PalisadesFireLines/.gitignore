@@ -1,0 +1,22 @@
+# made by case.py prepare / post, or by a run in this folder
+run/
+figs/
+hrrr_cache/
+*.asc
+terrain_*.txt
+*_domain.json
+LF20*_FBFM40_*.tif
+basemap*.tif
+conductors/
+fire_stats.csv
+L[0-9]*_*.dat
+L[0-9]*_*.csv
+*.asc.source
+*.tif.part
+plt*
+chk*
+*_hrrr18_*
+pal19_ign_*
+osm_power_*.json
+osm_lines.png
+conductor_block.txt
