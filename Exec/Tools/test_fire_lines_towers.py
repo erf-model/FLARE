@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Check that fire_lines_towers.py reads the ERF terrain file with y varying fastest.
+"""Check that fire_lines_towers.py reads the ERF terrain file with y varying fastest and builds the run's mesh surface.
 
     python3 test_fire_lines_towers.py
 
 Writes the bilinear surface z = 0.1 x + 0.01 y + 1e-4 x y on a 11 x 21 grid (nx != ny, so a transposed read
 gives a wrong height) and checks the ground height against it at points off the grid nodes, on the grid edges
-and at the corners, where bilinear interpolation is exact. Exits 1 on a mismatch.
+and at the corners, where bilinear interpolation is exact. Then builds the mesh surface for a deck with
+prob_hi = 1000 2000 and n_cell = 4 5 and checks its 5 x 6 nodes against the surface. Exits 1 on a mismatch.
 """
 import importlib.util, os, sys, tempfile
 import numpy as np
@@ -30,4 +31,12 @@ py = np.array([1310.0, 1987.0, 0.0, 2000.0, 0.0, 777.0])
 g = t.ground(T, px, py); want = surf(px, py)
 for a, b, u, w in zip(px, py, g, want):
     print(f"({a:6.0f}, {b:6.0f}): ground {u:.6f} m, surface {w:.6f} m")
-sys.exit(0 if np.allclose(g, want, rtol=0, atol=1e-9) else 1)
+ok = np.allclose(g, want, rtol=0, atol=1e-9)
+with tempfile.TemporaryDirectory() as d:
+    fn = os.path.join(d, "inputs")
+    open(fn, "w").write("geometry.prob_lo = 0.0 0.0 0.0\ngeometry.prob_hi = 1000.0 2000.0 900.0   # top\namr.n_cell = 4 5 9\n")
+    xn, yn, zn = t.mesh_surface(T, *t.read_deck(fn))
+XN, YN = np.meshgrid(xn, yn, indexing="ij")
+print(f"mesh surface: {zn.shape[0]} x {zn.shape[1]} nodes, max error {np.abs(zn - surf(XN, YN)).max():.2e} m")
+ok = ok and zn.shape == (5, 6) and np.allclose(xn, np.linspace(0, 1000, 5)) and np.allclose(zn, surf(XN, YN), rtol=0, atol=1e-9)
+sys.exit(0 if ok else 1)

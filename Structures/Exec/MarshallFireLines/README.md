@@ -28,12 +28,12 @@ The setup:
 | Domain | 25.6 km square, 80 x 80 x 50 cells, 10 m first cell stretched by 1.1 to an 11.6 km top |
 | Terrain | `Exec/CanonicalTests/Fire/Real_Terrain/Marshall_Fire/terrain_marshall.txt` |
 | Atmosphere | anelastic, FFT pressure solve, YSU boundary layer with 2D Smagorinsky, Rayleigh damping in the top 3 km |
-| Inflow | west and north faces, HRRR 2021-12-30 18 UTC (pressure levels from 100 m above the ground up, the 10 m wind below them, a log law with z0 = 0.1 m to 2 m); outflow on the east and south faces |
+| Inflow | west and north faces, HRRR 2021-12-30 18 UTC (pressure levels from 20 m above the ground up, the 10 m wind below them, a log law with z0 = 0.1 m to 2 m); outflow on the east and south faces |
 | Fire | level set on a grid 8 times finer (40 m cells), Rothermel per fuel cell, Andrews WAF, lagged two-way coupling, spotting |
 | Ignition | one 100 m circle at (5000, 11000) m, lit at 600 s after a 10 min wind spin-up |
 | Run length | 5400 s: 10 min spin-up, then 80 min of fire |
 | L1 | 6 spans of Drake ACSR, 253-511 m long, lattice towers 30 m high with steel temperature |
-| L2 | 14 spans of Drake ACSR, 210-512 m long, rigid point towers (wire temperature only) to keep the run short |
+| L2 | 14 spans of Drake ACSR, 240-510 m long, rigid point towers (wire temperature only) to keep the run short |
 
 ## Files
 
@@ -71,6 +71,9 @@ We thank the providers of the open data this case is built from:
   `Exec/CanonicalTests/Fire/Real_Terrain/Marshall_Fire/README.md`.
 - **Imagery** under the maps (optional, `case.py post`): U.S. Geological Survey, The National Map, public
   domain, fetched by `Exec/Tools/make_map_movie.py --fetch usgs`. Not redistributed.
+- **Reference** for the wind bias: R. G. Fovell, M. J. Brewer and R. J. Garmong, "The December 2021 Marshall
+  Fire: Predictability and Gust Forecasts from Operational Models", Atmosphere 13, 765 (2022),
+  https://doi.org/10.3390/atmos13050765, open access under CC BY 4.0. Cited only; nothing is redistributed.
 - **Observation:** The Colorado Sun, Marshall Fire timeline, 6 January 2022,
 https://coloradosun.com/2022/01/06/marshall-fire-boulder-county-timeline/: the fire reached the Superior
 Costco, about 5.5 km (3.4 miles) from the origin area, about 75 min after it started.
@@ -94,8 +97,9 @@ cd .. && python3 case.py post --basemap <RGB GeoTIFF over the domain>
 `prepare` also checks that the deck's conductor block and `lines_meta.json` are the ones `fire_lines_towers.py`
 builds from `lines_config.json` over the terrain; it stops if either differs. A line's last span may be shorter
 than `min_span_m`, and when no node meets `min_span_m` and the clearance the tool takes the next node and prints a
-warning. The 550 m and 8 m limits hold for every span, and the tool stops if one cannot meet them. The 8 m
-clearance is measured over the terrain file given with `--terrain` only; see the note under Expected results.
+warning. The 550 m and 8 m limits hold for every span, and the tool stops if one cannot meet them. The towers
+stand on the run's mesh surface (the terrain file at the bottom grid nodes, which the tool rebuilds from the deck),
+and the 8 m is measured over the higher of that surface and the terrain file; see the note under Expected results.
 `post` writes into `run/figs/`: the burned-area map with the lines coloured by their peak temperature, a movie
 (needs ffmpeg), the line and tower temperatures against time, per-span and per-tower CSV files,
 `summary.json`, the fragility figure and the head distance.
@@ -107,12 +111,12 @@ cd run
 T=../../../../Exec/Tools
 python3 $T/hrrr_profile.py --date 2021-12-30 --hour 18 --domain marshall_domain.json \
     --point-xy 0 11000 --point-xy 0 8000 --point-xy 0 14000 --out-prefix marshall_hrrr18 \
-    --z-min 100 --z0 0.1
+    --z-min 20 --z0 0.1
 cp marshall_hrrr18_inflow.txt inflow_hrrr.txt
 awk 'NF { $3 = "0.0"; print }' marshall_hrrr18_sounding.txt > sounding_hrrr.txt    # dry run: qv = 0
 # osm_power_marshall.json: the Overpass query in osm_power_lines.py, box under Data and acknowledgements
 python3 $T/osm_power_lines.py osm_power_marshall.json marshall_domain.json fuel_marshall_fbfm40.asc osm
-python3 $T/fire_lines_towers.py ../lines_config.json --osm osm_lines.json --terrain terrain_marshall.txt \
+python3 $T/fire_lines_towers.py ../lines_config.json --osm osm_lines.json --terrain terrain_marshall.txt --deck inputs \
     --meta lines_meta_new.json > conductor_block.txt
 ```
 
@@ -125,26 +129,57 @@ results below were made with.
 
 ## Expected results
 
-From the run made with this deck (FLARE `af41c74b0`, 4 ranks, 47 min wall time):
+From the run made with this deck (4 ranks, 50 min wall time):
 
 | Quantity | Run | Observed |
 |---|---|---|
-| Head distance from the ignition at 75 min | 4.75 km (3.0 miles) | about 5.5 km (3.4 miles), Colorado Sun |
-| Burned area at 80 min | 452 ha (1,117 acres) | not compared |
+| Head distance from the ignition at 75 min | 4.79 km (3.0 miles) | about 5.5 km (3.4 miles), Colorado Sun |
+| Burned area at 80 min | 460 ha (1,137 acres) | not compared |
 | Spans the fire reached | 6 of 20 | not compared |
-| Peak conductor temperature | 48.7 C (120 F) | – |
-| Peak tower steel temperature (L1) | 29.3 C (85 F) | – |
+| Peak conductor temperature | 48.6 C (119 F) | – |
+| Peak tower steel temperature (L1) | 29.2 C (85 F) | – |
 
-The head reaches 86 % of the observed distance at 75 min. The burned area then ends just past L1, near L2 and
+The head reaches 87 % of the observed distance at 75 min. The burned area then ends just past L1, near L2 and
 the edge of the town, which LANDFIRE maps as non-burnable. The head distance is the farthest burned cell from the ignition
 point in any direction, compared with the distance to one observed place; it does not check the direction of
 spread. No span passes the chosen 100 C wire flag and no tower the 400 C steel flag
 (`fire_lines_fragility.py`), so no fragility curve is fitted; the figure shows the margins instead. The head
 distance is measured from the centre of the 100 m ignition circle.
 
-Clearance: the towers are picked so that every span clears `terrain_marshall.txt` by 8 m in still air. The run
-places the towers on its own terrain-following mesh surface (nodes 320 m apart), which is smoother. With the
-towers there, the lowest still-air clearance is 10.6 m for L1 and 3.9 m for L2 (span 13).
+Why the head falls short. The run is not tuned to close the gap; the likely reasons are:
+
+- **The HRRR wind is a 3 km mean.** The fire burned in a downslope windstorm, and the strongest winds stayed
+  within about 25 km of the foothills. Fovell et al. (2022) note that operational models tend to underpredict
+  the winds at the windiest sites, that the HRRR missed the fastest gusts of this event, and that downslope
+  winds depend strongly on grid spacing. The inflow here is one HRRR hour, so it may carry the same low bias.
+- **The wind is steady.** The inflow is a mean profile held for the whole run. Gusts up to 51 m/s (115 mph) were
+  reported about 11 km south of the ignition (Fovell et al. 2022); they are not in it, and the spread rate
+  grows faster than linearly with wind.
+- **The fuel moistures are chosen**, not measured (see Purpose).
+
+How much wind would matter, as a back-of-the-envelope estimate. The spread rate is Rothermel's
+$R = R_0 (1 + \phi_w + \phi_s)$ with $\phi_w = C\,U^B (\beta/\beta_{op})^{-E}$ and $B = 0.02526\,\sigma^{0.54}$
+(Rothermel 1972, eqs. 47-50; $U$ the midflame wind, $\sigma$ the surface-area-to-volume ratio in 1/ft). The
+wind limit is off in this deck (`erf.fire.use_wind_limit = false`). At the head the run's midflame wind is
+about 6 m/s over GR2 grass (median of the burning cells 20, 40 and 60 min after ignition), so
+$\phi_w \approx 100$ against a median $\phi_s$ of 0.2 to 0.4, and multiplying $U$ by $k$ multiplies $R$ by $k^B$
+to within about 1 %. For the grass fuels here ($\sigma$ = 1800 to 2000 /ft), $B$ = 1.45 to 1.53:
+
+| Wind multiplied by | Spread rate multiplied by |
+|---|---|
+| 1.10 | 1.15 to 1.16 |
+| 1.20 | 1.30 to 1.32 |
+| 1.36 | 1.56 to 1.60 |
+
+If the head distance grew with the spread rate, a wind about 10 % higher, $(5.5/4.79)^{1/1.5} = 1.10$, would close
+the gap, and a wind 36 % higher would carry the head to 7.5 to 7.7 km, past the observed 5.5 km. This ignores
+spotting, the town edge and the slope, so it gives the size of the effect only. It shows the result is
+sensitive to the wind: a small low bias in the mean wind over the fire's path is enough to explain the gap.
+
+Clearance: the towers stand on the run's terrain-following mesh surface (`terrain_marshall.txt` at nodes 320 m
+apart), where the run also puts the fire's radiating sources. Every span clears the higher of that surface and
+`terrain_marshall.txt`, which the fire also burns on, by at least 8 m in still air: 10.2 m for L1 and 9.5 m for L2
+at the lowest. All towers are 30 m.
 
 ## CTest
 

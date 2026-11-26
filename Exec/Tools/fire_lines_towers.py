@@ -1,26 +1,30 @@
 #!/usr/bin/env python3
 """Pick transmission towers along OpenStreetMap power lines and write the FLARE conductor block of an inputs deck.
 
-    fire_lines_towers.py lines_config.json --osm osm_lines.json --terrain terrain.txt [--meta lines_meta.json]
-                         [--check inputs]
+    fire_lines_towers.py lines_config.json --osm osm_lines.json --terrain terrain.txt --deck inputs
+                         [--fire-terrain fire_terrain.txt] [--meta lines_meta.json] [--check]
 
 lines_config.json (one per case folder):
     {"air_density": 1.0, "elevation_m": 1700,
      "lines": [{"name": "L1", "osm_way": 1467202772, "box_m": [x0, x1, y0, y1], "min_span_m": 150, "frames": true}, ...]}
   air_density in [0.5, 1.5] kg/m^3; elevation_m in [-500, 9000] m (conductors.thermal.elevation); names unique;
   box_m four numbers, x0 < x1, y0 < y1, inside the terrain; min_span_m in (0, 550] m; frames true or false.
-osm_lines.json is the output of osm_power_lines.py (domain metres); terrain.txt is the ERF terrain file of the case.
+osm_lines.json is the output of osm_power_lines.py (domain metres); terrain.txt is the ERF terrain file the deck
+reads (erf.terrain_file_name); inputs is the deck, for geometry.prob_lo, geometry.prob_hi and amr.n_cell;
+fire_terrain.txt is erf.fire.terrain_file_name when it is a different file.
 
 For each line: keeps the longest run of OSM nodes inside box_m and, from each tower, picks the farthest node whose
 span is at most 550 m long, at least min_span_m long and clears the terrain by 8 m in still air (parabolic sag of
 Drake ACSR at 30 kN; within 0.2 m of the catenary for these spans). The last span of a line may be shorter than
 min_span_m. When no node meets min_span_m and the 8 m clearance, the next node is used and a warning is printed.
-Towers are 30 m above the local ground; both ends of a span that still clears by less than 8 m are raised (at most
-to 60 m). The clearance is measured over terrain.txt only: the run places the towers on its own mesh surface, and a
-separate fire terrain (when the case has one) can lie higher than both. Tower points are heights above the local terrain (ConductorInputs.rst).
+Ground: the run places the towers (and the fire's radiating sources) on its mesh surface, terrain.txt sampled at
+the bottom nodes of the amr.n_cell grid and bilinear between them; the tool builds the same surface. Towers are
+30 m above that surface. The 8 m clearance is measured over the higher of the mesh surface and terrain.txt; both
+ends of a span that still clears by less than 8 m are raised (at most to 60 m). The clearance over fire_terrain.txt,
+which can be much sharper than the mesh, is only reported (lines_meta.json clearance_fire_terrain and stderr). Tower points are heights above the local terrain (ConductorInputs.rst).
 Prints the conductor block (from the "TRANSMISSION LINES" banner to the end of the deck) and writes lines_meta.json.
-With --check, compares the block with the same section of an existing deck, and the towers with the existing
---meta file (which is then not written), and exits 1 if either differs.
+With --check, compares the block with the conductor block of the --deck, and the towers with the existing --meta
+file (which is then not written), and exits 1 if either differs.
 Exits with an error if a line's way is missing, fewer than 2 of its nodes are in the box, or a span is still
 longer than 550 m or clears the terrain by less than 8 m after the towers are raised.
 The terrain file is the ERF format: nx, ny, the x and y coordinates, then z with y varying fastest.
@@ -49,6 +53,26 @@ def ground(T, px, py):
     i = np.clip(np.searchsorted(x, px) - 1, 0, len(x) - 2); j = np.clip(np.searchsorted(y, py) - 1, 0, len(y) - 2)
     fx = (px - x[i]) / (x[i + 1] - x[i]); fy = (py - y[j]) / (y[j + 1] - y[j])
     return (z[i, j] * (1 - fx) * (1 - fy) + z[i + 1, j] * fx * (1 - fy) + z[i, j + 1] * (1 - fx) * fy + z[i + 1, j + 1] * fx * fy)
+
+
+def read_deck(fn):
+    v = {}
+    for ln in open(fn):
+        ln = ln.split("#")[0].split()
+        if len(ln) >= 3 and ln[1] == "=" and ln[0] in ("geometry.prob_lo", "geometry.prob_hi", "amr.n_cell"):
+            v[ln[0]] = ln[2:]
+    if len(v) != 3:
+        sys.exit(f"{fn}: needs geometry.prob_lo, geometry.prob_hi and amr.n_cell")
+    lo, hi = [float(s) for s in v["geometry.prob_lo"][:2]], [float(s) for s in v["geometry.prob_hi"][:2]]
+    n = [int(s) for s in v["amr.n_cell"][:2]]
+    return lo, hi, n
+
+
+def mesh_surface(T, lo, hi, n):
+    # the bottom nodes of the grid, as the run fills z_phys_nd from the terrain file
+    xn, yn = np.linspace(lo[0], hi[0], n[0] + 1), np.linspace(lo[1], hi[1], n[1] + 1)
+    X, Y = np.meshgrid(xn, yn, indexing="ij")
+    return xn, yn, ground(T, X.ravel(), Y.ravel()).reshape(X.shape)
 
 
 def pick(lines, wid, box, min_span, T):
@@ -83,13 +107,15 @@ def pick(lines, wid, box, min_span, T):
 
 
 def clearance(T, pts, h=None):
+    # T = (mesh surface, [surfaces to clear]): towers stand on the first; the wire clears the highest of all
     out = []
     h = [TOWER_H] * len(pts) if h is None else h
     for n, (a, b) in enumerate(zip(pts[:-1], pts[1:])):
-        Lh = np.hypot(*(b - a)); s = np.linspace(0, 1, 41)
+        Lh = np.hypot(*(b - a)); s = np.linspace(0, 1, 101)
         xs, ys = a[0] + s * (b[0] - a[0]), a[1] + s * (b[1] - a[1])
-        g = ground(T, xs, ys)
-        za, zb = g[0] + h[n] - 2.5, g[-1] + h[n + 1] - 2.5
+        base = ground(T[0], xs[[0, -1]], ys[[0, -1]])
+        g = np.max([ground(S, xs, ys) for S in [T[0]] + T[1]], axis=0)
+        za, zb = base[0] + h[n] - 2.5, base[1] + h[n + 1] - 2.5
         cable = za + s * (zb - za) - W * (s * Lh) * (Lh - s * Lh) / (2 * TENSION)
         out.append((Lh, float((cable - g).min())))
     return out
@@ -154,7 +180,7 @@ conductors.thermal.towers             = true
 """
 
 
-def build(cfg, lines, T):
+def build(cfg, lines, T, T_fire=None):
     blocks, meta = [], []
     for c in cfg["lines"]:
         nm, wid, box, ms, frames = c["name"], int(c["osm_way"]), c["box_m"], float(c["min_span_m"]), bool(c["frames"])
@@ -179,6 +205,11 @@ def build(cfg, lines, T):
         blocks.append(f"# {nm}: OSM way {wid}, {l['voltage']} V, {l['name']}\n" + line_block(nm, pts, h, frames))
         meta.append(dict(name=nm, way=wid, voltage=l["voltage"], osm_name=l["name"], pts=pts.tolist(), heights=h,
                          frames=frames, spans=[s for s, _ in cl], clearance=[k for _, k in cl]))
+        if T_fire is not None:
+            cf = [k for _, k in clearance(T_fire, pts, h)]
+            meta[-1]["clearance_fire_terrain"] = cf
+            print(f"{nm}: clearance over the fire terrain {min(cf):.1f} m (lowest), {sum(k < CLEAR_MIN for k in cf)} of "
+                  f"{len(cf)} spans below {CLEAR_MIN:g} m", file=sys.stderr)
     block = COMMON_STRUCT.format(names=" ".join(c["name"] for c in cfg["lines"]), rho=cfg["air_density"],
                                  elev=cfg["elevation_m"], blocks="\n".join(blocks))
     return block, meta
@@ -187,7 +218,8 @@ def build(cfg, lines, T):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("config"); ap.add_argument("--osm", required=True); ap.add_argument("--terrain", required=True)
-    ap.add_argument("--meta", default="lines_meta.json"); ap.add_argument("--check", default="")
+    ap.add_argument("--deck", required=True); ap.add_argument("--fire-terrain", default="")
+    ap.add_argument("--meta", default="lines_meta.json"); ap.add_argument("--check", action="store_true")
     a = ap.parse_args()
     cfg = json.load(open(a.config))
     for k in ("air_density", "elevation_m", "lines"):
@@ -217,13 +249,16 @@ if __name__ == "__main__":
             sys.exit(f"{a.config}: line {c['name']}: box_m must be [x0, x1, y0, y1] with x0 < x1 and y0 < y1")
         if not 0 < float(c["min_span_m"]) <= SPAN_MAX:
             sys.exit(f"{a.config}: line {c['name']}: min_span_m must be in (0, {SPAN_MAX:g}]")
-    T = read_terrain(a.terrain)
+    Ta = read_terrain(a.terrain); lo, hi, n = read_deck(a.deck)
+    clear = [Ta] + ([read_terrain(a.fire_terrain)] if a.fire_terrain else [])      # [1]: reported only
     for c in cfg["lines"]:
         b = c["box_m"]
-        if not (T[0][0] <= b[0] and b[1] <= T[0][-1] and T[1][0] <= b[2] and b[3] <= T[1][-1]):
-            sys.exit(f"{a.config}: line {c['name']}: box_m must lie inside the terrain "
-                     f"[{T[0][0]:g}, {T[0][-1]:g}] x [{T[1][0]:g}, {T[1][-1]:g}] m")
-    block, meta = build(cfg, json.load(open(a.osm)), T)
+        for S, fn in [(Ta, a.terrain)] + ([(clear[1], a.fire_terrain)] if a.fire_terrain else []) + [((lo, hi), a.deck)]:
+            x0, x1, y0, y1 = (S[0][0], S[1][0], S[0][1], S[1][1]) if fn == a.deck else (S[0][0], S[0][-1], S[1][0], S[1][-1])
+            if not (x0 <= b[0] and b[1] <= x1 and y0 <= b[2] and b[3] <= y1):
+                sys.exit(f"{a.config}: line {c['name']}: box_m must lie inside {fn} [{x0:g}, {x1:g}] x [{y0:g}, {y1:g}] m")
+    mesh = mesh_surface(Ta, lo, hi, n)
+    block, meta = build(cfg, json.load(open(a.osm)), (mesh, [Ta]), (mesh, clear[1:]) if a.fire_terrain else None)
     if not a.check:
         json.dump(meta, open(a.meta, "w"), indent=1)
     else:
@@ -238,11 +273,11 @@ if __name__ == "__main__":
             return p == q
         if not same(old, json.loads(json.dumps(meta))):
             sys.exit(f"{a.meta}: towers differ from the ones built from {a.config}")
-        deck = open(a.check).read()
+        deck = open(a.deck).read()
         banner = "# " + "=" * 76 + "\n# TRANSMISSION LINES"
         i = deck.find(banner)
         if i < 0 or deck[i:].rstrip() != block[block.index(banner):].rstrip():
-            sys.exit(f"{a.check}: conductor block differs from the one built from {a.config}")
-        print(f"{a.check}: conductor block and {a.meta} match", file=sys.stderr)
+            sys.exit(f"{a.deck}: conductor block differs from the one built from {a.config}")
+        print(f"{a.deck}: conductor block and {a.meta} match", file=sys.stderr)
     if not a.check:
         sys.stdout.write(block)

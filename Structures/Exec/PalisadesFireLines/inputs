@@ -85,7 +85,7 @@ erf.fire.propagation_method = "levelset"
 erf.fire.coupling_type = "lagged"          # two way: the fire heats the air, the plume reaches the lines
 erf.fire.fire_atm_feedback = 1
 erf.fire.plot_file = plt_fire_
-erf.fire.plot_per  = 30.0
+erf.fire.plot_per  = 60.0    # divides stop_time (no fire plot is written at the stop); the post reads arrival time and the level set
 erf.fire.write_fire_stats_csv = true
 erf.fire.fire_stats_csv_file = "fire_stats.csv"
 erf.fire.fuel_map.format = "ascii"
@@ -156,7 +156,7 @@ conductors.thermal.elevation          = 300
 conductors.thermal.towers             = true
 # L1: OSM way 1350299776, None V, None
 conductors.L1.end_a  = 6453.5 12482.1 30
-conductors.L1.towers = 6442.9 12019.8 30  6313.5 11514.6 30  6225.9 11062.5 30  6364.0 10637.5 30  6493.0 10380.9 30  6813.8 9983.1 30  6837.0 9578.8 30  6915.3 9105.3 30  7019.6 8686.6 30  7135.4 8206.9 30
+conductors.L1.towers = 6424.9 12187.7 30.7398  6442.9 12019.8 31.6369  6440.5 11887.9 31.6369  6435.1 11662.2 30  6212.3 11359.8 30  6285.9 10877.6 30  6396.6 10537.5 30  6493.0 10380.9 30  6813.8 9983.1 30  6859.9 9715.0 30  6844.0 9471.5 30  6944.5 8996.9 30  6998.9 8777.2 30  7019.6 8686.6 30  7122.4 8298.1 31.4093  7135.4 8206.9 32.8021  7234.6 8138.9 32.8021
 conductors.L1.end_b  = 7186.1 7694.2 30
 conductors.L1.stringing_tension = 30000
 conductors.L1.diameter         = 0.0281     # Drake ACSR, IEEE Std 738-2023 4.6
@@ -176,7 +176,7 @@ conductors.L1.resistance       = 7.283e-5 8.688e-5
 conductors.L1.resistance_temperatures = 25.0 75.0
 # L2: OSM way 398601720, 230000;230000;230000;0 V, Tarzana - Olympic + Electrode Line of HVDC Pacific DC Intertie
 conductors.L2.end_a  = 10767.4 12439.5 30
-conductors.L2.towers = 11005.6 12218.4 30  11115.4 11900.7 30  11201.4 11651.1 30  11283.4 11412.0 30  11503.0 11008.4 30  11652.2 10771.2 30  11846.3 10420.3 30  11782.6 10090.2 30  11686.4 9558.2 30  11746.6 9167.3 30  11814.5 8805.1 30  11874.7 8465.7 30  11886.3 8255.3 30  11952.6 7964.6 30  12192.9 7486.7 30  12366.9 6995.7 30
+conductors.L2.towers = 11005.6 12218.4 30.8906  11115.4 11900.7 40.5536  11201.4 11651.1 47.7741  11283.4 11412.0 47.7741  11503.0 11008.4 30  11652.2 10771.2 30  11846.3 10420.3 46.7967  11782.6 10090.2 46.7967  11686.4 9558.2 40.0594  11746.6 9167.3 40.0594  11814.5 8805.1 36.9314  11874.7 8465.7 32.7121  11886.3 8255.3 35.1742  11952.6 7964.6 35.1742  12192.9 7486.7 30  12366.9 6995.7 30
 conductors.L2.end_b  = 12445.1 6802.9 30
 conductors.L2.stringing_tension = 30000
 conductors.L2.diameter         = 0.0281     # Drake ACSR, IEEE Std 738-2023 4.6

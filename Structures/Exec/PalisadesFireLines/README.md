@@ -31,12 +31,12 @@ The setup:
 | Domain | 24 km square, 80 x 80 x 102 cells, 10 m first cell stretched by 1.03 to a 6.5 km top |
 | Terrain | `terrain_palisades.txt` and `terrain_palisades_fire.txt`, made by `Exec/CanonicalTests/Fire/Real_Terrain/Palisades_Fire/gen_palisades.py` |
 | Atmosphere | anelastic, FFT pressure solve, YSU boundary layer with 2D Smagorinsky, Rayleigh damping in the top 1.5 km |
-| Inflow | north and east faces, HRRR 2025-01-07 19 UTC (pressure levels from 100 m above the ground up, the 10 m wind below them, a log law with z0 = 0.1 m to 2 m); outflow on the west and south faces |
+| Inflow | north and east faces, HRRR 2025-01-07 19 UTC (pressure levels from 20 m above the ground up, the 10 m wind below them, a log law with z0 = 0.1 m to 2 m); outflow on the west and south faces |
 | Fire | level set on a grid 10 times finer (30 m cells) on the fire terrain, BEHAVE multi-class spread per fuel cell, Andrews WAF, lagged two-way coupling, spotting |
 | Ignition | one 100 m circle at (9000, 8000) m, lit at 600 s after a 10 min wind spin-up |
 | Run length | 6900 s: 10 min spin-up, then 105 min of fire |
-| L1 | 11 spans of Drake ACSR, 287-521 m long, lattice towers 30 m high with steel temperature |
-| L2 | 17 spans of Drake ACSR, 208-541 m long, rigid point towers (wire temperature only) |
+| L1 | 18 spans of Drake ACSR, 92-511 m long, lattice towers 30-33 m high with steel temperature |
+| L2 | 17 spans of Drake ACSR, 208-541 m long, rigid point towers 30-48 m high (wire temperature only) |
 
 Fuel moisture:
 
@@ -112,8 +112,9 @@ cd .. && python3 case.py post --basemap <RGB GeoTIFF over the domain>
 `prepare` also checks that the deck's conductor block and `lines_meta.json` are the ones `fire_lines_towers.py`
 builds from `lines_config.json` over the terrain; it stops if either differs. A line's last span may be shorter
 than `min_span_m`, and when no node meets `min_span_m` and the clearance the tool takes the next node and prints a
-warning. The 550 m and 8 m limits hold for every span, and the tool stops if one cannot meet them. The 8 m
-clearance is measured over the terrain file given with `--terrain` only; see the note under Expected results.
+warning. The 550 m and 8 m limits hold for every span, and the tool stops if one cannot meet them. The towers
+stand on the run's mesh surface (the terrain file at the bottom grid nodes, which the tool rebuilds from the deck),
+and the 8 m is measured over the higher of that surface and the terrain file; see the note under Expected results.
 `post` writes into `run/figs/`: the burned-area map with the lines coloured by their peak temperature, a movie
 (needs ffmpeg), the line and tower temperatures against time, per-span and per-tower CSV files,
 `summary.json`, the fragility figure and the head distance.
@@ -124,12 +125,13 @@ To remake the inputs from the sources (not needed to run the case), in `run/` af
 cd run
 T=../../../../Exec/Tools
 python3 $T/hrrr_profile.py --date 2025-01-07 --hour 19 --domain palisades_domain.json \
-    --point-xy 9000 8000 --out-prefix pal19_ign --z-min 100 --z0 0.1
+    --point-xy 9000 8000 --out-prefix pal19_ign --z-min 20 --z0 0.1
 cp pal19_ign_inflow.txt inflow_hrrr.txt
 awk 'NF { $3 = "0.0"; print }' pal19_ign_sounding.txt > sounding_hrrr.txt    # dry run: qv = 0
 # osm_power_palisades.json: the Overpass query in osm_power_lines.py, box under Data and acknowledgements
 python3 $T/osm_power_lines.py osm_power_palisades.json palisades_domain.json fuel_palisades_fbfm40.asc osm
 python3 $T/fire_lines_towers.py ../lines_config.json --osm osm_lines.json --terrain terrain_palisades.txt \
+    --fire-terrain terrain_palisades_fire.txt --deck inputs \
     --meta lines_meta_new.json > conductor_block.txt
 ```
 
@@ -142,14 +144,14 @@ results below were made with.
 
 ## Expected results
 
-From the run made with this deck (FLARE `af41c74b0`, 4 ranks, 1 h 55 min wall time):
+From the run made with this deck (4 ranks, 2 h 29 min wall time):
 
 | Quantity | Run | Observed |
 |---|---|---|
 | Head distance from the ignition at 60 min | 2.51 km (1.6 miles), so about 2.5 km/h (1.6 mph) | satellite spread 1.0 to 3.7 km/h (0.6 to 2.3 mph), Li et al. 2026 |
 | Burned area at 105 min | 390 ha (965 acres) | not compared |
-| Spans the fire reached | 0 of 28 | not compared |
-| Peak conductor temperature | 21.7 C (71 F) | – |
+| Spans the fire reached | 0 of 35 | not compared |
+| Peak conductor temperature | 21.9 C (71 F) | – |
 | Peak tower steel temperature (L1) | 15.0 C (59 F) | – |
 
 The mean head speed over the first hour, from the head distance, is inside the satellite range. It is not
@@ -160,13 +162,14 @@ one observed place; it does not check the direction of spread. It is measured fr
 ignition circle. `head_ros_median_ms` in `summary.json` is the median front speed from `fire_stats.csv`, not
 the head distance over time; it is not compared.
 
-Clearance: the towers are picked so that every span clears `terrain_palisades.txt` (the smoothed atmosphere
-terrain) by 8 m in still air. The run places the towers on its own terrain-following mesh surface (nodes 300 m
-apart), and the fire spreads on the sharper 30 m fire terrain. With the towers on the mesh, the lowest still-air
-clearance is -0.8 m for L1 (span 11) and 4.4 m for L2 above the mesh, and -24.5 m (L1) and -28.1 m (L2) above
-the fire terrain: parts of 8 of 11 L1 spans and 10 of 17 L2 spans lie below the fire-terrain ground. The fire does
-not reach any span in this run, so the results above do not depend on it; the case is not set up for a line
-exposure study.
+Clearance: the towers stand on the run's terrain-following mesh surface (`terrain_palisades.txt` at nodes 300 m
+apart), where the run also puts the fire's radiating sources. Every span clears the higher of that surface and
+`terrain_palisades.txt` by at least 8 m in still air; towers are raised up to 33 m on L1 and 48 m on L2 for it.
+The fire spreads on the sharper `terrain_palisades_fire.txt`, which lies up to 52 m above the smoothed
+atmosphere terrain. Over it the lowest clearance is -17.7 m on L1 and -14.6 m on L2: parts of 12 of 18 L1 spans
+and 10 of 17 L2 spans lie below the fire-terrain ground (`clearance_fire_terrain` in `lines_meta.json`). This
+does not enter the heat transfer, which places towers, wire and fire sources on the mesh surface. The fire does
+not reach any span in this run, and the case is not set up for a line exposure study.
 
 ## CTest
 

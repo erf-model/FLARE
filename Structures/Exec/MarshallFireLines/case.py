@@ -40,6 +40,15 @@ a = ap.parse_args()
 run = os.path.abspath(a.run)
 dom = os.path.join(RT, f"{CASE}_domain.json")
 
+def movie_every(run, frame_s=120.0):
+    """Movie stride: one frame per frame_s of the run's erf.fire.plot_per (60 s in the deck, 30 s in older runs)."""
+    for line in open(os.path.join(run, "inputs")):
+        k, _, v = line.split("#")[0].partition("=")
+        if k.strip() == "erf.fire.plot_per":
+            return max(1, round(frame_s / float(v)))
+    sys.exit("post: erf.fire.plot_per not found in the run's inputs")
+
+
 if a.step == "prepare":
     os.makedirs(run, exist_ok=True)
     for t in TERRAIN:
@@ -57,8 +66,8 @@ if a.step == "prepare":
            "--domain", os.path.basename(dom), cwd=run)
         open(stamp, "w").write(want)
     sh(sys.executable, os.path.join(TOOLS, "fire_lines_towers.py"), os.path.join(HERE, "lines_config.json"),
-       "--osm", os.path.join(HERE, "osm_lines.json"), "--terrain", TERRAIN[0],
-       "--meta", "lines_meta.json", "--check", "inputs", cwd=run)
+       "--osm", os.path.join(HERE, "osm_lines.json"), "--terrain", TERRAIN[0], "--deck", "inputs",
+       "--meta", "lines_meta.json", "--check", cwd=run)
     print(f"ready: cd {run} && mpiexec -n 4 <FLARE build>/flare inputs")
 else:
     if not a.basemap:
@@ -66,6 +75,6 @@ else:
     figs = os.path.abspath(a.figs or os.path.join(run, "figs"))
     os.makedirs(figs, exist_ok=True)
     sh(sys.executable, os.path.join(TOOLS, "fire_lines_plot.py"), CASE, run, os.path.abspath(a.basemap), figs,
-       "--domain", dom, "--title", TITLE, "--every", "4", "--crop", CROP, "--trange", TRANGE, cwd=run)
+       "--domain", dom, "--title", TITLE, "--every", str(movie_every(run)), "--crop", CROP, "--trange", TRANGE, cwd=run)
     sh(sys.executable, os.path.join(TOOLS, "fire_lines_fragility.py"), figs, f"{CASE}={run}", cwd=run)
     sh(sys.executable, os.path.join(TOOLS, "fire_head_distance.py"), figs, f"{CASE}={run}", cwd=run)

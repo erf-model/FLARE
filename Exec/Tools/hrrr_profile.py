@@ -2,7 +2,7 @@
 """HRRR analysis column at points of a FLARE real-terrain domain -> ERF sounding + inflow file.
 
     hrrr_profile.py --date 2021-12-30 --hour 18 --domain marshall_domain.json --point-xy 0 11000 \
-        --out-prefix marshall_hrrr18 [--top-km 12] [--z-min 100] [--z0 0.1]
+        --out-prefix marshall_hrrr18 [--top-km 12] [--z-min 20] [--z0 0.1]
 
 Fetches only the needed GRIB messages of the HRRR pressure-level analysis (product prs, fxx 0) with Herbie
 (HGT, TMP, SPFH, UGRD, VGRD on isobaric levels) plus surface HGT and PRES (product sfc). U, V are rotated from
@@ -12,8 +12,8 @@ grid- to earth-relative (alpha = sin(Latin1)(lon - LoV)). Writes
   <prefix>_inflow.txt    # z u v T above ground (xlo.inflow_profile = "file")
   <prefix>_info.json     ground height, 10 m wind, geostrophic estimate (mean wind 2-4 km AGL), points
 p_floor is the HRRR surface pressure brought hydrostatically down to the domain floor (floor_elevation_m_asl).
-Near the ground: isobaric levels less than --z-min above the local ground are dropped (the cases use 100 m; it
-drops a level near 50 m in the Marshall columns and none in the Palisades column); the 10 m wind is brought to 2 m
+Near the ground: isobaric levels less than --z-min above the local ground are dropped (the cases use 20 m; a
+level within a few metres of the 10 m wind would add a spurious shear layer); the 10 m wind is brought to 2 m
 with a neutral log law over --z0 (use the deck's erf.most.z0), and between 2 m and the first kept level all fields
 are interpolated linearly in ln z (ln z is used for the whole column, aloft too). Above 10 m the profile follows
 HRRR, not --z0. The run stops if a column has no level at or above --top-km.
@@ -32,7 +32,7 @@ ap.add_argument("--point-xy", nargs=2, type=float, action="append", required=Tru
                 help="domain coordinates (m); several points are averaged column by column")
 ap.add_argument("--out-prefix", required=True)
 ap.add_argument("--top-km", type=float, default=12.0)
-ap.add_argument("--z-min", type=float, default=100.0, help="drop isobaric levels below this height AGL [m]")
+ap.add_argument("--z-min", type=float, default=20.0, help="drop isobaric levels below this height AGL [m]")
 ap.add_argument("--z0", type=float, default=0.1, help="roughness length for the 2 m wind [m]")
 ap.add_argument("--save-dir", default="hrrr_cache")
 a = ap.parse_args()
