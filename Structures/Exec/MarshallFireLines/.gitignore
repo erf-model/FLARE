@@ -12,3 +12,12 @@ conductors/
 fire_stats.csv
 L[0-9]*_*.dat
 L[0-9]*_*.csv
+*.asc.source
+*.tif.part
+plt*
+chk*
+*_hrrr18_*
+pal19_ign_*
+osm_power_*.json
+osm_lines.png
+conductor_block.txt

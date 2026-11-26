@@ -28,12 +28,12 @@ The setup:
 | Domain | 25.6 km square, 80 x 80 x 50 cells, 10 m first cell stretched by 1.1 to an 11.6 km top |
 | Terrain | `Exec/CanonicalTests/Fire/Real_Terrain/Marshall_Fire/terrain_marshall.txt` |
 | Atmosphere | anelastic, FFT pressure solve, YSU boundary layer with 2D Smagorinsky, Rayleigh damping in the top 3 km |
-| Inflow | west and north faces, HRRR 2021-12-30 18 UTC; outflow on the east and south faces |
+| Inflow | west and north faces, HRRR 2021-12-30 18 UTC (pressure levels from 100 m above the ground up, the 10 m wind below them, a log law with z0 = 0.1 m to 2 m); outflow on the east and south faces |
 | Fire | level set on a grid 8 times finer (40 m cells), Rothermel per fuel cell, Andrews WAF, lagged two-way coupling, spotting |
 | Ignition | one 100 m circle at (5000, 11000) m, lit at 600 s after a 10 min wind spin-up |
 | Run length | 5400 s: 10 min spin-up, then 80 min of fire |
-| L1 | 7 spans of Drake ACSR, 253-426 m long, lattice towers 30 m high with steel temperature |
-| L2 | 14 spans of Drake ACSR, 175-535 m long, rigid point towers (wire temperature only) to keep the run short |
+| L1 | 6 spans of Drake ACSR, 253-511 m long, lattice towers 30 m high with steel temperature |
+| L2 | 14 spans of Drake ACSR, 210-512 m long, rigid point towers (wire temperature only) to keep the run short |
 
 ## Files
 
@@ -71,8 +71,9 @@ We thank the providers of the open data this case is built from:
   `Exec/CanonicalTests/Fire/Real_Terrain/Marshall_Fire/README.md`.
 - **Imagery** under the maps (optional, `case.py post`): U.S. Geological Survey, The National Map, public
   domain, fetched by `Exec/Tools/make_map_movie.py --fetch usgs`. Not redistributed.
-- **Observation:** The Colorado Sun, Marshall Fire timeline, 6 January 2022: the fire reached the Superior Costco,
-  about 5.5 km (3.4 miles) from the origin area, about 75 min after it started.
+- **Observation:** The Colorado Sun, Marshall Fire timeline, 6 January 2022,
+https://coloradosun.com/2022/01/06/marshall-fire-boulder-county-timeline/: the fire reached the Superior
+Costco, about 5.5 km (3.4 miles) from the origin area, about 75 min after it started.
 
 Sources of the methods: IEEE Std 738-2023 (doi:10.1109/IEEESTD.2023.10382442, cited, not reproduced) for the
 Drake conductor and its heat balance; EN 1993-1-2 for the steel; Rothermel (1972) and Andrews (2012) for the
@@ -80,8 +81,9 @@ spread, as listed in `Structures/Exec/FireUnderLine/README.md`.
 
 ## How to run
 
-Needs Python 3 with numpy, rasterio, pyproj, matplotlib, yt and scipy (Herbie only to remake the HRRR files),
-and a FLARE build with MoorDyn-C (the conductor model).
+Needs Python 3 with numpy, rasterio, pyproj, matplotlib, yt and scipy, ffmpeg for the movie (skipped
+without it), and a FLARE build with MoorDyn-C (the conductor model). Herbie and pandas are needed only to
+remake the HRRR files.
 
 ```bash
 python3 case.py prepare                        # run/ with the deck, terrain, small files and the LANDFIRE fuel map
@@ -89,10 +91,12 @@ cd run && mpiexec -n 4 <FLARE build>/flare inputs
 cd .. && python3 case.py post --basemap <RGB GeoTIFF over the domain>
 ```
 
-`prepare` also checks that the deck's conductor block is the one `fire_lines_towers.py` builds from
-`lines_config.json`; it stops if they differ. `post` writes into `run/figs/`: the burned-area map with the
-lines coloured by their peak temperature, a movie, the line and tower temperatures against time, per-span and
-per-tower CSV files, `summary.json`, the fragility figure and the head distance.
+`prepare` also checks that the deck's conductor block and `lines_meta.json` are the ones `fire_lines_towers.py`
+builds from `lines_config.json` over the terrain; it stops if either differs. A line's last span may be shorter
+than `min_span_m`; the 550 m and 8 m limits hold for every span, and the tool stops if one cannot meet them.
+`post` writes into `run/figs/`: the burned-area map with the lines coloured by their peak temperature, a movie
+(needs ffmpeg), the line and tower temperatures against time, per-span and per-tower CSV files,
+`summary.json`, the fragility figure and the head distance.
 
 To remake the inputs from the sources (not needed to run the case), in `run/` after `prepare`:
 
@@ -100,7 +104,8 @@ To remake the inputs from the sources (not needed to run the case), in `run/` af
 cd run
 T=../../../../Exec/Tools
 python3 $T/hrrr_profile.py --date 2021-12-30 --hour 18 --domain marshall_domain.json \
-    --point-xy 0 11000 --point-xy 0 8000 --point-xy 0 14000 --out-prefix marshall_hrrr18
+    --point-xy 0 11000 --point-xy 0 8000 --point-xy 0 14000 --out-prefix marshall_hrrr18 \
+    --z-min 100 --z0 0.1
 cp marshall_hrrr18_inflow.txt inflow_hrrr.txt
 awk 'NF { $3 = "0.0"; print }' marshall_hrrr18_sounding.txt > sounding_hrrr.txt    # dry run: qv = 0
 # osm_power_marshall.json: the Overpass query in osm_power_lines.py, box under Data and acknowledgements
@@ -114,18 +119,20 @@ results below were made with.
 
 ## Expected results
 
-From the run made with this deck (FLARE `af41c74b0`, 4 ranks, 55 min wall time):
+From the run made with this deck (FLARE `af41c74b0`, 4 ranks, 47 min wall time):
 
 | Quantity | Run | Observed |
 |---|---|---|
-| Head distance from the ignition at 75 min | 4.79 km (3.0 miles) | about 5.5 km (3.4 miles), Colorado Sun |
-| Burned area at 80 min | 471 ha (1,165 acres) | not compared |
-| Spans the fire reached | 8 of 21 | not compared |
-| Peak conductor temperature | 43.9 C (111 F) | – |
-| Peak tower steel temperature (L1) | 28.0 C (82 F) | – |
+| Head distance from the ignition at 75 min | 4.75 km (3.0 miles) | about 5.5 km (3.4 miles), Colorado Sun |
+| Burned area at 80 min | 452 ha (1,117 acres) | not compared |
+| Spans the fire reached | 6 of 20 | not compared |
+| Peak conductor temperature | 48.7 C (120 F) | – |
+| Peak tower steel temperature (L1) | 29.3 C (85 F) | – |
 
-The head reaches 87 % of the observed distance at 75 min. It then stops near 5.3 km where LANDFIRE maps the
-town as non-burnable. No span passes the chosen 100 C wire flag and no tower the 400 C steel flag
+The head reaches 86 % of the observed distance at 75 min. The burned area then ends at L1 and the edge of the
+town, which LANDFIRE maps as non-burnable. The head distance is the farthest burned cell from the ignition
+point in any direction, compared with the distance to one observed place; it does not check the direction of
+spread. No span passes the chosen 100 C wire flag and no tower the 400 C steel flag
 (`fire_lines_fragility.py`), so no fragility curve is fitted; the figure shows the margins instead.
 
 ## CTest
@@ -133,8 +140,10 @@ town as non-burnable. No span passes the chosen 100 C wire flag and no tower the
 None. The full run takes about an hour on 4 ranks, longer than the regression suite allows. The case was
 checked as follows instead:
 
-- `case.py prepare` rebuilds the conductor block and the tower file from `lines_config.json`; both match the
-  committed `inputs` and `lines_meta.json` exactly.
+- `case.py prepare` rebuilds the conductor block and the tower file from `lines_config.json`; it stops unless
+  both match the committed `inputs` and `lines_meta.json` exactly.
+- `Exec/Tools/test_fire_lines_towers.py` checks the terrain read of `fire_lines_towers.py` on a plane over a
+  non-square grid; it fails on a transposed read.
 - The deck runs 4 steps from a fresh `run/` with `amrex.parmparse.verbose = 1` and reports no unused inputs.
 - `case.py post` on the finished run gives per-span, per-tower, head-distance and summary files identical to
   those behind the numbers above.

@@ -4,11 +4,15 @@
     python3 case.py prepare [--run DIR]                 # terrain, LANDFIRE fuel map, decks and small files into DIR
     python3 case.py post --basemap TIF [--run DIR] [--figs DIR]   # maps, movie, line temperatures, fragility, head distance
 
-DIR defaults to ./run. 'prepare' copies this folder's decks and small files into DIR, runs gen_palisades.py in the Real_Terrain folder when its terrain files are missing, fetches the
-LANDFIRE LF2024 FBFM40 window and maps it at 30 m (make_landfire_fuel_map.py), and checks that the
-conductor block of the deck is the one fire_lines_towers.py builds from lines_config.json and osm_lines.json over
-the terrain (exit 1 if not). 'post' runs fire_lines_plot.py, fire_lines_fragility.py and fire_head_distance.py.
-The basemap is any RGB GeoTIFF over the domain, for example the one make_map_movie.py --fetch usgs writes in
+DIR defaults to ./run. 'prepare' copies this folder's decks and small files into DIR, copies the terrain files from the Real_Terrain
+folder (or, when they are missing there, runs gen_palisades.py inside DIR, so no tracked file changes; it needs
+the SRTM1 tiles, see its --tiles option),
+fetches the LANDFIRE LF2024 FBFM40 window and maps it at 30 m (make_landfire_fuel_map.py; fetched again if
+the map in DIR was made from another edition or cell size), and checks that the conductor block of the deck
+and lines_meta.json are the ones fire_lines_towers.py builds from lines_config.json and osm_lines.json over
+the terrain (exit 1 if not). 'post' runs fire_lines_plot.py (the movie needs ffmpeg; skipped without it),
+fire_lines_fragility.py and fire_head_distance.py. The basemap is any RGB GeoTIFF over the domain, for
+example basemap_palisades_z14.tif, which Exec/Tools/make_map_movie.py --fetch usgs writes in
 Exec/CanonicalTests/Fire/Real_Terrain/Palisades_Fire.
 """
 import argparse, os, shutil, subprocess, sys
@@ -40,22 +44,27 @@ dom = os.path.join(RT, f"{CASE}_domain.json")
 
 if a.step == "prepare":
     os.makedirs(run, exist_ok=True)
-    if not all(os.path.exists(os.path.join(RT, t)) for t in TERRAIN):
-        sh(sys.executable, "gen_palisades.py", cwd=RT)
+    if all(os.path.exists(os.path.join(RT, t)) for t in TERRAIN):
+        for t in TERRAIN:
+            shutil.copy(os.path.join(RT, t), run)
+    elif not all(os.path.exists(os.path.join(run, t)) for t in TERRAIN):
+        sh(sys.executable, os.path.join(RT, "gen_palisades.py"), cwd=run)     # writes into run/ only
     for t in TERRAIN:
-        if not os.path.exists(os.path.join(RT, t)):
-            sys.exit(f"missing {os.path.join(RT, t)}")
-        shutil.copy(os.path.join(RT, t), run)
+        if not os.path.exists(os.path.join(run, t)):
+            sys.exit(f"missing {os.path.join(run, t)}")
     for f in SMALL:
         shutil.copy(os.path.join(HERE, f), run)
     shutil.copy(dom, run)
     fuel = f"fuel_{CASE}_fbfm40.asc"
-    if not os.path.exists(os.path.join(run, fuel)):
+    stamp = os.path.join(run, fuel + ".source")         # edition and cell size the map was made with
+    want = f"{EDITION} {DX}\n"
+    if not (os.path.exists(os.path.join(run, fuel)) and os.path.exists(stamp) and open(stamp).read() == want):
         sh(sys.executable, os.path.join(TOOLS, "make_landfire_fuel_map.py"), "--fetch", EDITION, "--dx", DX,
            "--domain", os.path.basename(dom), cwd=run)
+        open(stamp, "w").write(want)
     sh(sys.executable, os.path.join(TOOLS, "fire_lines_towers.py"), os.path.join(HERE, "lines_config.json"),
        "--osm", os.path.join(HERE, "osm_lines.json"), "--terrain", TERRAIN[0],
-       "--meta", "lines_meta_check.json", "--check", "inputs", cwd=run)
+       "--meta", "lines_meta.json", "--check", "inputs", cwd=run)
     print(f"ready: cd {run} && mpiexec -n 4 <FLARE build>/flare inputs")
 else:
     if not a.basemap:

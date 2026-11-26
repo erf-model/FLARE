@@ -2,7 +2,7 @@
 """HRRR analysis column at points of a FLARE real-terrain domain -> ERF sounding + inflow file.
 
     hrrr_profile.py --date 2021-12-30 --hour 18 --domain marshall_domain.json --point-xy 0 11000 \
-        --out-prefix marshall_hrrr18 [--top-km 8]
+        --out-prefix marshall_hrrr18 [--top-km 12] [--z-min 100] [--z0 0.1]
 
 Fetches only the needed GRIB messages of the HRRR pressure-level analysis (product prs, fxx 0) with Herbie
 (HGT, TMP, SPFH, UGRD, VGRD on isobaric levels) plus surface HGT and PRES (product sfc). U, V are rotated from
@@ -12,6 +12,10 @@ grid- to earth-relative (alpha = sin(Latin1)(lon - LoV)). Writes
   <prefix>_inflow.txt    # z u v T above ground (xlo.inflow_profile = "file")
   <prefix>_info.json     ground height, 10 m wind, geostrophic estimate (mean wind 2-4 km AGL), points
 p_floor is the HRRR surface pressure brought hydrostatically down to the domain floor (floor_elevation_m_asl).
+Near the ground: isobaric levels less than --z-min above the local ground are dropped (a level a few tens of
+metres up, joined linearly to the 10 m wind, gives a spurious shear layer); the 10 m wind is brought to 2 m with
+a neutral log law over --z0 (use the deck's erf.most.z0), and between 2 m and the first kept level all fields
+are interpolated linearly in ln z.
 """
 import argparse, json, math, os, warnings
 import numpy as np
@@ -27,8 +31,16 @@ ap.add_argument("--point-xy", nargs=2, type=float, action="append", required=Tru
                 help="domain coordinates (m); several points are averaged column by column")
 ap.add_argument("--out-prefix", required=True)
 ap.add_argument("--top-km", type=float, default=12.0)
+ap.add_argument("--z-min", type=float, default=100.0, help="drop isobaric levels below this height AGL [m]")
+ap.add_argument("--z0", type=float, default=0.1, help="roughness length for the 2 m wind [m]")
 ap.add_argument("--save-dir", default="hrrr_cache")
 a = ap.parse_args()
+if not a.top_km > 0.2:
+    ap.error("--top-km must be > 0.2")
+if not 10.0 < a.z_min < 1000.0:
+    ap.error("--z-min must be in (10, 1000) m")
+if not 0.0 < a.z0 < 2.0:
+    ap.error("--z0 must be in (0, 2) m")
 
 info = json.load(open(a.domain))
 zone = info["utm_zone"]
@@ -73,6 +85,7 @@ def gridinfo(ds):
 
 
 cols = []
+lov, lat1 = -97.5, 38.5
 for lon, lat in pts:
     c = {}
     for ds in prs:
@@ -108,7 +121,7 @@ for c in cols:
     zs = c["sfc"]["orog_surface"] if "orog_surface" in c["sfc"] else c["sfc"]["gh_surface"]
     ps = c["sfc"]["sp_surface"]
     z = c["gh"] - zs
-    keep = z > 2.0
+    keep = z > a.z_min
     o = np.argsort(z[keep])
     zz = z[keep][o]
     T = c["t"][keep][o]; p = c["p"][keep][o]; q = c["q"][keep][o]
@@ -118,16 +131,16 @@ for c in cols:
     # near-surface anchor: 2 m theta/q and the 10 m wind, then the isobaric levels
     zz = np.concatenate([[2.0, 10.0], zz]); th = np.concatenate([[th2, th2], th])
     q = np.concatenate([[Q2, Q2], q]); T = np.concatenate([[T2, T2], T])
-    u = np.concatenate([[c["u10e"] * 0.6, c["u10e"]], c["u_earth"][keep][o]])
-    v = np.concatenate([[c["v10e"] * 0.6, c["v10e"]], c["v_earth"][keep][o]])
+    f2 = math.log(2.0 / a.z0) / math.log(10.0 / a.z0)     # neutral log law, 10 m -> 2 m
+    u = np.concatenate([[c["u10e"] * f2, c["u10e"]], c["u_earth"][keep][o]])
+    v = np.concatenate([[c["v10e"] * f2, c["v10e"]], c["v_earth"][keep][o]])
     for k, arr in (("th", th), ("qv", q / (1 - q)), ("u", u), ("v", v), ("T", T)):
-        acc[k].append(np.interp(zg, zz, arr))
+        acc[k].append(np.interp(np.log(zg), np.log(zz), arr))
     grounds.append(zs); psfc.append(ps); t2.append(T2); q2.append(Q2); u10l.append(c["u10e"]); v10l.append(c["v10e"])
 prof = {k: np.mean(v, axis=0) for k, v in acc.items()}
 ground = float(np.mean(grounds)); ps = float(np.mean(psfc)); T2 = float(np.mean(t2))
 # hydrostatic to the floor with the 2 m temperature
 p_floor = ps * math.exp(9.81 * (ground - floor) / (287.04 * T2))
-theta_floor = T2 * (1e5 / p_floor) ** 0.2854
 
 with open(f"{a.out_prefix}_sounding.txt", "w") as f:
     f.write(f"{p_floor / 100:.2f} {prof['th'][0]:.3f} {prof['qv'][0] * 1000:.4f}\n")

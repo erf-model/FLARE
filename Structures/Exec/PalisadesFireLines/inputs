@@ -118,7 +118,7 @@ erf.plot2d_file_1 = plt2d_palisades
 erf.fire.terrain_file_name = "terrain_palisades_fire.txt"
 erf.fire.grid_ratio = 10                    # 30 m fire cells
 erf.fire.fuel_map.file = "fuel_palisades_fbfm40.asc"  # LANDFIRE LF2024 FBFM40
-erf.fire.moisture_1hr   = 0.04   # NFDRS EMC (Cohen & Deeming 1985) at Malibu Hills RAWS forecast RH 22 %, 66 F (LACoFD Daily Fire Danger Analysis, 7 Jan 2025): 4.8 %; observed RH < 20 % (Li et al. 2026)
+erf.fire.moisture_1hr   = 0.05   # NFDRS EMC (Cohen & Deeming 1985) at Malibu Hills RAWS forecast RH 22 %, 66 F (LACoFD Daily Fire Danger Analysis, 7 Jan 2025): 4.8 %, rounded
 erf.fire.moisture_10hr  = 0.08   # LACoFD Daily Fire Danger Analysis, 7 Jan 2025, Malibu Hills RAWS 10-h DFM
 erf.fire.moisture_100hr = 0.10   # chosen (not in the LACoFD table); above the 10-h value
 erf.fire.moisture_live  = 0.62   # LACoFD Daily Fire Danger Analysis, 7 Jan 2025, Santa Monica Mountains live fuel moisture
@@ -156,7 +156,7 @@ conductors.thermal.elevation          = 300
 conductors.thermal.towers             = true
 # L1: OSM way 1350299776, None V, None
 conductors.L1.end_a  = 6453.5 12482.1 30
-conductors.L1.towers = 6442.9 12019.8 30  6435.1 11662.2 30  6182.3 11197.2 30  6225.9 11062.5 30  6364.0 10637.5 30  6658.2 10184.0 30  6859.9 9715.0 30  6844.0 9471.5 30  6944.5 8996.9 30  6998.9 8777.2 30  7107.8 8400.1 30  7239.1 8094.0 30
+conductors.L1.towers = 6442.9 12019.8 30  6313.5 11514.6 30  6225.9 11062.5 30  6364.0 10637.5 30  6493.0 10380.9 30  6813.8 9983.1 30  6837.0 9578.8 30  6915.3 9105.3 30  7019.6 8686.6 30  7135.4 8206.9 30
 conductors.L1.end_b  = 7186.1 7694.2 30
 conductors.L1.stringing_tension = 30000
 conductors.L1.diameter         = 0.0281     # Drake ACSR, IEEE Std 738-2023 4.6
@@ -176,7 +176,7 @@ conductors.L1.resistance       = 7.283e-5 8.688e-5
 conductors.L1.resistance_temperatures = 25.0 75.0
 # L2: OSM way 398601720, 230000;230000;230000;0 V, Tarzana - Olympic + Electrode Line of HVDC Pacific DC Intertie
 conductors.L2.end_a  = 10767.4 12439.5 30
-conductors.L2.towers = 11005.6 12218.4 30  11115.4 11900.7 30  11283.4 11412.0 51.6406  11503.0 11008.4 51.6406  11652.2 10771.2 30  11846.3 10420.3 37.3005  11782.6 10090.2 37.3005  11686.4 9558.2 30  11746.6 9167.3 37.9427  11814.5 8805.1 37.9427  11874.7 8465.7 30  11886.3 8255.3 30  11952.6 7964.6 30  12093.2 7744.4 30  12192.9 7486.7 30  12366.9 6995.7 30
+conductors.L2.towers = 11005.6 12218.4 30  11115.4 11900.7 30  11201.4 11651.1 30  11283.4 11412.0 30  11503.0 11008.4 30  11652.2 10771.2 30  11846.3 10420.3 30  11782.6 10090.2 30  11686.4 9558.2 30  11746.6 9167.3 30  11814.5 8805.1 30  11874.7 8465.7 30  11886.3 8255.3 30  11952.6 7964.6 30  12192.9 7486.7 30  12366.9 6995.7 30
 conductors.L2.end_b  = 12445.1 6802.9 30
 conductors.L2.stringing_tension = 30000
 conductors.L2.diameter         = 0.0281     # Drake ACSR, IEEE Std 738-2023 4.6

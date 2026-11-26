@@ -13,6 +13,8 @@ import numpy as np
 import yt
 yt.set_log_level(50)
 
+if len(sys.argv) < 3 or any("=" not in arg for arg in sys.argv[2:]):
+    sys.exit(__doc__.split("\n\n")[1])
 FIG = sys.argv[1]
 RUNS = dict(arg.split("=", 1) for arg in sys.argv[2:])
 sp = os.path.join(FIG, "summary.json")

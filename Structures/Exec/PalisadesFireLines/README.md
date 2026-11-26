@@ -18,8 +18,8 @@ the companion of `Structures/Exec/MarshallFireLines` on steep chaparral instead 
 - **Exposure:** the conductor temperature of every span (IEEE Std 738-2023 heat balance with the fire's
   radiation and the local air) and the steel temperature of L1's lattice towers (EN 1993-1-2 lumped heating).
 
-It is a demonstration, not a validation. The head speed is compared with a satellite estimate and the burned
-area with the first aerial map; the perimeter is not compared. The atmosphere is dry: the HRRR moisture is
+It is a demonstration, not a validation. The head speed is compared with a satellite estimate; the burned area
+and the perimeter are not compared. The atmosphere is dry: the HRRR moisture is
 set to zero because the run has no moisture model. In this run the fire spreads downwind toward the coast,
 away from both lines, so the lines stay near the air temperature; the case shows the chain working, not a
 line exposure.
@@ -31,18 +31,18 @@ The setup:
 | Domain | 24 km square, 80 x 80 x 102 cells, 10 m first cell stretched by 1.03 to a 6.5 km top |
 | Terrain | `terrain_palisades.txt` and `terrain_palisades_fire.txt`, made by `Exec/CanonicalTests/Fire/Real_Terrain/Palisades_Fire/gen_palisades.py` |
 | Atmosphere | anelastic, FFT pressure solve, YSU boundary layer with 2D Smagorinsky, Rayleigh damping in the top 1.5 km |
-| Inflow | north and east faces, HRRR 2025-01-07 19 UTC; outflow on the west and south faces |
+| Inflow | north and east faces, HRRR 2025-01-07 19 UTC (pressure levels from 100 m above the ground up, the 10 m wind below them, a log law with z0 = 0.1 m to 2 m); outflow on the west and south faces |
 | Fire | level set on a grid 10 times finer (30 m cells) on the fire terrain, BEHAVE multi-class spread per fuel cell, Andrews WAF, lagged two-way coupling, spotting |
 | Ignition | one 100 m circle at (9000, 8000) m, lit at 600 s after a 10 min wind spin-up |
 | Run length | 6900 s: 10 min spin-up, then 105 min of fire |
-| L1 | 13 spans of Drake ACSR, 142-541 m long, lattice towers 30 m high with steel temperature |
-| L2 | 17 spans of Drake ACSR, 208-541 m long, rigid point towers (wire temperature only); six towers raised to 37-52 m so that every span clears the terrain by 8 m |
+| L1 | 11 spans of Drake ACSR, 287-521 m long, lattice towers 30 m high with steel temperature |
+| L2 | 17 spans of Drake ACSR, 208-541 m long, rigid point towers (wire temperature only) |
 
 Fuel moisture:
 
 | Class | Value | Source |
 |---|---|---|
-| 1 h dead | 4 % | NFDRS equilibrium moisture (Cohen and Deeming 1985) at the Malibu Hills RAWS forecast of 22 % RH and 66 F (LACoFD, 7 Jan 2025): 4.8 % |
+| 1 h dead | 5 % | NFDRS equilibrium moisture (Cohen and Deeming 1985) at the Malibu Hills RAWS forecast of 22 % RH and 66 F (LACoFD, 7 Jan 2025): 4.8 %, rounded |
 | 10 h dead | 8 % | LACoFD, 7 Jan 2025, Malibu Hills RAWS 10 h dead fuel moisture |
 | 100 h dead | 10 % | chosen (not in the LACoFD table), above the 10 h value |
 | Live | 62 % | LACoFD, 7 Jan 2025, Santa Monica Mountains live fuel moisture |
@@ -83,12 +83,12 @@ We thank the providers of the open data this case is built from:
   `Exec/CanonicalTests/Fire/Real_Terrain/Palisades_Fire/README.md`. Not redistributed.
 - **Imagery** under the maps (optional, `case.py post`): U.S. Geological Survey, The National Map, public
   domain, fetched by `Exec/Tools/make_map_movie.py --fetch usgs`. Not redistributed.
-- **Fuel moisture:** Los Angeles County Fire Department, Daily Fire Danger Analysis, 7 January 2025. Cited, not
-  redistributed. We thank LACoFD for publishing it.
+- **Fuel moisture:** Los Angeles County Fire Department, Daily Fire Danger Analysis, forecast for 7 January
+  2025 (Malibu Hills RAWS: 66 F, 22 % RH, 8 % 10 h dead fuel moisture; Santa Monica Mountains live fuel moisture
+  62 %). Cited, not redistributed. We
+  thank LACoFD for publishing it.
 - **Observations:** Li et al. (2026), *AGU Advances*, doi:10.1029/2025AV002064, for the satellite spread speed
-  (1.0 to 3.7 km/h, 0.6 to 2.3 mph) and the observed relative humidity below 20 %; the Los Angeles Fire
-  Department after-action report on the Palisades Fire, for the FIRIS aerial map of 771 acres at about
-  14:11 PST, 3 h 40 min after ignition.
+  (1.0 to 3.7 km/h, 0.6 to 2.3 mph) and the observed relative humidity below 20 %.
 
 Sources of the methods: Cohen, J. D. and Deeming, J. E. (1985), *The National Fire-Danger Rating System:
 basic equations*, USDA Forest Service General Technical Report PSW-82, for the equilibrium moisture; IEEE Std
@@ -98,19 +98,22 @@ balance; EN 1993-1-2 for the steel; Rothermel (1972) and Andrews (2012) for the 
 
 ## How to run
 
-Needs Python 3 with numpy, rasterio, pyproj, matplotlib, yt and scipy (Herbie only to remake the HRRR files;
-`gen_palisades.py` lists its own needs), and a FLARE build with MoorDyn-C (the conductor model).
+Needs Python 3 with numpy, rasterio, pyproj, matplotlib, yt and scipy, ffmpeg for the movie (skipped
+without it), and a FLARE build with MoorDyn-C (the conductor model). Herbie and pandas are needed only to
+remake the HRRR files; `gen_palisades.py` lists its own needs.
 
 ```bash
-python3 case.py prepare                        # runs gen_palisades.py if the terrain is missing, then run/
+python3 case.py prepare                        # runs gen_palisades.py in run/ if the terrain is missing
 cd run && mpiexec -n 4 <FLARE build>/flare inputs
 cd .. && python3 case.py post --basemap <RGB GeoTIFF over the domain>
 ```
 
-`prepare` also checks that the deck's conductor block is the one `fire_lines_towers.py` builds from
-`lines_config.json`; it stops if they differ. `post` writes into `run/figs/`: the burned-area map with the
-lines coloured by their peak temperature, a movie, the line and tower temperatures against time, per-span and
-per-tower CSV files, `summary.json`, the fragility figure and the head distance.
+`prepare` also checks that the deck's conductor block and `lines_meta.json` are the ones `fire_lines_towers.py`
+builds from `lines_config.json` over the terrain; it stops if either differs. A line's last span may be shorter
+than `min_span_m`; the 550 m and 8 m limits hold for every span, and the tool stops if one cannot meet them.
+`post` writes into `run/figs/`: the burned-area map with the lines coloured by their peak temperature, a movie
+(needs ffmpeg), the line and tower temperatures against time, per-span and per-tower CSV files,
+`summary.json`, the fragility figure and the head distance.
 
 To remake the inputs from the sources (not needed to run the case), in `run/` after `prepare`:
 
@@ -118,7 +121,7 @@ To remake the inputs from the sources (not needed to run the case), in `run/` af
 cd run
 T=../../../../Exec/Tools
 python3 $T/hrrr_profile.py --date 2025-01-07 --hour 19 --domain palisades_domain.json \
-    --point-xy 9000 8000 --out-prefix pal19_ign
+    --point-xy 9000 8000 --out-prefix pal19_ign --z-min 100 --z0 0.1
 cp pal19_ign_inflow.txt inflow_hrrr.txt
 awk 'NF { $3 = "0.0"; print }' pal19_ign_sounding.txt > sounding_hrrr.txt    # dry run: qv = 0
 # osm_power_palisades.json: the Overpass query in osm_power_lines.py, box under Data and acknowledgements
@@ -132,28 +135,30 @@ results below were made with.
 
 ## Expected results
 
-From the run made with this deck (FLARE `af41c74b0`, 4 ranks, 1 h 56 min wall time):
+From the run made with this deck (FLARE `af41c74b0`, 4 ranks, 1 h 55 min wall time):
 
 | Quantity | Run | Observed |
 |---|---|---|
-| Head distance from the ignition at 60 min | 2.56 km (1.6 miles), so about 2.6 km/h (1.6 mph) | satellite spread 1.0 to 3.7 km/h (0.6 to 2.3 mph), Li et al. 2026 |
-| Burned area at 105 min | 403 ha (997 acres) | FIRIS map 771 acres at 3 h 40 min, LAFD |
-| Spans the fire reached | 0 of 30 | not compared |
-| Peak conductor temperature | 23.7 C (75 F) | – |
-| Peak tower steel temperature (L1) | 15.2 C (59 F) | – |
+| Head distance from the ignition at 60 min | 2.51 km (1.6 miles), so about 2.5 km/h (1.6 mph) | satellite spread 1.0 to 3.7 km/h (0.6 to 2.3 mph), Li et al. 2026 |
+| Burned area at 105 min | 390 ha (965 acres) | not compared |
+| Spans the fire reached | 0 of 28 | not compared |
+| Peak conductor temperature | 21.7 C (71 F) | – |
+| Peak tower steel temperature (L1) | 15.0 C (59 F) | – |
 
-The head speed in the first hour is inside the satellite range. The burned area is ahead of the first aerial
-map: the run passes 771 acres well before 3 h 40 min. Possible reasons (one HRRR hour for the whole run, a dry
-atmosphere, the fuel map's resolution) are not tested here. The fire runs south-west, away from both lines,
-so no span is reached and the line and tower temperatures stay near the air temperature.
+The head speed in the first hour is inside the satellite range. The fire runs south-west, away from both
+lines, so no span is reached and the line and tower temperatures stay near the air temperature. The head
+distance is the farthest burned cell from the ignition point in any direction, compared with the distance to
+one observed place; it does not check the direction of spread.
 
 ## CTest
 
 None. The full run takes about two hours on 4 ranks, longer than the regression suite allows. The case was
 checked as follows instead:
 
-- `case.py prepare` rebuilds the conductor block and the tower file from `lines_config.json`; both match the
-  committed `inputs` and `lines_meta.json` exactly.
+- `case.py prepare` rebuilds the conductor block and the tower file from `lines_config.json`; it stops unless
+  both match the committed `inputs` and `lines_meta.json` exactly.
+- `Exec/Tools/test_fire_lines_towers.py` checks the terrain read of `fire_lines_towers.py` on a plane over a
+  non-square grid; it fails on a transposed read.
 - The deck runs 4 steps from a fresh `run/` with `amrex.parmparse.verbose = 1` and reports no unused inputs.
 - `case.py post` on the finished run gives per-span, per-tower, head-distance and summary files identical to
   those behind the numbers above.

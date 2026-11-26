@@ -15,7 +15,7 @@ lines_meta.json in run_dir. Writes into out_dir:
   <case>_spans.csv       per span: line, span, peak T, peak fire flux, closest burned distance
   <case>_towers.csv      per tower: line, tower, x, y, peak steel T, closest burned distance
 """
-import argparse, glob, json, os, re, subprocess
+import argparse, glob, json, os, re, shutil, subprocess, sys
 import numpy as np
 import yt
 yt.set_log_level(50)
@@ -95,7 +95,6 @@ def miles_axes(ax):
 def F(c):
     """deg C -> deg F (plots are in F for a US audience; the run and the csv files stay in C)."""
     return np.asarray(c) * 9.0 / 5.0 + 32.0
-TMAX_F = 300.0
 WIRE_FLAG_F = F(100.0)        # the chosen 100 C wire flag (fire_lines_fragility.py), not a rating
 TLO_F, TMAX_F = (float(v) for v in a.trange.split(","))
 norm = plt.Normalize(TLO_F, TMAX_F); cmapL = plt.get_cmap("plasma")
@@ -160,9 +159,6 @@ for pf in files[::a.every]:
 ds = yt.load(files[-1])
 at, dx = draw(ds, {kk: v[0] for kk, v in peak.items()}, os.path.join(a.out, f"{a.case}_map_final.png"),
               "lines: peak temperature")
-subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", "4", "-i", f"{fr}/f_%04d.png",
-                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
-                os.path.join(a.out, f"{a.case}_map.mp4")], check=True)
 
 # ---------------------------------------------------------------- distances from the burned area
 bi, bj = np.where(at >= 0)
@@ -179,18 +175,26 @@ def dist_seg(p, q):
 
 
 with open(os.path.join(a.out, f"{a.case}_spans.csv"), "w") as f:
-    f.write("case,line,span,length_m,peak_T_C,peak_fire_flux_W_m2,closest_burn_m\n")
+    f.write("case,line,span,length_m,peak_T_C,peak_fire_flux_W_m2,closest_burn_m,fire_dx_m\n")
     for m in meta:
         p = np.array(m["pts"])
         for k in range(len(p) - 1):
             Tx, Ex = peak.get((m["name"], k), (np.nan, np.nan))
-            f.write(f"{a.case},{m['name']},{k},{np.hypot(*(p[k + 1] - p[k])):.0f},{Tx:.2f},{Ex:.1f},{dist_seg(p[k], p[k + 1]):.0f}\n")
+            f.write(f"{a.case},{m['name']},{k},{np.hypot(*(p[k + 1] - p[k])):.0f},{Tx:.2f},{Ex:.1f},{dist_seg(p[k], p[k + 1]):.0f},{dx:.1f}\n")
 with open(os.path.join(a.out, f"{a.case}_towers.csv"), "w") as f:
     f.write("case,line,tower,x,y,peak_steel_T_C,closest_burn_m\n")
     for (ln, k), (tt, Tm) in sorted(towers.items()):
         m = next(m for m in meta if m["name"] == ln); p = np.array(m["pts"][k])
         d = float(np.hypot(bx - p[0], by - p[1]).min()) if len(bx) else np.inf
         f.write(f"{a.case},{ln},{k},{p[0]:.0f},{p[1]:.0f},{Tm.max():.2f},{d:.0f}\n")
+
+# ---------------------------------------------------------------- movie (optional: needs ffmpeg)
+if shutil.which("ffmpeg"):
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", "4", "-i", f"{fr}/f_%04d.png",
+                    "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
+                    os.path.join(a.out, f"{a.case}_map.mp4")], check=True)
+else:
+    print(f"ffmpeg not found: no movie; the frames are in {fr}", file=sys.stderr)
 
 # ---------------------------------------------------------------- temperatures against time
 fig, axs = plt.subplots(1, 2, figsize=(10, 3.6))

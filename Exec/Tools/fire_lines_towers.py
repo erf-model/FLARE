@@ -14,7 +14,11 @@ span is at most 550 m long, at least min_span_m long and clears the terrain by 8
 Drake ACSR at 30 kN). Towers are 30 m above the local ground; both ends of a span that still clears by less than 8 m
 are raised (at most to 60 m). Tower points are heights above the local terrain (ConductorInputs.rst).
 Prints the conductor block (from the "TRANSMISSION LINES" banner to the end of the deck) and writes lines_meta.json.
-With --check, compares the block with the same section of an existing deck and exits 1 if they differ.
+With --check, compares the block with the same section of an existing deck, and the towers with the existing
+--meta file (which is then not written), and exits 1 if either differs.
+Exits with an error if a line's way is missing, fewer than 2 of its nodes are in the box, or a span is still
+longer than 550 m or clears the terrain by less than 8 m after the towers are raised.
+The terrain file is the ERF format: nx, ny, the x and y coordinates, then z with y varying fastest.
 """
 import argparse, json, sys
 import numpy as np
@@ -27,7 +31,9 @@ def read_terrain(fn):
     with open(fn) as f:
         nx = int(f.readline()); ny = int(f.readline())
         v = np.array(f.read().split(), dtype=float)
-    x, y, z = v[:nx], v[nx:nx + ny], v[nx + ny:].reshape(ny, nx)
+    if v.size != nx + ny + nx * ny:
+        sys.exit(f"{fn}: expected {nx + ny + nx * ny} values after nx, ny; found {v.size}")
+    x, y, z = v[:nx], v[nx:nx + ny], v[nx + ny:].reshape(nx, ny)      # z[i, j]: y varies fastest
     return x, y, z
 
 
@@ -35,17 +41,21 @@ def ground(T, px, py):
     x, y, z = T
     i = np.clip(np.searchsorted(x, px) - 1, 0, len(x) - 2); j = np.clip(np.searchsorted(y, py) - 1, 0, len(y) - 2)
     fx = (px - x[i]) / (x[i + 1] - x[i]); fy = (py - y[j]) / (y[j + 1] - y[j])
-    return (z[j, i] * (1 - fx) * (1 - fy) + z[j, i + 1] * fx * (1 - fy) + z[j + 1, i] * (1 - fx) * fy + z[j + 1, i + 1] * fx * fy)
+    return (z[i, j] * (1 - fx) * (1 - fy) + z[i + 1, j] * fx * (1 - fy) + z[i, j + 1] * (1 - fx) * fy + z[i + 1, j + 1] * fx * fy)
 
 
 def pick(lines, wid, box, min_span, T):
-    l = next(l for l in lines if l["id"] == wid)
+    l = next((l for l in lines if l["id"] == wid), None)
+    if l is None:
+        sys.exit(f"OSM way {wid} is not in the --osm file")
     p = np.array(l["pts"])[:, :2]
     ins = (p[:, 0] > box[0]) & (p[:, 0] < box[1]) & (p[:, 1] > box[2]) & (p[:, 1] < box[3])
     idx = np.where(ins)[0]
     # the longest consecutive run inside the box
     runs = np.split(idx, np.where(np.diff(idx) != 1)[0] + 1)
     q = p[max(runs, key=len)]
+    if len(q) < 2:
+        sys.exit(f"OSM way {wid}: fewer than 2 nodes inside box_m {box}")
     # greedy: from each tower, the farthest OSM node whose span clears the terrain by 8 m and is at most
     # 550 m long; the next node when none does
     keep, i = [q[0]], 0
@@ -58,6 +68,9 @@ def pick(lines, wid, box, min_span, T):
             if Lk >= min_span or k == len(q) - 1:
                 if clearance(T, np.array([q[i], q[k]]))[0][1] >= CLEAR_MIN:
                     j = k
+        if j == i + 1 and np.hypot(*(q[j] - q[i])) < min_span and j < len(q) - 1:
+            print(f"way {wid}: no span from node {i} meets min_span and the 8 m clearance; using the next node",
+                  file=sys.stderr)
         keep.append(q[j]); i = j
     return l, np.array(keep)
 
@@ -149,6 +162,10 @@ def build(cfg, lines, T):
                 d = CLEAR_MIN - cl[n][1]
                 h[n] = min(H_MAX, h[n] + d); h[n + 1] = min(H_MAX, h[n + 1] + d)
         cl = clearance(T, pts, h)
+        for n, (s_, k_) in enumerate(cl):
+            if s_ > SPAN_MAX or k_ < CLEAR_MIN:
+                sys.exit(f"{nm}: span {n} is {s_:.0f} m long and clears the terrain by {k_:.1f} m with towers at most "
+                         f"{H_MAX:g} m; limits are {SPAN_MAX:g} m and {CLEAR_MIN:g} m")
         print(f"{nm} way {wid} {l['voltage']} {l['name']}: {len(pts) - 1} spans, span {min(s for s, _ in cl):.0f}-"
               f"{max(s for s, _ in cl):.0f} m, min clearance {min(k for _, k in cl):.1f} m, tower heights "
               f"{[round(x) for x in h]}", file=sys.stderr)
@@ -169,21 +186,37 @@ if __name__ == "__main__":
     for k in ("air_density", "elevation_m", "lines"):
         if k not in cfg:
             sys.exit(f"{a.config}: missing key '{k}'")
-    if not cfg["air_density"] > 0:
-        sys.exit(f"{a.config}: air_density must be > 0")
+    if not 0.5 <= cfg["air_density"] <= 1.5:
+        sys.exit(f"{a.config}: air_density must be in [0.5, 1.5] kg/m3")
+    if not -500 <= cfg["elevation_m"] <= 5000:
+        sys.exit(f"{a.config}: elevation_m must be in [-500, 5000] m")
+    names = [c.get("name") for c in cfg["lines"]]
+    if not names or len(set(names)) != len(names):
+        sys.exit(f"{a.config}: lines must be a non-empty list with unique names")
     for c in cfg["lines"]:
+        for k in ("name", "osm_way", "box_m", "min_span_m", "frames"):
+            if k not in c:
+                sys.exit(f"{a.config}: line {c.get('name', '?')}: missing key '{k}'")
+        if not isinstance(c["frames"], bool):
+            sys.exit(f"{a.config}: line {c['name']}: frames must be true or false")
+        if len(c["box_m"]) != 4:
+            sys.exit(f"{a.config}: line {c['name']}: box_m must have 4 numbers")
         if not (c["box_m"][0] < c["box_m"][1] and c["box_m"][2] < c["box_m"][3]):
             sys.exit(f"{a.config}: line {c['name']}: box_m must be [x0, x1, y0, y1] with x0 < x1 and y0 < y1")
         if not 0 < float(c["min_span_m"]) <= SPAN_MAX:
             sys.exit(f"{a.config}: line {c['name']}: min_span_m must be in (0, {SPAN_MAX:g}]")
     block, meta = build(cfg, json.load(open(a.osm)), read_terrain(a.terrain))
-    json.dump(meta, open(a.meta, "w"), indent=1)
-    if a.check:
+    if not a.check:
+        json.dump(meta, open(a.meta, "w"), indent=1)
+    else:
+        old = json.load(open(a.meta))
+        if json.dumps(old, sort_keys=True) != json.dumps(json.loads(json.dumps(meta)), sort_keys=True):
+            sys.exit(f"{a.meta}: towers differ from the ones built from {a.config}")
         deck = open(a.check).read()
         banner = "# " + "=" * 76 + "\n# TRANSMISSION LINES"
         i = deck.find(banner)
         if i < 0 or deck[i:].rstrip() != block[block.index(banner):].rstrip():
             sys.exit(f"{a.check}: conductor block differs from the one built from {a.config}")
-        print(f"{a.check}: conductor block matches", file=sys.stderr)
-    else:
+        print(f"{a.check}: conductor block and {a.meta} match", file=sys.stderr)
+    if not a.check:
         sys.stdout.write(block)

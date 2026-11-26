@@ -157,7 +157,7 @@ conductors.thermal.elevation          = 1700
 conductors.thermal.towers             = true
 # L1: OSM way 1467202772, 230000;230000 V, Leggett to Plains End & Valmont to Simms
 conductors.L1.end_a  = 9268.4 11971.9 30
-conductors.L1.towers = 9265.9 11642.0 30  9263.4 11343.2 30  9259.6 10917.2 30  9256.0 10536.3 30  9253.6 10277.8 30  9251.9 10024.9 30
+conductors.L1.towers = 9265.9 11642.0 30  9261.5 11130.6 30  9257.2 10734.1 30  9253.6 10277.8 30  9251.9 10024.9 30
 conductors.L1.end_b  = 9247.7 9602.0 30
 conductors.L1.stringing_tension = 30000
 conductors.L1.diameter         = 0.0281     # Drake ACSR, IEEE Std 738-2023 4.6
@@ -177,7 +177,7 @@ conductors.L1.resistance       = 7.283e-5 8.688e-5
 conductors.L1.resistance_temperatures = 25.0 75.0
 # L2: OSM way 1133022326, 115000;115000 V, Valmont to Ralston & Eldorado
 conductors.L2.end_a  = 8597.4 14229.9 30
-conductors.L2.towers = 8719.0 13768.2 30  8799.5 13465.5 30  8885.8 13136.2 30  8947.9 12904.2 30  9084.0 12386.6 30  9209.3 11915.6 30  9339.4 11422.5 30  9465.7 10944.2 30  9510.7 10774.8 30  9584.1 10496.8 30  9672.6 10164.5 30  9763.0 9819.6 30  9829.5 9568.9 30
+conductors.L2.towers = 8719.0 13768.2 30  8799.5 13465.5 30  8885.8 13136.2 30  8947.9 12904.2 30  9025.9 12608.6 30  9120.0 12250.2 30  9209.3 11915.6 30  9339.4 11422.5 30  9465.7 10944.2 30  9584.1 10496.8 30  9672.6 10164.5 30  9763.0 9819.6 30  9894.0 9324.5 30
 conductors.L2.end_b  = 9948.3 9121.3 30
 conductors.L2.stringing_tension = 30000
 conductors.L2.diameter         = 0.0281     # Drake ACSR, IEEE Std 738-2023 4.6

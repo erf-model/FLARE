@@ -19,6 +19,8 @@ from pyproj import Transformer
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+if len(sys.argv) != 5:
+    sys.exit(__doc__.split("\n\n")[1])
 osm, dom, fuel, out = sys.argv[1:5]
 d = json.load(open(osm)); info = json.load(open(dom))
 zone = info["utm_zone"]; L = float(info["domain_m"])

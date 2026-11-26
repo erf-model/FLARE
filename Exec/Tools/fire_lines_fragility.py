@@ -17,6 +17,8 @@ from scipy.stats import norm
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+if len(sys.argv) < 3 or any("=" not in arg for arg in sys.argv[2:]):
+    sys.exit(__doc__.split("\n\n")[1])
 FIG = sys.argv[1]
 RUNS = dict(arg.split("=", 1) for arg in sys.argv[2:])
 cases = list(RUNS)
@@ -29,9 +31,9 @@ for c in cases:
     fs = np.genfromtxt(os.path.join(RUNS[c], "fire_stats.csv"), delimiter=",", names=True)
     t_ign = float([l for l in open(os.path.join(RUNS[c], "ignitions_spinup.csv")) if not l.startswith("#")][0].split()[0])
     after = fs[fs["time_s"] >= t_ign]
-    # head speed: burned-area-weighted is noisy; report the median of head_ros over the last 30 min of fire
+    # head speed: burned-area-weighted is noisy; report the median of head_ros from 15 min after ignition on
     late = after[after["time_s"] >= t_ign + 900]
-    head = float(np.median(late["head_ros_ms"])) if len(late) else float("nan")
+    head = float(np.median(late["head_ros_ms"])) if len(late) else None
     flux = {}
     for r in sp:
         flux[(r["line"], int(r["span"]))] = float(r["peak_fire_flux_W_m2"]) / 1000.0
@@ -40,7 +42,8 @@ for c in cases:
         k = int(r["tower"]); ln = r["line"]
         im = max(flux.get((ln, k - 1), 0.0), flux.get((ln, k), 0.0))
         items.append(("tower", c, im, float(r["peak_steel_T_C"]) > T_STEEL, float(r["peak_steel_T_C"])))
-    dx_burn = 30.0   # a span counts as reached when burned cells lie within 30 m of it (about one fire cell)
+    # a span counts as reached when burned cells lie within one fire cell of it
+    dx_burn = float(sp[0]["fire_dx_m"])
     summ[c] = dict(burned_ha=float(fs["burned_area_ha"][-1]), head_speed=head,
                    fire_min=round((float(fs["time_s"][-1]) - t_ign) / 60.0),
                    peak_cond_T=max(float(r["peak_T_C"]) for r in sp),
