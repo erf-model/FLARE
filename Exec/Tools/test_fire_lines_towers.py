@@ -3,8 +3,9 @@
 
     python3 test_fire_lines_towers.py
 
-Writes a plane z = 0.1 x + 0.01 y on a 11 x 21 grid (nx != ny, so a transposed read gives a wrong height or
-fails) and checks the bilinear ground height at one point against the plane. Exits 1 on a mismatch.
+Writes the bilinear surface z = 0.1 x + 0.01 y + 1e-4 x y on a 11 x 21 grid (nx != ny, so a transposed read
+gives a wrong height) and checks the ground height against it at points off the grid nodes, on the grid edges
+and at the corners, where bilinear interpolation is exact. Exits 1 on a mismatch.
 """
 import importlib.util, os, sys, tempfile
 import numpy as np
@@ -15,14 +16,18 @@ t = importlib.util.module_from_spec(spec); spec.loader.exec_module(t)
 
 x = np.linspace(0.0, 1000.0, 11); y = np.linspace(0.0, 2000.0, 21)
 X, Y = np.meshgrid(x, y, indexing="ij")
-Z = 0.1 * X + 0.01 * Y
+surf = lambda px, py: 0.1 * px + 0.01 * py + 1e-4 * px * py
+Z = surf(X, Y)
 with tempfile.TemporaryDirectory() as d:
     fn = os.path.join(d, "terrain.txt")
     with open(fn, "w") as f:
         f.write(f"{len(x)}\n{len(y)}\n")
         f.write("\n".join(map(str, x)) + "\n" + "\n".join(map(str, y)) + "\n")
         f.write("\n".join(map(str, Z.ravel())) + "\n")        # index i * ny + j: y varies fastest
-    g = t.ground(t.read_terrain(fn), np.array([700.0]), np.array([1300.0]))[0]
-want = 0.1 * 700.0 + 0.01 * 1300.0
-print(f"ground {g:.6f} m, plane {want:.6f} m")
-sys.exit(0 if abs(g - want) < 1e-9 else 1)
+    T = t.read_terrain(fn)
+px = np.array([735.0, 12.0, 0.0, 1000.0, 450.0, 1000.0])
+py = np.array([1310.0, 1987.0, 0.0, 2000.0, 0.0, 777.0])
+g = t.ground(T, px, py); want = surf(px, py)
+for a, b, u, w in zip(px, py, g, want):
+    print(f"({a:6.0f}, {b:6.0f}): ground {u:.6f} m, surface {w:.6f} m")
+sys.exit(0 if np.allclose(g, want, rtol=0, atol=1e-9) else 1)

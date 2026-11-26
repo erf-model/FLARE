@@ -79,7 +79,8 @@ We thank the providers of the open data this case is built from:
   34.0063 to 34.2259 N, 118.6226 to 118.3663 W (query in `osm_power_lines.py`). `osm_lines.json` and
   `lines_meta.json` are derived databases and are available under the Open Database License (ODbL) 1.0; please
   credit "(c) OpenStreetMap contributors" wherever the lines are shown.
-- **Terrain:** SRTM1 elevation, made into the two terrain files by `gen_palisades.py`; source and steps in
+- **Terrain:** NASA Shuttle Radar Topography Mission 1 arc-second elevation (SRTM1), public domain, fetched with
+  the `elevation` Python package and made into the two terrain files by `gen_palisades.py`; source and steps in
   `Exec/CanonicalTests/Fire/Real_Terrain/Palisades_Fire/README.md`. Not redistributed.
 - **Imagery** under the maps (optional, `case.py post`): U.S. Geological Survey, The National Map, public
   domain, fetched by `Exec/Tools/make_map_movie.py --fetch usgs`. Not redistributed.
@@ -110,7 +111,9 @@ cd .. && python3 case.py post --basemap <RGB GeoTIFF over the domain>
 
 `prepare` also checks that the deck's conductor block and `lines_meta.json` are the ones `fire_lines_towers.py`
 builds from `lines_config.json` over the terrain; it stops if either differs. A line's last span may be shorter
-than `min_span_m`; the 550 m and 8 m limits hold for every span, and the tool stops if one cannot meet them.
+than `min_span_m`, and when no node meets `min_span_m` and the clearance the tool takes the next node and prints a
+warning. The 550 m and 8 m limits hold for every span, and the tool stops if one cannot meet them. The 8 m
+clearance is measured over the terrain file given with `--terrain` only; see the note under Expected results.
 `post` writes into `run/figs/`: the burned-area map with the lines coloured by their peak temperature, a movie
 (needs ffmpeg), the line and tower temperatures against time, per-span and per-tower CSV files,
 `summary.json`, the fragility figure and the head distance.
@@ -127,8 +130,12 @@ awk 'NF { $3 = "0.0"; print }' pal19_ign_sounding.txt > sounding_hrrr.txt    # d
 # osm_power_palisades.json: the Overpass query in osm_power_lines.py, box under Data and acknowledgements
 python3 $T/osm_power_lines.py osm_power_palisades.json palisades_domain.json fuel_palisades_fbfm40.asc osm
 python3 $T/fire_lines_towers.py ../lines_config.json --osm osm_lines.json --terrain terrain_palisades.txt \
-    > conductor_block.txt
+    --meta lines_meta_new.json > conductor_block.txt
 ```
+
+To use the remade files, put `conductor_block.txt` in place of the conductor block of `../inputs` (from the
+`TRANSMISSION LINES` banner to the end) and copy `lines_meta_new.json` to `../lines_meta.json`,
+`inflow_hrrr.txt` and `sounding_hrrr.txt` to `..`; `prepare` then checks them.
 
 The HRRR answer can change slightly if NOAA reprocesses the archive; the committed files are the ones the
 results below were made with.
@@ -145,10 +152,21 @@ From the run made with this deck (FLARE `af41c74b0`, 4 ranks, 1 h 55 min wall ti
 | Peak conductor temperature | 21.7 C (71 F) | – |
 | Peak tower steel temperature (L1) | 15.0 C (59 F) | – |
 
-The head speed in the first hour is inside the satellite range. The fire runs south-west, away from both
+The mean head speed over the first hour, from the head distance, is inside the satellite range. It is not
+steady: the head moves 2.2 km in the first 30 min (4.4 km/h, above the range), then stalls from 40 to 55 min. The fire runs south-west, away from both
 lines, so no span is reached and the line and tower temperatures stay near the air temperature. The head
 distance is the farthest burned cell from the ignition point in any direction, compared with the distance to
-one observed place; it does not check the direction of spread.
+one observed place; it does not check the direction of spread. It is measured from the centre of the 100 m
+ignition circle. `head_ros_median_ms` in `summary.json` is the median front speed from `fire_stats.csv`, not
+the head distance over time; it is not compared.
+
+Clearance: the towers are picked so that every span clears `terrain_palisades.txt` (the smoothed atmosphere
+terrain) by 8 m in still air. The run places the towers on its own terrain-following mesh surface (nodes 300 m
+apart), and the fire spreads on the sharper 30 m fire terrain. With the towers on the mesh, the lowest still-air
+clearance is -0.8 m for L1 (span 11) and 4.4 m for L2 above the mesh, and -24.5 m (L1) and -28.1 m (L2) above
+the fire terrain: parts of 8 of 11 L1 spans and 10 of 17 L2 spans lie below the fire-terrain ground. The fire does
+not reach any span in this run, so the results above do not depend on it; the case is not set up for a line
+exposure study.
 
 ## CTest
 

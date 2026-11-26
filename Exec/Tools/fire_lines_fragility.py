@@ -8,7 +8,9 @@ IM: peak fire radiation reaching the item (kW/m^2). For a tower, the larger peak
 Damage flags: wire T > 100 C (chosen), tower steel T > 400 C (EN 1993-1-2 Table 3.1: k_y < 1 above 400 C).
 Fit: lognormal CDF by maximum likelihood (Baker 2015), when both outcomes occur; otherwise the figure shows
 peak temperature against exposure with the two flags. Writes fragility_fire.png and
-summary.json (per case: burned_ha, head_speed, peak_cond_T, peak_steel_T, spans_burned, spans_total; pool: n, fits).
+summary.json (per case: burned_ha [ha], head_ros_median_ms [m/s, median of fire_stats head_ros_ms from 15 min after
+ignition on; a front speed, not the head distance over time], fire_min [min], peak_cond_T and peak_steel_T [C],
+spans_burned, spans_total, peak_flux_kW [kW/m^2]; head_km is added by fire_head_distance.py; pool: n, fits, flagged).
 """
 import csv, json, os, sys
 import numpy as np
@@ -44,7 +46,7 @@ for c in cases:
         items.append(("tower", c, im, float(r["peak_steel_T_C"]) > T_STEEL, float(r["peak_steel_T_C"])))
     # a span counts as reached when burned cells lie within one fire cell of it
     dx_burn = float(sp[0]["fire_dx_m"])
-    summ[c] = dict(burned_ha=float(fs["burned_area_ha"][-1]), head_speed=head,
+    summ[c] = dict(burned_ha=float(fs["burned_area_ha"][-1]), head_ros_median_ms=head,
                    fire_min=round((float(fs["time_s"][-1]) - t_ign) / 60.0),
                    peak_cond_T=max(float(r["peak_T_C"]) for r in sp),
                    peak_steel_T=max((float(r["peak_steel_T_C"]) for r in tw), default=None),

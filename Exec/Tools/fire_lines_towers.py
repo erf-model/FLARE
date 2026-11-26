@@ -7,12 +7,17 @@
 lines_config.json (one per case folder):
     {"air_density": 1.0, "elevation_m": 1700,
      "lines": [{"name": "L1", "osm_way": 1467202772, "box_m": [x0, x1, y0, y1], "min_span_m": 150, "frames": true}, ...]}
+  air_density in [0.5, 1.5] kg/m^3; elevation_m in [-500, 9000] m (conductors.thermal.elevation); names unique;
+  box_m four numbers, x0 < x1, y0 < y1, inside the terrain; min_span_m in (0, 550] m; frames true or false.
 osm_lines.json is the output of osm_power_lines.py (domain metres); terrain.txt is the ERF terrain file of the case.
 
 For each line: keeps the longest run of OSM nodes inside box_m and, from each tower, picks the farthest node whose
-span is at most 550 m long, at least min_span_m long and clears the terrain by 8 m in still air (catenary sag of
-Drake ACSR at 30 kN). Towers are 30 m above the local ground; both ends of a span that still clears by less than 8 m
-are raised (at most to 60 m). Tower points are heights above the local terrain (ConductorInputs.rst).
+span is at most 550 m long, at least min_span_m long and clears the terrain by 8 m in still air (parabolic sag of
+Drake ACSR at 30 kN; within 0.2 m of the catenary for these spans). The last span of a line may be shorter than
+min_span_m. When no node meets min_span_m and the 8 m clearance, the next node is used and a warning is printed.
+Towers are 30 m above the local ground; both ends of a span that still clears by less than 8 m are raised (at most
+to 60 m). The clearance is measured over terrain.txt only: the run places the towers on its own mesh surface, and a
+separate fire terrain (when the case has one) can lie higher than both. Tower points are heights above the local terrain (ConductorInputs.rst).
 Prints the conductor block (from the "TRANSMISSION LINES" banner to the end of the deck) and writes lines_meta.json.
 With --check, compares the block with the same section of an existing deck, and the towers with the existing
 --meta file (which is then not written), and exits 1 if either differs.
@@ -34,6 +39,8 @@ def read_terrain(fn):
     if v.size != nx + ny + nx * ny:
         sys.exit(f"{fn}: expected {nx + ny + nx * ny} values after nx, ny; found {v.size}")
     x, y, z = v[:nx], v[nx:nx + ny], v[nx + ny:].reshape(nx, ny)      # z[i, j]: y varies fastest
+    if not (np.all(np.diff(x) > 0) and np.all(np.diff(y) > 0)):
+        sys.exit(f"{fn}: x and y must increase strictly")
     return x, y, z
 
 
@@ -154,13 +161,13 @@ def build(cfg, lines, T):
         l, pts = pick(lines, wid, box, ms, T)
         h = [TOWER_H] * len(pts)
         for _ in range(20):
-            cl = clearance(T, pts, h)
+            cl = clearance(T, pts, h); h0 = list(h)
             bad = [n for n, (_, k) in enumerate(cl) if k < CLEAR_MIN]
             if not bad:
                 break
             for n in bad:
                 d = CLEAR_MIN - cl[n][1]
-                h[n] = min(H_MAX, h[n] + d); h[n + 1] = min(H_MAX, h[n + 1] + d)
+                h[n] = min(H_MAX, max(h[n], h0[n] + d)); h[n + 1] = min(H_MAX, max(h[n + 1], h0[n + 1] + d))
         cl = clearance(T, pts, h)
         for n, (s_, k_) in enumerate(cl):
             if s_ > SPAN_MAX or k_ < CLEAR_MIN:
@@ -186,10 +193,13 @@ if __name__ == "__main__":
     for k in ("air_density", "elevation_m", "lines"):
         if k not in cfg:
             sys.exit(f"{a.config}: missing key '{k}'")
-    if not 0.5 <= cfg["air_density"] <= 1.5:
-        sys.exit(f"{a.config}: air_density must be in [0.5, 1.5] kg/m3")
-    if not -500 <= cfg["elevation_m"] <= 5000:
-        sys.exit(f"{a.config}: elevation_m must be in [-500, 5000] m")
+    num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)
+    if not num(cfg["air_density"]) or not 0.5 <= cfg["air_density"] <= 1.5:
+        sys.exit(f"{a.config}: air_density must be a number in [0.5, 1.5] kg/m3")
+    if not num(cfg["elevation_m"]) or not -500 <= cfg["elevation_m"] <= 9000:
+        sys.exit(f"{a.config}: elevation_m must be a number in [-500, 9000] m")
+    if not isinstance(cfg["lines"], list):
+        sys.exit(f"{a.config}: lines must be a list")
     names = [c.get("name") for c in cfg["lines"]]
     if not names or len(set(names)) != len(names):
         sys.exit(f"{a.config}: lines must be a non-empty list with unique names")
@@ -199,18 +209,34 @@ if __name__ == "__main__":
                 sys.exit(f"{a.config}: line {c.get('name', '?')}: missing key '{k}'")
         if not isinstance(c["frames"], bool):
             sys.exit(f"{a.config}: line {c['name']}: frames must be true or false")
-        if len(c["box_m"]) != 4:
-            sys.exit(f"{a.config}: line {c['name']}: box_m must have 4 numbers")
+        if not (isinstance(c["box_m"], list) and len(c["box_m"]) == 4 and all(num(v) for v in c["box_m"])):
+            sys.exit(f"{a.config}: line {c['name']}: box_m must be a list of 4 numbers")
+        if not num(c["min_span_m"]):
+            sys.exit(f"{a.config}: line {c['name']}: min_span_m must be a number")
         if not (c["box_m"][0] < c["box_m"][1] and c["box_m"][2] < c["box_m"][3]):
             sys.exit(f"{a.config}: line {c['name']}: box_m must be [x0, x1, y0, y1] with x0 < x1 and y0 < y1")
         if not 0 < float(c["min_span_m"]) <= SPAN_MAX:
             sys.exit(f"{a.config}: line {c['name']}: min_span_m must be in (0, {SPAN_MAX:g}]")
-    block, meta = build(cfg, json.load(open(a.osm)), read_terrain(a.terrain))
+    T = read_terrain(a.terrain)
+    for c in cfg["lines"]:
+        b = c["box_m"]
+        if not (T[0][0] <= b[0] and b[1] <= T[0][-1] and T[1][0] <= b[2] and b[3] <= T[1][-1]):
+            sys.exit(f"{a.config}: line {c['name']}: box_m must lie inside the terrain "
+                     f"[{T[0][0]:g}, {T[0][-1]:g}] x [{T[1][0]:g}, {T[1][-1]:g}] m")
+    block, meta = build(cfg, json.load(open(a.osm)), T)
     if not a.check:
         json.dump(meta, open(a.meta, "w"), indent=1)
     else:
         old = json.load(open(a.meta))
-        if json.dumps(old, sort_keys=True) != json.dumps(json.loads(json.dumps(meta)), sort_keys=True):
+        def same(p, q):          # numbers within 1e-6 m, everything else equal
+            if isinstance(p, dict):
+                return isinstance(q, dict) and p.keys() == q.keys() and all(same(p[k], q[k]) for k in p)
+            if isinstance(p, list):
+                return isinstance(q, list) and len(p) == len(q) and all(same(u, w) for u, w in zip(p, q))
+            if isinstance(p, (int, float)) and not isinstance(p, bool):
+                return isinstance(q, (int, float)) and not isinstance(q, bool) and abs(p - q) <= 1e-6
+            return p == q
+        if not same(old, json.loads(json.dumps(meta))):
             sys.exit(f"{a.meta}: towers differ from the ones built from {a.config}")
         deck = open(a.check).read()
         banner = "# " + "=" * 76 + "\n# TRANSMISSION LINES"

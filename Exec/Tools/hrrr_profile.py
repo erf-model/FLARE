@@ -12,10 +12,11 @@ grid- to earth-relative (alpha = sin(Latin1)(lon - LoV)). Writes
   <prefix>_inflow.txt    # z u v T above ground (xlo.inflow_profile = "file")
   <prefix>_info.json     ground height, 10 m wind, geostrophic estimate (mean wind 2-4 km AGL), points
 p_floor is the HRRR surface pressure brought hydrostatically down to the domain floor (floor_elevation_m_asl).
-Near the ground: isobaric levels less than --z-min above the local ground are dropped (a level a few tens of
-metres up, joined linearly to the 10 m wind, gives a spurious shear layer); the 10 m wind is brought to 2 m with
-a neutral log law over --z0 (use the deck's erf.most.z0), and between 2 m and the first kept level all fields
-are interpolated linearly in ln z.
+Near the ground: isobaric levels less than --z-min above the local ground are dropped (the cases use 100 m; it
+drops a level near 50 m in the Marshall columns and none in the Palisades column); the 10 m wind is brought to 2 m
+with a neutral log law over --z0 (use the deck's erf.most.z0), and between 2 m and the first kept level all fields
+are interpolated linearly in ln z (ln z is used for the whole column, aloft too). Above 10 m the profile follows
+HRRR, not --z0. The run stops if a column has no level at or above --top-km.
 """
 import argparse, json, math, os, warnings
 import numpy as np
@@ -35,8 +36,10 @@ ap.add_argument("--z-min", type=float, default=100.0, help="drop isobaric levels
 ap.add_argument("--z0", type=float, default=0.1, help="roughness length for the 2 m wind [m]")
 ap.add_argument("--save-dir", default="hrrr_cache")
 a = ap.parse_args()
-if not a.top_km > 0.2:
-    ap.error("--top-km must be > 0.2")
+if not 4.0 <= a.top_km <= 18.0:
+    ap.error("--top-km must be in [4, 18] km (the geostrophic wind is the 2-4 km mean)")
+if not 0 <= a.hour <= 23:
+    ap.error("--hour must be in 0-23 (UTC)")
 if not 10.0 < a.z_min < 1000.0:
     ap.error("--z-min must be in (10, 1000) m")
 if not 0.0 < a.z0 < 2.0:
@@ -124,6 +127,8 @@ for c in cols:
     keep = z > a.z_min
     o = np.argsort(z[keep])
     zz = z[keep][o]
+    if zz.size == 0 or zz[-1] < a.top_km * 1000.0:
+        raise SystemExit(f"HRRR column {len(grounds) + 1}: no isobaric level at or above --top-km {a.top_km:g} km")
     T = c["t"][keep][o]; p = c["p"][keep][o]; q = c["q"][keep][o]
     th = T * (1000.0 / p) ** 0.2854
     T2 = c["sfc"]["t2m_heightAboveGround"]; Q2 = c["sfc"]["sh2_heightAboveGround"]

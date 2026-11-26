@@ -12,7 +12,7 @@ erf.grid_stretching_ratio = 1.03
 erf.terrain_type      = StaticFittedMesh
 erf.terrain_file_name = "terrain_palisades.txt"
 
-# HRRR analysis 2025-01-07 19 UTC at the ignition point (9.6 m/s at 6.1 m; LACoFD forecast 20-ft wind at Malibu Hills RAWS 26 mph = 11.6 m/s); the wind is from the north-northeast
+# HRRR analysis 2025-01-07 19 UTC at the ignition point (10.9 m/s at 6.1 m; LACoFD forecast 20-ft wind at Malibu Hills RAWS 26 mph = 11.6 m/s); the wind is from the north-northeast
 yhi.type = "Inflow"
 yhi.inflow_profile      = "file"
 yhi.inflow_profile_file = "inflow_hrrr.txt"

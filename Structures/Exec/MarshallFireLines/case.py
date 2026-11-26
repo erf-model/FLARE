@@ -23,7 +23,7 @@ CASE, TITLE = "marshall", "Marshall Fire, 30 Dec 2021"
 EDITION, DX = "LF2016", "40"
 TERRAIN = ["terrain_marshall.txt"]              # files the decks read, from the Real_Terrain folder
 SMALL = ["inputs", "inflow_hrrr.txt", "sounding_hrrr.txt", "ignitions_spinup.csv", "lines_meta.json"]
-CROP, TRANGE = "4.3,10.8,9.0,14.8", "40,115"
+CROP, TRANGE = "4.3,10.8,9.0,14.8", "40,125"
 
 
 def sh(*cmd, cwd):

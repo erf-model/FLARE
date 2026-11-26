@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Palisades Fire and two transmission lines: prepare the run directory, or post-process a finished run.
 
-    python3 case.py prepare [--run DIR]                 # terrain, LANDFIRE fuel map, decks and small files into DIR
+    python3 case.py prepare [--run DIR] [--tiles DIR]   # terrain, LANDFIRE fuel map, decks and small files into DIR
     python3 case.py post --basemap TIF [--run DIR] [--figs DIR]   # maps, movie, line temperatures, fragility, head distance
 
 DIR defaults to ./run. 'prepare' copies this folder's decks and small files into DIR, copies the terrain files from the Real_Terrain
 folder (or, when they are missing there, runs gen_palisades.py inside DIR, so no tracked file changes; it needs
-the SRTM1 tiles, see its --tiles option),
+the SRTM1 tiles; --tiles is passed on to it),
 fetches the LANDFIRE LF2024 FBFM40 window and maps it at 30 m (make_landfire_fuel_map.py; fetched again if
 the map in DIR was made from another edition or cell size), and checks that the conductor block of the deck
 and lines_meta.json are the ones fire_lines_towers.py builds from lines_config.json and osm_lines.json over
@@ -38,6 +38,7 @@ ap.add_argument("step", choices=["prepare", "post"])
 ap.add_argument("--run", default=os.path.join(HERE, "run"))
 ap.add_argument("--basemap", default="")
 ap.add_argument("--figs", default="")
+ap.add_argument("--tiles", default="", help="SRTM1 tile directory, passed to gen_palisades.py --tiles")
 a = ap.parse_args()
 run = os.path.abspath(a.run)
 dom = os.path.join(RT, f"{CASE}_domain.json")
@@ -48,7 +49,8 @@ if a.step == "prepare":
         for t in TERRAIN:
             shutil.copy(os.path.join(RT, t), run)
     elif not all(os.path.exists(os.path.join(run, t)) for t in TERRAIN):
-        sh(sys.executable, os.path.join(RT, "gen_palisades.py"), cwd=run)     # writes into run/ only
+        tiles = ["--tiles", os.path.abspath(a.tiles)] if a.tiles else []
+        sh(sys.executable, os.path.join(RT, "gen_palisades.py"), *tiles, cwd=run)     # writes into run/ only
     for t in TERRAIN:
         if not os.path.exists(os.path.join(run, t)):
             sys.exit(f"missing {os.path.join(run, t)}")

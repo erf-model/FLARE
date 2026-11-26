@@ -58,7 +58,7 @@ We thank the providers of the open data this case is built from:
 - **NOAA High-Resolution Rapid Refresh (HRRR)** analysis, 2021-12-30 18 UTC, product `prs` and `sfc`, fetched
   from the NOAA Open Data Dissemination program on AWS (https://registry.opendata.aws/noaa-hrrr-pds/) with
   Herbie (B. K. Blaylock, https://github.com/blaylockbk/Herbie). NOAA data are open. Redistributed here: only
-  the derived `inflow_hrrr.txt` and `sounding_hrrr.txt` (8 KB each). The GRIB files are not.
+  the derived `inflow_hrrr.txt` and `sounding_hrrr.txt` (about 7 KB and 6 KB). The GRIB files are not.
 - **LANDFIRE** 2.0.0 (2016) FBFM40, U.S. Department of the Interior, Geological Survey, and U.S. Department of
   Agriculture, https://landfire.gov, fetched from the LANDFIRE Product Service (https://lfps.usgs.gov). Public
   domain. Not redistributed: `case.py prepare` downloads the window (about 2 MB) and maps it.
@@ -93,7 +93,9 @@ cd .. && python3 case.py post --basemap <RGB GeoTIFF over the domain>
 
 `prepare` also checks that the deck's conductor block and `lines_meta.json` are the ones `fire_lines_towers.py`
 builds from `lines_config.json` over the terrain; it stops if either differs. A line's last span may be shorter
-than `min_span_m`; the 550 m and 8 m limits hold for every span, and the tool stops if one cannot meet them.
+than `min_span_m`, and when no node meets `min_span_m` and the clearance the tool takes the next node and prints a
+warning. The 550 m and 8 m limits hold for every span, and the tool stops if one cannot meet them. The 8 m
+clearance is measured over the terrain file given with `--terrain` only; see the note under Expected results.
 `post` writes into `run/figs/`: the burned-area map with the lines coloured by their peak temperature, a movie
 (needs ffmpeg), the line and tower temperatures against time, per-span and per-tower CSV files,
 `summary.json`, the fragility figure and the head distance.
@@ -111,8 +113,12 @@ awk 'NF { $3 = "0.0"; print }' marshall_hrrr18_sounding.txt > sounding_hrrr.txt 
 # osm_power_marshall.json: the Overpass query in osm_power_lines.py, box under Data and acknowledgements
 python3 $T/osm_power_lines.py osm_power_marshall.json marshall_domain.json fuel_marshall_fbfm40.asc osm
 python3 $T/fire_lines_towers.py ../lines_config.json --osm osm_lines.json --terrain terrain_marshall.txt \
-    > conductor_block.txt
+    --meta lines_meta_new.json > conductor_block.txt
 ```
+
+To use the remade files, put `conductor_block.txt` in place of the conductor block of `../inputs` (from the
+`TRANSMISSION LINES` banner to the end) and copy `lines_meta_new.json` to `../lines_meta.json`,
+`inflow_hrrr.txt` and `sounding_hrrr.txt` to `..`; `prepare` then checks them.
 
 The HRRR answer can change slightly if NOAA reprocesses the archive; the committed files are the ones the
 results below were made with.
@@ -129,11 +135,16 @@ From the run made with this deck (FLARE `af41c74b0`, 4 ranks, 47 min wall time):
 | Peak conductor temperature | 48.7 C (120 F) | – |
 | Peak tower steel temperature (L1) | 29.3 C (85 F) | – |
 
-The head reaches 86 % of the observed distance at 75 min. The burned area then ends at L1 and the edge of the
-town, which LANDFIRE maps as non-burnable. The head distance is the farthest burned cell from the ignition
+The head reaches 86 % of the observed distance at 75 min. The burned area then ends just past L1, near L2 and
+the edge of the town, which LANDFIRE maps as non-burnable. The head distance is the farthest burned cell from the ignition
 point in any direction, compared with the distance to one observed place; it does not check the direction of
 spread. No span passes the chosen 100 C wire flag and no tower the 400 C steel flag
-(`fire_lines_fragility.py`), so no fragility curve is fitted; the figure shows the margins instead.
+(`fire_lines_fragility.py`), so no fragility curve is fitted; the figure shows the margins instead. The head
+distance is measured from the centre of the 100 m ignition circle.
+
+Clearance: the towers are picked so that every span clears `terrain_marshall.txt` by 8 m in still air. The run
+places the towers on its own terrain-following mesh surface (nodes 320 m apart), which is smoother. With the
+towers there, the lowest still-air clearance is 10.6 m for L1 and 3.9 m for L2 (span 13).
 
 ## CTest
 

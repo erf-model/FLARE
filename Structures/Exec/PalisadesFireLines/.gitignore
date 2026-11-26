@@ -7,7 +7,6 @@ terrain_*.txt
 *_domain.json
 LF20*_FBFM40_*.tif
 basemap*.tif
-lines_meta_check.json
 conductors/
 fire_stats.csv
 L[0-9]*_*.dat

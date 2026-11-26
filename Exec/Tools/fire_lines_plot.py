@@ -12,8 +12,9 @@ lines_meta.json in run_dir. Writes into out_dir:
   <case>_map_final.png   burned area by arrival time over imagery, the lines coloured by their peak temperature
   <case>_map.mp4         the same through the run, the lines coloured by their current temperature
   <case>_line_T.png      hottest span of each line and hottest tower member against time
-  <case>_spans.csv       per span: line, span, peak T, peak fire flux, closest burned distance
-  <case>_towers.csv      per tower: line, tower, x, y, peak steel T, closest burned distance
+  <case>_spans.csv       per span: case, line, span, length_m, peak_T_C, peak_fire_flux_W_m2, closest_burn_m,
+                         fire_dx_m (the fire cell size)
+  <case>_towers.csv      per tower: case, line, tower, x, y, peak_steel_T_C, closest_burn_m
 """
 import argparse, glob, json, os, re, shutil, subprocess, sys
 import numpy as np
@@ -31,10 +32,24 @@ ap = argparse.ArgumentParser()
 ap.add_argument("case"); ap.add_argument("run"); ap.add_argument("basemap"); ap.add_argument("out")
 ap.add_argument("--domain", required=True, help="Real_Terrain <case>_domain.json")
 ap.add_argument("--title", default="", help="figure title (default: the case label)")
-ap.add_argument("--every", type=int, default=4)
+ap.add_argument("--every", type=int, default=4, help="use every N-th plt_fire for the movie (N >= 1)")
 ap.add_argument("--crop", default="")
 ap.add_argument("--trange", default="32,300", help="conductor colour range lo,hi in deg F (fit it to the run)")
 a = ap.parse_args()
+if a.every < 1:
+    ap.error("--every must be at least 1")
+try:
+    TLO_F, TMAX_F = (float(v) for v in a.trange.split(","))
+except ValueError:
+    ap.error("--trange must be two numbers lo,hi in deg F")
+if not TLO_F < TMAX_F:
+    ap.error("--trange must have lo < hi")
+try:
+    crop = [float(c) for c in a.crop.split(",")] if a.crop else None
+except ValueError:
+    ap.error("--crop must be four numbers x0,x1,y0,y1 in km")
+if crop and not (len(crop) == 4 and crop[0] < crop[1] and crop[2] < crop[3]):
+    ap.error("--crop must be four numbers x0,x1,y0,y1 in km with x0 < x1 and y0 < y1")
 os.makedirs(a.out, exist_ok=True)
 TITLE = a.title or a.case
 DOM = json.load(open(a.domain))
@@ -96,10 +111,8 @@ def F(c):
     """deg C -> deg F (plots are in F for a US audience; the run and the csv files stay in C)."""
     return np.asarray(c) * 9.0 / 5.0 + 32.0
 WIRE_FLAG_F = F(100.0)        # the chosen 100 C wire flag (fire_lines_fragility.py), not a rating
-TLO_F, TMAX_F = (float(v) for v in a.trange.split(","))
 norm = plt.Normalize(TLO_F, TMAX_F); cmapL = plt.get_cmap("plasma")
 ext = [0, L / 1000, 0, L / 1000]
-crop = [float(c) for c in a.crop.split(",")] if a.crop else None
 
 
 def segs():
@@ -189,12 +202,12 @@ with open(os.path.join(a.out, f"{a.case}_towers.csv"), "w") as f:
         f.write(f"{a.case},{ln},{k},{p[0]:.0f},{p[1]:.0f},{Tm.max():.2f},{d:.0f}\n")
 
 # ---------------------------------------------------------------- movie (optional: needs ffmpeg)
-if shutil.which("ffmpeg"):
+if shutil.which("ffmpeg") and k > 0:
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", "4", "-i", f"{fr}/f_%04d.png",
                     "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
                     os.path.join(a.out, f"{a.case}_map.mp4")], check=True)
 else:
-    print(f"ffmpeg not found: no movie; the frames are in {fr}", file=sys.stderr)
+    print(f"no movie (ffmpeg not found, or no frame after ignition); frames in {fr}", file=sys.stderr)
 
 # ---------------------------------------------------------------- temperatures against time
 fig, axs = plt.subplots(1, 2, figsize=(10, 3.6))
