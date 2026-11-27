@@ -1,0 +1,245 @@
+name: FLARE Windows
+
+# flare with the fire engine, the dust layer and the structures (MoorDyn stub), built on
+# Windows: MSVC (build, warnings in FLARE's sources, tests) and CUDA (compile only; hosted
+# runners have no GPU). Both jobs run on merges to development and on demand. A pull request
+# runs them only when it changes this file or the warning filter, so the shared erf-model
+# job queue is not held up by two long Windows builds on every PR.
+on:
+  push:
+    branches: [development]
+    paths:
+      - '**'
+      - '!Docs/**'
+      - '!**.md'
+      - '!**.rst'
+      - '!.github/workflows/**'
+      - '.github/workflows/windows.yml'
+      - '.github/actions/**'
+  pull_request:
+    branches: [development]
+    paths:
+      - '.github/workflows/windows.yml'
+      - '.github/tests/build_warnings.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.head_ref || (github.event_name == 'push' && 'latest') || github.sha }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/development' }}
+
+jobs:
+
+  windows-msvc:
+    name: Windows MSVC - fire, dust, structures (stub)
+    permissions:
+      contents: read
+      packages: write
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      PYTHONIOENCODING: utf-8
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+        persist-credentials: false
+
+    - name: Select cache configuration
+      shell: bash
+      env:
+        TRUNK_KEY: windows-latest-${{ runner.arch }}-msvc-mpi-off-double-flare
+      run: printf 'CCACHE_TRUNK_KEY=%s\n' "$TRUNK_KEY" >> "$GITHUB_ENV"
+
+    - name: Install ccache
+      shell: pwsh
+      run: |
+        Invoke-WebRequest https://github.com/ccache/ccache/releases/download/v4.10.2/ccache-4.10.2-windows-x86_64.zip -OutFile ccache.zip
+        Expand-Archive ccache.zip -DestinationPath $env:RUNNER_TEMP
+        "$env:RUNNER_TEMP\ccache-4.10.2-windows-x86_64" | Out-File -FilePath $env:GITHUB_PATH -Append
+        "CCACHE_DIR=$env:RUNNER_TEMP\ccache" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    - name: Restore Cache
+      id: ghcr-cache
+      uses: ./.github/actions/ccache-trunk
+      with:
+        mode: restore
+        key: ${{ env.CCACHE_TRUNK_KEY }}
+        path: ${{ runner.temp }}\ccache
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.x'
+
+    - name: Install numpy (regression-test check scripts)
+      run: python -m pip install numpy
+
+    - name: Set up MSVC
+      # vcvarsall in place of ilammy/msvc-dev-cmd, which has no Node 24 release (as in gust-abl's CI).
+      shell: pwsh
+      run: |
+        $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * `
+          -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        cmd /c "`"$vs\VC\Auxiliary\Build\vcvarsall.bat`" x64 && set" | ForEach-Object {
+          if ($_ -match '^([^=]+)=(.*)$' -and [Environment]::GetEnvironmentVariable($Matches[1]) -ne $Matches[2]) {
+            "$($Matches[1])=$($Matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+        }
+
+    # /W4 reports shadowing (C4456-C4459) and the other level-4 warnings in FLARE's sources.
+    # CXXFLAGS adds to CMake's MSVC defaults (/EHsc ...) instead of replacing them.
+    # /external:env:INCLUDE /external:W0 keeps MSVC's and the Windows SDK's headers quiet;
+    # ERF's and AMReX's warnings are dropped by the Report step (Submodules/).
+    - name: Configure CMake
+      shell: pwsh
+      env:
+        CXXFLAGS: /W4 /external:env:INCLUDE /external:W0
+      run: |
+        cmake -S . -B build -G Ninja `
+          -DCMAKE_C_COMPILER=cl `
+          -DCMAKE_CXX_COMPILER=cl `
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
+          -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded `
+          -DCMAKE_POLICY_DEFAULT_CMP0141=NEW `
+          -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo `
+          -DAMReX_ASSERTIONS:BOOL=ON `
+          -DERF_ENABLE_MPI:BOOL=OFF `
+          -DERF_ENABLE_FIRE:BOOL=ON `
+          -DERF_ENABLE_DUST:BOOL=ON `
+          -DERF_ENABLE_STRUCTURES:BOOL=ON `
+          -DERF_MOORDYN_USE_STUB:BOOL=ON `
+          -DERF_ENABLE_ALL_WARNINGS:BOOL=OFF `
+          -DFLARE_ENABLE_TESTS:BOOL=ON
+        if ($LASTEXITCODE -ne 0) { throw "configure failed" }
+
+    - name: Build
+      shell: bash
+      run: |
+        export CCACHE_COMPRESS=1
+        export CCACHE_COMPRESSLEVEL=10
+        ccache -z
+        build_start=$(date +%s)
+
+        cmake --build build --parallel "$NUMBER_OF_PROCESSORS" \
+          2>&1 | tee -a "${RUNNER_TEMP}/build-output.txt"
+
+        echo '```' >> "$GITHUB_STEP_SUMMARY"
+        # Keep only what this build used; see ci.yml.
+        ccache --evict-older-than "$(( $(date +%s) - build_start + 120 ))s"
+        ccache -s | tee -a "$GITHUB_STEP_SUMMARY"
+        echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Save Cache
+      if: always() && github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+      uses: ./.github/actions/ccache-trunk
+      with:
+        mode: save
+        key: ${{ env.CCACHE_TRUNK_KEY }}
+        path: ${{ runner.temp }}\ccache
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    # Warnings in FLARE's own sources fail the job, as in ci.yml; build_warnings.py reads
+    # MSVC's "file(line): warning C4456:" form.
+    - name: Report
+      shell: bash
+      run: |
+        build_log="${RUNNER_TEMP}/build-output.txt"
+        test -r "$build_log"
+        python .github/tests/build_warnings.py --root "${GITHUB_WORKSPACE}" "$build_log" \
+          > "${RUNNER_TEMP}/build-output-warnings.txt"
+        cat "${RUNNER_TEMP}/build-output-warnings.txt"
+        return=$(tail -n 1 "${RUNNER_TEMP}/build-output-warnings.txt" | awk '{print $2}')
+        test "${return}" -eq 0
+
+    - name: Unit Tests
+      shell: bash
+      run: ctest -L unit -j 4 --output-on-failure --no-tests=error
+      working-directory: build
+
+    - name: Regression Tests
+      shell: bash
+      run: ctest -L regression -j 2 --output-on-failure --no-tests=error
+      working-directory: build
+
+    - name: Upload CTest logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: flare-windows-test-results
+        if-no-files-found: warn
+        path: |
+          build/test-results/**
+          build/Testing/Temporary/LastTest.log
+          build/Testing/Temporary/LastTestsFailed.log
+
+  # CUDA on Windows: compile only. The Windows SDK is pinned to 10.0.22621.0: CUDA 12.6 with
+  # the newer SDK fails on CRT header redefinitions (as in gust-abl's and AMReX's CI).
+  windows-cuda:
+    name: Windows CUDA sm_80 (compile only) - fire, dust, structures (stub)
+    runs-on: windows-2022
+    timeout-minutes: 240
+
+    steps:
+
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+        persist-credentials: false
+
+    - name: Install CUDA toolkit
+      uses: Jimver/cuda-toolkit@v0.2.36
+      with:
+        cuda: '12.6.1'
+        sub-packages: '["nvcc", "cudart", "cuda_profiler_api", "cufft_dev", "cusparse_dev", "curand_dev"]'
+        method: 'network'
+        use-github-cache: 'false'
+
+    - name: Install Ninja
+      shell: pwsh
+      run: |
+        curl.exe -L -o ninja-win.zip https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-win.zip
+        Expand-Archive -Path ninja-win.zip -DestinationPath .
+        echo "$pwd" >> $env:GITHUB_PATH
+
+    - name: Set up MSVC
+      # vcvarsall in place of ilammy/msvc-dev-cmd, which has no Node 24 release (as in gust-abl's CI).
+      shell: pwsh
+      run: |
+        $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * `
+          -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        cmd /c "`"$vs\VC\Auxiliary\Build\vcvarsall.bat`" x64 10.0.22621.0 && set" | ForEach-Object {
+          if ($_ -match '^([^=]+)=(.*)$' -and [Environment]::GetEnvironmentVariable($Matches[1]) -ne $Matches[2]) {
+            "$($Matches[1])=$($Matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+        }
+
+    # The flags follow cuda-ci.yml, without MPI (as in the MSVC job). The architecture is
+    # given as CMAKE_CUDA_ARCHITECTURES=80, as in gust-abl: PowerShell splits
+    # -DAMReX_CUDA_ARCH=8.0 at the dot, and AMReX has deprecated that key for CMake.
+    - name: Configure and build
+      shell: pwsh
+      run: |
+        cmake -S . -B build -G Ninja `
+          -DCMAKE_BUILD_TYPE:STRING=Release `
+          -DCMAKE_SYSTEM_VERSION=10.0.22621.0 `
+          -DCMAKE_CXX_COMPILER=cl `
+          -DCMAKE_CUDA_COMPILER=nvcc `
+          -DCMAKE_CUDA_ARCHITECTURES=80 `
+          -DAMReX_CUDA_ERROR_CROSS_EXECUTION_SPACE_CALL=ON `
+          -DAMReX_CUDA_ERROR_CAPTURE_THIS=ON `
+          -DERF_ENABLE_MPI:BOOL=OFF `
+          -DERF_ENABLE_CUDA:BOOL=ON `
+          -DERF_ENABLE_FIRE:BOOL=ON `
+          -DERF_ENABLE_DUST:BOOL=ON `
+          -DERF_ENABLE_STRUCTURES:BOOL=ON `
+          -DERF_MOORDYN_USE_STUB:BOOL=ON `
+          -DFLARE_ENABLE_UNIT_TESTS:BOOL=ON
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        cmake --build build --parallel 4
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

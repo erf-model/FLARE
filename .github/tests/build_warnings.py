@@ -30,6 +30,12 @@ CI, where GCC writes each diagnostic in one piece. Any line
 that names ``Submodules/`` and linker ``lto-wrapper`` warnings are dropped, as the
 grep filter this replaces did.
 
+MSVC diagnostics (``path(line[,col]): warning C4456: ...``) are read too. Their
+backslashes become forward slashes, and a drive-letter path (``D:/a/FLARE/FLARE``)
+counts as absolute and is compared without regard to case. MSVC prints its notes
+below a warning, not above it, so an MSVC warning is attributed to its own file; the
+Windows job keeps MSVC's own headers quiet with ``/external:env:INCLUDE /external:W0``.
+
 Usage (prints the kept lines, sorted and unique, then ``Warnings: N``)::
 
     python3 .github/tests/build_warnings.py --root "$GITHUB_WORKSPACE" build-output.txt
@@ -47,8 +53,12 @@ SUBMODULES = "Submodules/"
 
 # A GCC/Clang diagnostic: "path:line[:col]: [fatal ]warning|error: ...".
 DIAGNOSTIC_RE = re.compile(r"^(?P<path>[^\s:][^:]*):\d+(?::\d+)?: (?:fatal )?(?:warning|error):")
-# Any line the old grep counted.
-COUNTED_RE = re.compile(r"warning:|error:", re.IGNORECASE)
+# An MSVC diagnostic: "path(line[,col]): [fatal ]warning|error C1234: ...".
+MSVC_DIAGNOSTIC_RE = re.compile(r"^(?P<path>\S.*?)\(\d+(?:,\d+)?\)\s*: (?:fatal )?(?:warning|error) [A-Z]+\d+\s*:")
+# Any line the old grep counted, and MSVC's "warning C1234:" form.
+COUNTED_RE = re.compile(r"warning:|error:|\b(?:warning|error) [A-Z]+\d+\s*:", re.IGNORECASE)
+# A Windows path with a drive letter, after its backslashes become forward slashes.
+DRIVE_RE = re.compile(r"^[A-Za-z]:/")
 
 # Context lines that GCC prints above a diagnostic, and the path each one names.
 INCLUDE_RE = re.compile(r"^(?:In file included from|\s+from) (?P<path>[^\s:][^:]*):\d+[:,]")
@@ -62,7 +72,11 @@ IN_FUNCTION_RE = re.compile(r"^(?:(?P<path>[^\s:][^:]*): )?In [a-z ]*?"
 def inside(path: str, root: str) -> bool:
     """Return whether ``path`` (absolute, or relative to the build) lies in ``root``."""
 
-    return not path.startswith("/") or path == root or path.startswith(root + "/")
+    if DRIVE_RE.match(path) or DRIVE_RE.match(root):
+        path, root = path.casefold(), root.casefold()
+    if not (path.startswith("/") or DRIVE_RE.match(path)):
+        return True
+    return path == root or path.startswith(root + "/")
 
 
 def attribute(path: str, context: Sequence[str], root: str) -> Optional[str]:
@@ -97,18 +111,21 @@ def is_context(line: str) -> bool:
 def flare_warnings(lines: Sequence[str], root: str) -> List[str]:
     """Return the sorted, unique warning lines that belong to FLARE's sources."""
 
-    root = root.rstrip("/")
+    root = root.replace("\\", "/").rstrip("/")
     kept = set()
     context: List[str] = []
     for raw in lines:
         line = raw.rstrip("\n")
+        msvc = MSVC_DIAGNOSTIC_RE.match(line)
+        if msvc:
+            line = line.replace("\\", "/")
         if not COUNTED_RE.search(line):
             context = context + [line] if is_context(line) else []
             continue
         if SUBMODULES in line or "lto-wrapper: warning:" in line:
             context = []
             continue
-        match = DIAGNOSTIC_RE.match(line)
+        match = MSVC_DIAGNOSTIC_RE.match(line) if msvc else DIAGNOSTIC_RE.match(line)
         owner = attribute(match.group("path"), context, root) if match else None
         if owner is None or SUBMODULES not in owner:
             kept.add(line)

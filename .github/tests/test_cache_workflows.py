@@ -76,9 +76,13 @@ class WorkflowTests(unittest.TestCase):
     def test_repository_contracts(self):
         counts, tags = self.check()
         # Inventory assertions, not limits imposed by the checker.
-        self.assertEqual(counts, {"push": 3, "pull_request": 2, "workflow_dispatch": 3})
-        self.assertEqual(len(tags), 3)
+        self.assertEqual(counts, {"push": 5, "pull_request": 4, "workflow_dispatch": 5})
+        # macos-latest is checked for both X64 and ARM64, so macos.yml gives two tags.
+        self.assertEqual(len(tags), 6)
         self.assertIn("ubuntu-22.04-x64-gcc-mpich-double-flare", tags)
+        self.assertIn("windows-latest-x64-msvc-mpi-off-double-flare", tags)
+        for arch in ("x64", "arm64"):
+            self.assertIn(f"macos-latest-{arch}-appleclang-openmpi-double-flare", tags)
         for precision in ("double", "single"):
             self.assertIn(f"ubuntu-22.04-x64-cuda-12.2-sm8.0-openmpi-{precision}-particles-on", tags)
 
@@ -117,8 +121,8 @@ class WorkflowTests(unittest.TestCase):
             self.check()
         duplicate["jobs"]["Build-And-Test"]["env"]["CCACHE_TRUNK_KEY"] += "-new"
         counts, tags = self.check()
-        self.assertEqual(counts["push"], 4)
-        self.assertEqual(len(tags), 4)
+        self.assertEqual(counts["push"], 6)
+        self.assertEqual(len(tags), 7)
 
     def test_restore_save_settings_match(self):
         for field, value in (("key", "different"), ("path", "~/different"), ("transport", "oras")):

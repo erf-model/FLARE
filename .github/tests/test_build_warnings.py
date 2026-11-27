@@ -111,6 +111,24 @@ class AttributionTests(unittest.TestCase):
         lto = "lto-wrapper: warning: using serial compilation of 4 LTRANS jobs"
         self.assertEqual(self.kept([flare, erf, relative, lto, flare]), sorted([flare, relative]))
 
+    def test_msvc_locations(self):
+        root = "D:\\a\\FLARE\\FLARE"
+        flare = (f"{root}\\FireEngine\\Source\\ERF_FireGrid.cpp(42,13): warning C4456: "
+                 "declaration of 'i' hides previous local declaration")
+        erf = (f"{root}\\Submodules\\ERF\\Source\\ERF.cpp(7): warning C4100: "
+               "'x': unreferenced formal parameter")
+        lower_drive = ("d:\\a\\flare\\flare\\Dust\\Source\\ERF_Dust.cpp(3): error C2065: "
+                       "'y': undeclared identifier")
+        system = ("C:\\Program Files\\Microsoft Visual Studio\\2022\\include\\xutility(4537): "
+                  "warning C4244: '=': conversion from 'double' to 'float'")
+        kept = build_warnings.flare_warnings([flare, erf, lower_drive, system], root)
+        self.assertEqual(kept, sorted(l.replace("\\", "/") for l in (flare, lower_drive, system)))
+
+    def test_msvc_root_with_forward_slashes(self):
+        flare = "D:\\a\\FLARE\\FLARE\\Structures\\x.cpp(1): warning C4458: declaration hides class member"
+        self.assertEqual(build_warnings.flare_warnings([flare], "D:/a/FLARE/FLARE/"),
+                         [flare.replace("\\", "/")])
+
     def test_unparsed_lines_follow_the_old_filter(self):
         lines = ["CMake Warning: something in FLARE", "CMake Warning: Submodules/ERF thing"]
         self.assertEqual(self.kept(lines), old_grep(lines))
